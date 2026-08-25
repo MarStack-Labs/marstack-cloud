@@ -15,18 +15,24 @@ type createRequest struct {
 	MemoryMiB int    `json:"memory_mib,omitempty"`
 }
 
+type statusRequest struct {
+	ObservedState string `json:"observed_state"`
+	Message       string `json:"message,omitempty"`
+}
+
 type response struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Isolation string `json:"isolation"`
-	Image     string `json:"image"`
-	VCPU      int    `json:"vcpu"`
-	MemoryMiB int    `json:"memory_mib"`
-	Desired   string `json:"desired_state"`
-	Observed  string `json:"observed_state"`
-	NodeID    string `json:"node_id,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Isolation       string `json:"isolation"`
+	Image           string `json:"image"`
+	VCPU            int    `json:"vcpu"`
+	MemoryMiB       int    `json:"memory_mib"`
+	Desired         string `json:"desired_state"`
+	Observed        string `json:"observed_state"`
+	ObservedMessage string `json:"observed_message,omitempty"`
+	NodeID          string `json:"node_id,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 type listResponse struct {
@@ -35,17 +41,18 @@ type listResponse struct {
 
 func toResponse(in Instance) response {
 	return response{
-		ID:        in.ID,
-		Name:      in.Name,
-		Isolation: string(in.Isolation),
-		Image:     in.Image,
-		VCPU:      in.VCPU,
-		MemoryMiB: in.MemoryMiB,
-		Desired:   string(in.Desired),
-		Observed:  string(in.Observed),
-		NodeID:    in.NodeID,
-		CreatedAt: in.CreatedAt.Format(time.RFC3339Nano),
-		UpdatedAt: in.UpdatedAt.Format(time.RFC3339Nano),
+		ID:              in.ID,
+		Name:            in.Name,
+		Isolation:       string(in.Isolation),
+		Image:           in.Image,
+		VCPU:            in.VCPU,
+		MemoryMiB:       in.MemoryMiB,
+		Desired:         string(in.Desired),
+		Observed:        string(in.Observed),
+		ObservedMessage: in.ObservedMessage,
+		NodeID:          in.NodeID,
+		CreatedAt:       in.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:       in.UpdatedAt.Format(time.RFC3339Nano),
 	}
 }
 
@@ -112,6 +119,42 @@ func (h *handler) transition(w http.ResponseWriter, r *http.Request, desired Des
 		return err
 	}
 	httpx.Write(w, http.StatusAccepted, toResponse(in))
+	return nil
+}
+
+func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
+	instances, err := h.svc.listByNode(r.Context(), r.PathValue("nodeID"))
+	if err != nil {
+		return err
+	}
+
+	body := listResponse{Instances: make([]response, 0, len(instances))}
+	for _, in := range instances {
+		body.Instances = append(body.Instances, toResponse(in))
+	}
+
+	httpx.Write(w, http.StatusOK, body)
+	return nil
+}
+
+func (h *handler) reportStatus(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[statusRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	in, err := h.svc.reportObserved(
+		r.Context(),
+		r.PathValue("nodeID"),
+		r.PathValue("instanceID"),
+		req.ObservedState,
+		req.Message,
+	)
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(in))
 	return nil
 }
 

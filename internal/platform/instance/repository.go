@@ -24,7 +24,7 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, name, isolation, image, vcpu, memory_mib, desired_state, observed_state, node_id, created_at, updated_at`
+const columns = `id, name, isolation, image, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
 	taken, err := r.nameTaken(ctx, in.Name)
@@ -36,9 +36,9 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 	}
 
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO instances (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO instances (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.ID, in.Name, string(in.Isolation), in.Image, in.VCPU, in.MemoryMiB,
-		string(in.Desired), string(in.Observed), in.NodeID,
+		string(in.Desired), string(in.Observed), in.ObservedMessage, in.NodeID,
 		in.CreatedAt.Format(time.RFC3339Nano), in.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -115,6 +115,45 @@ func (r *repository) listPendingPlacement(ctx context.Context) ([]Instance, erro
 		return nil, fmt.Errorf("iterate instances: %w", err)
 	}
 	return instances, nil
+}
+
+func (r *repository) listByNode(ctx context.Context, nodeID string) ([]Instance, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+columns+` FROM instances WHERE node_id = ? ORDER BY created_at, id`,
+		nodeID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list instances by node: %w", err)
+	}
+	defer rows.Close()
+
+	instances := make([]Instance, 0)
+	for rows.Next() {
+		in, err := scanInstance(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan instance: %w", err)
+		}
+		instances = append(instances, in)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate instances: %w", err)
+	}
+	return instances, nil
+}
+
+func (r *repository) setObserved(
+	ctx context.Context, instanceID, nodeID string,
+	observed ObservedState, message string, now time.Time,
+) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE instances SET observed_state = ?, observed_message = ?, updated_at = ?
+		 WHERE id = ? AND node_id = ?`,
+		string(observed), message, now.Format(time.RFC3339Nano), instanceID, nodeID,
+	)
+	if err != nil {
+		return fmt.Errorf("set observed state: %w", err)
+	}
+	return expectOneRow(res, "set observed state")
 }
 
 func (r *repository) assignedCounts(ctx context.Context) (map[string]int, error) {
@@ -211,7 +250,7 @@ func scanInstance(row scanner) (Instance, error) {
 
 	if err := row.Scan(
 		&in.ID, &in.Name, &isolation, &in.Image, &in.VCPU, &in.MemoryMiB,
-		&desired, &observed, &nodeID, &createdRaw, &updatedRaw,
+		&desired, &observed, &in.ObservedMessage, &nodeID, &createdRaw, &updatedRaw,
 	); err != nil {
 		return Instance{}, err
 	}

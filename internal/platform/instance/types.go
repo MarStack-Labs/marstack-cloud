@@ -34,6 +34,17 @@ const (
 	ObservedFailed  ObservedState = "failed"
 )
 
+func AllObservedStates() []string {
+	return []string{
+		string(ObservedPending),
+		string(ObservedRunning),
+		string(ObservedStopped),
+		string(ObservedFailed),
+	}
+}
+
+const MaxObservedMessage = 512
+
 const (
 	MinVCPU      = 1
 	MaxVCPU      = 256
@@ -45,17 +56,18 @@ const (
 )
 
 type Instance struct {
-	ID        string
-	Name      string
-	Isolation Isolation
-	Image     string
-	VCPU      int
-	MemoryMiB int
-	Desired   DesiredState
-	Observed  ObservedState
-	NodeID    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID              string
+	Name            string
+	Isolation       Isolation
+	Image           string
+	VCPU            int
+	MemoryMiB       int
+	Desired         DesiredState
+	Observed        ObservedState
+	ObservedMessage string
+	NodeID          string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type CreateParams struct {

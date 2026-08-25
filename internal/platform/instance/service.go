@@ -78,6 +78,35 @@ func (s *service) delete(ctx context.Context, id string) error {
 	return translate(s.repo.delete(ctx, id))
 }
 
+func (s *service) listByNode(ctx context.Context, nodeID string) ([]Instance, error) {
+	instances, err := s.repo.listByNode(ctx, nodeID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return instances, nil
+}
+
+func (s *service) reportObserved(ctx context.Context, nodeID, instanceID, observed, message string) (Instance, error) {
+	if err := validate.OneOf("observed_state", observed, AllObservedStates()...); err != nil {
+		return Instance{}, err
+	}
+	if len(message) > MaxObservedMessage {
+		return Instance{}, fault.Invalid("invalid_message", fmt.Sprintf(
+			"message must be at most %d characters", MaxObservedMessage,
+		))
+	}
+
+	if err := s.repo.setObserved(ctx, instanceID, nodeID, ObservedState(observed), message, s.now()); err != nil {
+		if errors.Is(err, errNotFound) {
+			return Instance{}, fault.NotFound("instance_not_on_node",
+				"no instance with that id is assigned to this node")
+		}
+		return Instance{}, translate(err)
+	}
+
+	return s.get(ctx, instanceID)
+}
+
 func (s *service) pendingPlacement(ctx context.Context) ([]Instance, error) {
 	instances, err := s.repo.listPendingPlacement(ctx)
 	if err != nil {

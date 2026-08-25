@@ -64,6 +64,16 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  2,
 			SQL:    `CREATE UNIQUE INDEX instances_name_unique ON instances (name)`,
 		},
+		{
+			Module: "instance",
+			Index:  3,
+			SQL:    `ALTER TABLE instances ADD COLUMN observed_message TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  4,
+			SQL:    `CREATE INDEX instances_node_id ON instances (node_id)`,
+		},
 	}
 }
 
@@ -74,4 +84,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /v1/instances/{id}", httpx.Wrap(m.log, m.handler.delete))
 	mux.Handle("POST /v1/instances/{id}/start", httpx.Wrap(m.log, m.handler.start))
 	mux.Handle("POST /v1/instances/{id}/stop", httpx.Wrap(m.log, m.handler.stop))
+
+	mux.Handle("GET /v1/nodes/{nodeID}/instances", httpx.Wrap(m.log, m.handler.listForNode))
+	mux.Handle("PUT /v1/nodes/{nodeID}/instances/{instanceID}/status", httpx.Wrap(m.log, m.handler.reportStatus))
 }

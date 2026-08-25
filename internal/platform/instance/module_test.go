@@ -16,6 +16,13 @@ import (
 func newTestModule(t *testing.T) http.Handler {
 	t.Helper()
 
+	h, _ := newTestModuleWithAssign(t)
+	return h
+}
+
+func newTestModuleWithAssign(t *testing.T) (http.Handler, *Module) {
+	t.Helper()
+
 	ctx := context.Background()
 	st, err := store.Open(ctx, t.TempDir())
 	if err != nil {
@@ -30,7 +37,7 @@ func newTestModule(t *testing.T) http.Handler {
 
 	mux := http.NewServeMux()
 	m.Routes(mux)
-	return mux
+	return mux, m
 }
 
 func request(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
