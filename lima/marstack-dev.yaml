@@ -1,0 +1,74 @@
+vmType: vz
+rosetta:
+  enabled: false
+  binfmt: false
+
+nestedVirtualization: true
+
+cpus: 4
+memory: 6GiB
+disk: 40GiB
+
+images:
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
+    arch: aarch64
+  - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+    arch: x86_64
+
+mountType: virtiofs
+mounts:
+  - location: "~/Documents/Portfolio/marstack-cloud"
+    writable: true
+
+ssh:
+  loadDotSSHPubKeys: false
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update -qq
+      apt-get install -y -qq --no-install-recommends \
+        ca-certificates curl git make \
+        iproute2 nftables iptables util-linux \
+        qemu-system-arm qemu-utils \
+        uidmap
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      GO_VERSION=1.26.6
+      ARCH=$(dpkg --print-architecture)
+      if [ -x /usr/local/go/bin/go ] && /usr/local/go/bin/go version | grep -q "go${GO_VERSION}"; then
+        exit 0
+      fi
+      curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" -o /tmp/go.tar.gz
+      rm -rf /usr/local/go
+      tar -C /usr/local -xzf /tmp/go.tar.gz
+      rm -f /tmp/go.tar.gz
+      printf 'export PATH=$PATH:/usr/local/go/bin\n' > /etc/profile.d/go.sh
+      chmod 0644 /etc/profile.d/go.sh
+
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euo pipefail
+      test -d /sys/fs/cgroup/cgroup.controllers || {
+        echo "cgroup v2 is not mounted" >&2
+        exit 1
+      }
+      grep -q cpu /sys/fs/cgroup/cgroup.controllers
+      grep -q memory /sys/fs/cgroup/cgroup.controllers
+
+probes:
+  - description: "go toolchain is installed"
+    script: |
+      #!/bin/bash
+      set -eu
+      timeout 120s bash -c 'until test -x /usr/local/go/bin/go; do sleep 3; done'
+    hint: |
+      The Go toolchain was not installed. Check the provision logs with
+      `limactl shell marstack-dev sudo journalctl -u cloud-final`.
