@@ -36,7 +36,7 @@ provision:
       apt-get install -y -qq --no-install-recommends \
         ca-certificates curl git make \
         iproute2 nftables iptables util-linux \
-        qemu-system-arm qemu-utils \
+        qemu-system-arm qemu-utils qemu-efi-aarch64 xorriso \
         uidmap
 
   - mode: system

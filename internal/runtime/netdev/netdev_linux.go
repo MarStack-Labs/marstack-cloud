@@ -16,6 +16,7 @@ import (
 const (
 	hostPrefix   = "msv-"
 	peerPrefix   = "msvp-"
+	tapPrefix    = "mst-"
 	bridgePrefix = "msbr-"
 	nftTable     = "marstack"
 	guestIface   = "eth0"
@@ -169,6 +170,9 @@ func renderFilters(filters []workload.Filter) string {
 			continue
 		}
 		port := hostName(filter.InstanceID)
+		if filter.Isolation != "" && filter.Isolation != "container" {
+			port = prefixed(tapPrefix, filter.InstanceID)
+		}
 		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" ether saddr != %s drop\n", port, filter.MAC))
 		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n", port, filter.IP))
 		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" arp saddr ip != %s drop\n", port, filter.IP))
@@ -190,6 +194,7 @@ func (Datapath) Prune(_ context.Context, keep workload.Keep) error {
 	}
 	for _, instanceID := range keep.Instances {
 		wanted[hostName(instanceID)] = true
+		wanted[prefixed(tapPrefix, instanceID)] = true
 	}
 
 	for _, link := range present {
@@ -216,8 +221,11 @@ func managedLinks() ([]string, error) {
 			continue
 		}
 		name := strings.SplitN(fields[0], "@", 2)[0]
-		if strings.HasPrefix(name, hostPrefix) || strings.HasPrefix(name, bridgePrefix) {
-			links = append(links, name)
+		for _, prefix := range []string{hostPrefix, tapPrefix, bridgePrefix} {
+			if strings.HasPrefix(name, prefix) {
+				links = append(links, name)
+				break
+			}
 		}
 	}
 	return links, nil
@@ -268,6 +276,25 @@ func Attach(pid int, cfg Interface) error {
 	}
 
 	return nil
+}
+
+func EnsureTap(name, bridge string) error {
+	if !linkExists(name) {
+		if err := run("ip", "tuntap", "add", "dev", name, "mode", "tap"); err != nil {
+			return err
+		}
+	}
+	if err := run("ip", "link", "set", name, "master", bridge); err != nil {
+		return err
+	}
+	return run("ip", "link", "set", name, "up")
+}
+
+func DeleteLink(name string) error {
+	if !linkExists(name) {
+		return nil
+	}
+	return run("ip", "link", "del", name)
 }
 
 func Detach(instanceID string) error {

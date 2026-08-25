@@ -25,6 +25,7 @@ type NetworkConfig struct {
 type Spec struct {
 	InstanceID string
 	Name       string
+	Isolation  string
 	Image      string
 	Command    []string
 	VCPU       int
@@ -50,6 +51,7 @@ type Keep struct {
 
 type Filter struct {
 	InstanceID string
+	Isolation  string
 	Bridge     string
 	IP         string
 	MAC        string

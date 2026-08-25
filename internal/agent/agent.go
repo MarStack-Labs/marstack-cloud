@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -34,7 +35,7 @@ func (c Config) withDefaults() Config {
 }
 
 type Deps struct {
-	Runtime  workload.Runtime
+	Runtimes map[string]workload.Runtime
 	Datapath workload.Datapath
 	Resolver workload.Resolver
 }
@@ -44,7 +45,7 @@ type Agent struct {
 	client   *client
 	log      *slog.Logger
 	host     hostInfo
-	runtime  workload.Runtime
+	runtimes map[string]workload.Runtime
 	datapath workload.Datapath
 	resolver workload.Resolver
 	nodeID   string
@@ -61,7 +62,7 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 		client:   newClient(cfg.Endpoint),
 		log:      log,
 		host:     inspectHost(),
-		runtime:  deps.Runtime,
+		runtimes: deps.Runtimes,
 		datapath: deps.Datapath,
 		resolver: deps.Resolver,
 		now:      time.Now,
@@ -77,7 +78,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		"address", a.cfg.Address,
 		"cpus", a.host.CPUs,
 		"memory_mib", a.host.MemoryMiB,
-		"runtime", a.runtimeName(),
+		"runtimes", a.runtimeNames(),
 	)
 
 	if err := a.registerWithRetry(ctx); err != nil {
@@ -170,9 +171,16 @@ func (a *Agent) registerWithRetry(ctx context.Context) error {
 	}
 }
 
-func (a *Agent) runtimeName() string {
-	if a.runtime == nil {
-		return "none"
+func (a *Agent) runtimeNames() []string {
+	names := make([]string, 0, len(a.runtimes))
+	for isolation := range a.runtimes {
+		names = append(names, isolation)
 	}
-	return a.runtime.Name()
+	sort.Strings(names)
+	return names
+}
+
+func (a *Agent) runtimeFor(isolation string) (workload.Runtime, bool) {
+	runtime, known := a.runtimes[isolation]
+	return runtime, known
 }

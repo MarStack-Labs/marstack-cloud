@@ -11,9 +11,10 @@ const (
 )
 
 type restartState struct {
-	attempts    int
-	nextAttempt time.Time
-	startedAt   time.Time
+	attempts     int
+	nextAttempt  time.Time
+	startedAt    time.Time
+	haltedByUser bool
 }
 
 func (a *Agent) restartStateOf(instanceID string) *restartState {
@@ -28,10 +29,26 @@ func (a *Agent) restartStateOf(instanceID string) *restartState {
 	return state
 }
 
-func (a *Agent) forgetRestarts(instanceID string) {
+func (a *Agent) noteHaltedByUser(instanceID string) {
+	state := a.restartStateOf(instanceID)
+
 	a.restartsMu.Lock()
 	defer a.restartsMu.Unlock()
-	delete(a.restarts, instanceID)
+
+	state.attempts = 0
+	state.nextAttempt = time.Time{}
+	state.haltedByUser = true
+}
+
+func (a *Agent) takeHaltedByUser(instanceID string) bool {
+	state := a.restartStateOf(instanceID)
+
+	a.restartsMu.Lock()
+	defer a.restartsMu.Unlock()
+
+	halted := state.haltedByUser
+	state.haltedByUser = false
+	return halted
 }
 
 func (a *Agent) noteStarted(instanceID string) {
@@ -39,7 +56,9 @@ func (a *Agent) noteStarted(instanceID string) {
 
 	a.restartsMu.Lock()
 	defer a.restartsMu.Unlock()
+
 	state.startedAt = a.now()
+	state.haltedByUser = false
 }
 
 func (a *Agent) noteRestart(instanceID string) int {

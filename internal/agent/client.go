@@ -31,6 +31,7 @@ type nodeListBody struct {
 type instanceView struct {
 	ID              string   `json:"id"`
 	Name            string   `json:"name"`
+	Isolation       string   `json:"isolation"`
 	Image           string   `json:"image"`
 	Command         []string `json:"command,omitempty"`
 	VCPU            int      `json:"vcpu"`

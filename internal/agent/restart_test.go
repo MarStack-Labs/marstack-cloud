@@ -49,7 +49,7 @@ func newRestartHarness(t *testing.T, in instanceView, exitCode int) (*Agent, *co
 	t.Cleanup(srv.Close)
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: rt, Datapath: &fakeDatapath{}}, logging.New("error", io.Discard))
+		Deps{Runtimes: runtimesFor(rt), Datapath: &fakeDatapath{}}, logging.New("error", io.Discard))
 
 	tick := &clock{at: time.Date(2026, 8, 25, 12, 0, 0, 0, time.UTC)}
 	a.now = tick.now
@@ -208,9 +208,29 @@ func TestStoppingAWorkloadForgetsItsRestarts(t *testing.T) {
 		t.Fatal("no restart was recorded")
 	}
 
-	a.ensureStopped(context.Background(), "i-1", workload.State{Phase: workload.PhaseExited})
+	rt, _ := a.runtimeFor("container")
+	a.ensureStopped(context.Background(), rt, "i-1", workload.State{Phase: workload.PhaseExited})
 
 	if got := a.restartAttempts("i-1"); got != 0 {
 		t.Fatalf("attempts = %d, want a deliberate stop to clear the history", got)
+	}
+}
+
+func TestStartingAfterAStopIsNotCountedAsARestart(t *testing.T) {
+	a, cp, rt, _ := newRestartHarness(t, exitedInstance(restartAlways, "running"), 0)
+
+	runtime, _ := a.runtimeFor("container")
+	a.ensureStopped(context.Background(), runtime, "i-1", workload.State{Phase: workload.PhaseRunning})
+
+	a.reconcile(context.Background())
+
+	if len(rt.started) != 1 {
+		t.Fatalf("starts = %d, want the workload started again", len(rt.started))
+	}
+	if got := a.restartAttempts("i-1"); got != 0 {
+		t.Fatalf("attempts = %d, want 0: a stop followed by a start is not a crash", got)
+	}
+	if len(cp.reports) != 0 {
+		t.Fatalf("reports = %d, want none: nothing about the instance changed", len(cp.reports))
 	}
 }

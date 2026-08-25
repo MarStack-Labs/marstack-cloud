@@ -12,7 +12,9 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/container"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/qemu"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/resolver"
+	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
 func newAgentCmd(g *globals) *cobra.Command {
@@ -50,7 +52,10 @@ func newAgentCmd(g *globals) *cobra.Command {
 				Address:  address,
 				Interval: interval,
 			}, agent.Deps{
-				Runtime:  container.New(runtimeRoot, log),
+				Runtimes: map[string]workload.Runtime{
+					"container": container.New(runtimeRoot, log),
+					"vm":        qemu.New(runtimeRoot, log),
+				},
 				Datapath: netdev.Datapath{},
 				Resolver: resolver.New(log),
 			}, log).Run(ctx)

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -243,6 +244,10 @@ func (c *controlPlane) lastReport(t *testing.T) report {
 	return c.reports[len(c.reports)-1]
 }
 
+func runtimesFor(rt workload.Runtime) map[string]workload.Runtime {
+	return map[string]workload.Runtime{"container": rt}
+}
+
 func newReconcileHarness(t *testing.T, cp *controlPlane, rt workload.Runtime) *Agent {
 	t.Helper()
 
@@ -250,7 +255,7 @@ func newReconcileHarness(t *testing.T, cp *controlPlane, rt workload.Runtime) *A
 	t.Cleanup(srv.Close)
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: rt, Datapath: &fakeDatapath{}}, logging.New("error", io.Discard))
+		Deps{Runtimes: runtimesFor(rt), Datapath: &fakeDatapath{}}, logging.New("error", io.Discard))
 
 	if err := a.register(context.Background()); err != nil {
 		t.Fatalf("register: %v", err)
@@ -262,6 +267,7 @@ func runningInstance() instanceView {
 	return instanceView{
 		ID:            "i-1",
 		Name:          "api-1",
+		Isolation:     "container",
 		Image:         "alpine:3.20",
 		Command:       []string{"/bin/sh", "-c", "sleep 100"},
 		VCPU:          1,
@@ -396,7 +402,7 @@ func TestReconcileIsSkippedWithoutARuntime(t *testing.T) {
 	cp := &controlPlane{instances: []instanceView{runningInstance()}}
 
 	a := newReconcileHarness(t, cp, nil)
-	a.runtime = nil
+	a.runtimes = nil
 	a.reconcile(context.Background())
 
 	if len(cp.reports) != 0 {
@@ -508,7 +514,7 @@ func TestReconcileProgramsRoutesToPeerSlices(t *testing.T) {
 	defer srv.Close()
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}, Datapath: dp},
+		Deps{Runtimes: runtimesFor(&fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}), Datapath: dp},
 		logging.New("error", io.Discard))
 	if err := a.register(context.Background()); err != nil {
 		t.Fatalf("register: %v", err)
@@ -537,7 +543,7 @@ func TestReconcileProgramsNoRoutesOnASingleNode(t *testing.T) {
 	defer srv.Close()
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}, Datapath: dp},
+		Deps{Runtimes: runtimesFor(&fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}), Datapath: dp},
 		logging.New("error", io.Discard))
 	a.register(context.Background())
 
@@ -584,7 +590,7 @@ func TestReconcilePrunesDatapathToWhatIsAssigned(t *testing.T) {
 	defer srv.Close()
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: &fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}}, Datapath: dp},
+		Deps{Runtimes: runtimesFor(&fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}}), Datapath: dp},
 		logging.New("error", io.Discard))
 	a.register(context.Background())
 
@@ -608,7 +614,7 @@ func TestReconcilePrunesEverythingWhenNothingIsAssigned(t *testing.T) {
 	defer srv.Close()
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: rt, Datapath: dp}, logging.New("error", io.Discard))
+		Deps{Runtimes: runtimesFor(rt), Datapath: dp}, logging.New("error", io.Discard))
 	a.register(context.Background())
 
 	a.reconcile(context.Background())
@@ -637,7 +643,7 @@ func TestReconcileDoesNotPruneWhenTheControlPlaneIsUnreachable(t *testing.T) {
 	defer srv.Close()
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: rt, Datapath: dp}, logging.New("error", io.Discard))
+		Deps{Runtimes: runtimesFor(rt), Datapath: dp}, logging.New("error", io.Discard))
 	a.register(context.Background())
 
 	a.reconcile(context.Background())
@@ -666,7 +672,7 @@ func TestReconcileServesTheZoneOnEachGateway(t *testing.T) {
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
 		Deps{
-			Runtime:  &fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}},
+			Runtimes: runtimesFor(&fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}}),
 			Resolver: res,
 		}, logging.New("error", io.Discard))
 	a.register(context.Background())
@@ -721,7 +727,7 @@ func TestReconcileFiltersEveryLocalInterface(t *testing.T) {
 	defer srv.Close()
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: &fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}}, Datapath: dp},
+		Deps{Runtimes: runtimesFor(&fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}}), Datapath: dp},
 		logging.New("error", io.Discard))
 	a.register(context.Background())
 
@@ -749,12 +755,37 @@ func TestReconcileClearsFiltersWhenNothingIsLocal(t *testing.T) {
 	defer srv.Close()
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		Deps{Runtime: &fakeRuntime{}, Datapath: dp}, logging.New("error", io.Discard))
+		Deps{Runtimes: runtimesFor(&fakeRuntime{}), Datapath: dp}, logging.New("error", io.Discard))
 	a.register(context.Background())
 
 	a.reconcile(context.Background())
 
 	if filters := dp.snapshotFilters(); len(filters) != 0 {
 		t.Fatalf("filters = %+v, want an empty set so stale rules are removed", filters)
+	}
+}
+
+func TestReconcileRefusesAnIsolationTheNodeCannotRun(t *testing.T) {
+	instance := runningInstance()
+	instance.Isolation = "microvm"
+
+	cp := &controlPlane{
+		instances: []instanceView{instance},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	newReconcileHarness(t, cp, rt).reconcile(context.Background())
+
+	if len(rt.started) != 0 {
+		t.Fatal("a workload was started by a runtime that does not handle its isolation")
+	}
+
+	report := cp.lastReport(t)
+	if report.State != observedFailed {
+		t.Fatalf("reported %q, want %q", report.State, observedFailed)
+	}
+	if !strings.Contains(report.Message, "microvm") {
+		t.Fatalf("message = %q, want it to name the isolation the node cannot run", report.Message)
 	}
 }

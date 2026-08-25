@@ -27,7 +27,7 @@ const (
 )
 
 func (a *Agent) reconcile(ctx context.Context) {
-	if a.runtime == nil {
+	if len(a.runtimes) == 0 {
 		return
 	}
 
@@ -48,7 +48,7 @@ func (a *Agent) reconcile(ctx context.Context) {
 
 	interfaces := a.interfacesByInstance(networks)
 	a.applyRoutes(ctx, networks)
-	a.applyFilters(ctx, networks)
+	a.applyFilters(ctx, networks, isolationsOf(assigned))
 
 	for _, in := range assigned {
 		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID])
@@ -63,6 +63,14 @@ func (a *Agent) reconcile(ctx context.Context) {
 	}
 }
 
+func isolationsOf(assigned []instanceView) map[string]string {
+	isolations := make(map[string]string, len(assigned))
+	for _, in := range assigned {
+		isolations[in.ID] = in.Isolation
+	}
+	return isolations
+}
+
 func (a *Agent) collectGarbage(ctx context.Context, assigned []instanceView, networks []networkView) {
 	wanted := make(map[string]bool, len(assigned))
 	instanceIDs := make([]string, 0, len(assigned))
@@ -71,15 +79,20 @@ func (a *Agent) collectGarbage(ctx context.Context, assigned []instanceView, net
 		instanceIDs = append(instanceIDs, in.ID)
 	}
 
-	if present, err := a.runtime.List(ctx); err != nil {
-		a.log.Warn("could not list local workloads", "error", err)
-	} else {
+	for isolation, runtime := range a.runtimes {
+		present, err := runtime.List(ctx)
+		if err != nil {
+			a.log.Warn("could not list local workloads", "isolation", isolation, "error", err)
+			continue
+		}
+
 		for _, id := range present {
 			if wanted[id] {
 				continue
 			}
-			a.log.Info("removing a workload the control plane no longer knows", "instance", id)
-			if err := a.runtime.Remove(ctx, id); err != nil {
+			a.log.Info("removing a workload the control plane no longer knows",
+				"instance", id, "isolation", isolation)
+			if err := runtime.Remove(ctx, id); err != nil {
 				a.log.Warn("could not remove an orphaned workload", "instance", id, "error", err)
 			}
 		}
@@ -197,7 +210,7 @@ func (a *Agent) applyRoutes(ctx context.Context, networks []networkView) {
 	a.log.Debug("peer routes programmed", "count", len(routes))
 }
 
-func (a *Agent) applyFilters(ctx context.Context, networks []networkView) {
+func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolations map[string]string) {
 	if a.datapath == nil {
 		return
 	}
@@ -207,6 +220,7 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView) {
 		for _, nic := range n.NICs {
 			filters = append(filters, workload.Filter{
 				InstanceID: nic.InstanceID,
+				Isolation:  isolations[nic.InstanceID],
 				Bridge:     n.Bridge,
 				IP:         nic.IP,
 				MAC:        nic.MAC,
@@ -239,9 +253,15 @@ func (a *Agent) reconcileOne(
 	in instanceView,
 	iface *workload.NetworkConfig,
 ) (string, string) {
+	runtime, known := a.runtimeFor(in.Isolation)
+	if !known {
+		return observedFailed, "this node has no runtime for isolation " + in.Isolation
+	}
+
 	spec := workload.Spec{
 		InstanceID: in.ID,
 		Name:       in.Name,
+		Isolation:  in.Isolation,
 		Image:      in.Image,
 		Command:    in.Command,
 		VCPU:       in.VCPU,
@@ -249,7 +269,7 @@ func (a *Agent) reconcileOne(
 		Network:    iface,
 	}
 
-	state, err := a.runtime.Status(ctx, in.ID)
+	state, err := runtime.Status(ctx, in.ID)
 	if err != nil {
 		return observedFailed, "could not inspect the workload: " + err.Error()
 	}
@@ -259,9 +279,9 @@ func (a *Agent) reconcileOne(
 		if iface == nil {
 			return observedPending, "waiting for an address"
 		}
-		return a.ensureRunning(ctx, spec, state, in.RestartPolicy)
+		return a.ensureRunning(ctx, runtime, spec, state, in.RestartPolicy)
 	case desiredStopped:
-		return a.ensureStopped(ctx, in.ID, state)
+		return a.ensureStopped(ctx, runtime, in.ID, state)
 	default:
 		return observedFailed, "unknown desired state " + in.DesiredState
 	}
@@ -269,6 +289,7 @@ func (a *Agent) reconcileOne(
 
 func (a *Agent) ensureRunning(
 	ctx context.Context,
+	runtime workload.Runtime,
 	spec workload.Spec,
 	state workload.State,
 	policy string,
@@ -278,19 +299,24 @@ func (a *Agent) ensureRunning(
 		return observedRunning, state.Message
 
 	case workload.PhaseExited:
-		return a.handleExit(ctx, spec, state, policy)
+		return a.handleExit(ctx, runtime, spec, state, policy)
 
 	default:
-		return a.start(ctx, spec, "")
+		return a.start(ctx, runtime, spec, "")
 	}
 }
 
 func (a *Agent) handleExit(
 	ctx context.Context,
+	runtime workload.Runtime,
 	spec workload.Spec,
 	state workload.State,
 	policy string,
 ) (string, string) {
+	if a.takeHaltedByUser(spec.InstanceID) {
+		return a.start(ctx, runtime, spec, "")
+	}
+
 	if !shouldRestart(policy, state.ExitCode) {
 		if state.ExitCode == 0 {
 			return observedStopped, state.Message
@@ -310,21 +336,26 @@ func (a *Agent) handleExit(
 		"attempt", attempt,
 	)
 
-	if err := a.runtime.Remove(ctx, spec.InstanceID); err != nil {
+	if err := runtime.Remove(ctx, spec.InstanceID); err != nil {
 		a.log.Warn("could not clear the exited workload", "instance", spec.InstanceID, "error", err)
 		return observedFailed, "could not clear the exited workload: " + err.Error()
 	}
 
-	return a.start(ctx, spec, fmt.Sprintf("restarted after %s", state.Message))
+	return a.start(ctx, runtime, spec, fmt.Sprintf("restarted after %s", state.Message))
 }
 
-func (a *Agent) start(ctx context.Context, spec workload.Spec, note string) (string, string) {
-	if err := a.runtime.Start(ctx, spec); err != nil {
+func (a *Agent) start(
+	ctx context.Context,
+	runtime workload.Runtime,
+	spec workload.Spec,
+	note string,
+) (string, string) {
+	if err := runtime.Start(ctx, spec); err != nil {
 		a.log.Warn("could not start workload", "instance", spec.InstanceID, "error", err)
 		return observedFailed, err.Error()
 	}
 
-	after, err := a.runtime.Status(ctx, spec.InstanceID)
+	after, err := runtime.Status(ctx, spec.InstanceID)
 	if err != nil {
 		return observedFailed, "started but could not be inspected: " + err.Error()
 	}
@@ -336,11 +367,16 @@ func (a *Agent) start(ctx context.Context, spec workload.Spec, note string) (str
 	return observedRunning, note
 }
 
-func (a *Agent) ensureStopped(ctx context.Context, instanceID string, state workload.State) (string, string) {
-	a.forgetRestarts(instanceID)
+func (a *Agent) ensureStopped(
+	ctx context.Context,
+	runtime workload.Runtime,
+	instanceID string,
+	state workload.State,
+) (string, string) {
+	a.noteHaltedByUser(instanceID)
 
 	if state.Phase == workload.PhaseRunning {
-		if err := a.runtime.Stop(ctx, instanceID); err != nil {
+		if err := runtime.Stop(ctx, instanceID); err != nil {
 			a.log.Warn("could not stop workload", "instance", instanceID, "error", err)
 			return observedFailed, err.Error()
 		}
