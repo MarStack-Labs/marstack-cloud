@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/image"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
@@ -36,6 +37,7 @@ type tracked struct {
 type Runtime struct {
 	layout  layout
 	log     *slog.Logger
+	images  *image.Store
 	mu      sync.Mutex
 	running map[string]*tracked
 }
@@ -47,6 +49,7 @@ func New(root string, log *slog.Logger) *Runtime {
 	return &Runtime{
 		layout:  layout{root: root},
 		log:     log,
+		images:  image.New(filepath.Join(root, "cache"), log),
 		running: map[string]*tracked{},
 	}
 }
@@ -75,7 +78,7 @@ func (r *Runtime) List(context.Context) ([]string, error) {
 	return ids, nil
 }
 
-func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
+func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	if os.Geteuid() != 0 {
 		return errors.New("the container runtime must run as root")
 	}
@@ -83,11 +86,11 @@ func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
 		return errors.New("no command was given for this instance")
 	}
 
-	if state, err := r.Status(context.Background(), spec.InstanceID); err == nil && state.Phase == workload.PhaseRunning {
+	if state, err := r.Status(ctx, spec.InstanceID); err == nil && state.Phase == workload.PhaseRunning {
 		return nil
 	}
 
-	if err := r.prepareRootfs(spec); err != nil {
+	if err := r.prepareRootfs(ctx, spec); err != nil {
 		return err
 	}
 
@@ -263,7 +266,7 @@ func (r *Runtime) reap(instanceID string, entry *tracked) {
 	)
 }
 
-func (r *Runtime) prepareRootfs(spec workload.Spec) error {
+func (r *Runtime) prepareRootfs(ctx context.Context, spec workload.Spec) error {
 	rootfs := r.layout.rootfs(spec.InstanceID)
 
 	if entries, err := os.ReadDir(rootfs); err == nil && len(entries) > 0 {
@@ -273,27 +276,34 @@ func (r *Runtime) prepareRootfs(spec workload.Spec) error {
 		return fmt.Errorf("create rootfs: %w", err)
 	}
 
-	archive, err := r.findImage(spec.Image)
-	if err != nil {
-		return err
+	if archive, found := r.findLocalArchive(spec.Image); found {
+		extract := exec.Command("tar", "--numeric-owner", "-C", rootfs, "-xf", archive)
+		if out, err := extract.CombinedOutput(); err != nil {
+			return fmt.Errorf("extract %s: %w: %s",
+				filepath.Base(archive), err, strings.TrimSpace(string(out)))
+		}
+		return nil
 	}
 
-	extract := exec.Command("tar", "--numeric-owner", "-C", rootfs, "-xf", archive)
-	if out, err := extract.CombinedOutput(); err != nil {
-		return fmt.Errorf("extract %s: %w: %s", filepath.Base(archive), err, strings.TrimSpace(string(out)))
+	if err := r.images.Pull(ctx, spec.Image, rootfs); err != nil {
+		if removeErr := os.RemoveAll(rootfs); removeErr != nil {
+			r.log.Warn("could not clean a half-extracted rootfs",
+				"instance", spec.InstanceID, "error", removeErr)
+		}
+		return err
 	}
 	return nil
 }
 
-func (r *Runtime) findImage(image string) (string, error) {
-	base := filepath.Join(r.layout.images(), imageFileName(image))
+func (r *Runtime) findLocalArchive(reference string) (string, bool) {
+	base := filepath.Join(r.layout.images(), imageFileName(reference))
 	for _, suffix := range []string{".tar", ".tar.gz", ".tgz"} {
 		candidate := base + suffix
 		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
+			return candidate, true
 		}
 	}
-	return "", fmt.Errorf("image %s is not present on this node: expected %s.tar", image, base)
+	return "", false
 }
 
 func (r *Runtime) Stop(_ context.Context, instanceID string) error {

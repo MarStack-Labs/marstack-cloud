@@ -85,17 +85,22 @@ node registers.
 
 ## Running a container
 
-There is no image store yet, so the agent reads root filesystem archives from its own directory.
-Put one there, then create an instance whose command follows `--`:
+The node pulls the image itself. The command follows `--`, like `docker run`:
 
 ```sh
-sudo mkdir -p /var/lib/marstack/images
-sudo curl -fsSLo /var/lib/marstack/images/alpine_3.20.tar.gz \
-  https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-minirootfs-3.20.3-aarch64.tar.gz
-
 sudo marstack agent --name bm-1 --zone rack-a
-marstack instance create --name web-1 --image alpine:3.20 -- /bin/sh -c 'while true; do echo alive; sleep 2; done'
+marstack instance create --name web --image nginx:alpine -- /bin/sh -c 'nginx -g "daemon off;"'
 ```
+
+```
+INFO pulling image  image=registry-1.docker.io/library/nginx:alpine
+INFO image ready    image=registry-1.docker.io/library/nginx:alpine layers=8
+```
+
+Layers are verified against their digest and cached under
+`/var/lib/marstack/cache/blobs`, so a second instance from the same image starts without
+downloading anything. Dropping a root filesystem archive in `/var/lib/marstack/images/<name>.tar.gz`
+still works and takes precedence, which is the offline path.
 
 ```
 NAME       ID                ISOLATION   IMAGE         DESIRED   OBSERVED   MESSAGE
