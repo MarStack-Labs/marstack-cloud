@@ -1,32 +1,32 @@
 # marstack-cloud
 
-Cloud platform yang menjalankan container, VM, dan microVM sebagai satu jenis resource, di
-satu node maupun banyak baremetal, dengan kode dan API yang sama.
+A cloud platform that runs containers, VMs, and microVMs as one kind of resource — on a single
+node or across many baremetal machines, through the same code and the same API.
 
-> Status: **awal sekali.** Baru control plane skeleton. Belum ada instance yang bisa jalan.
+> Status: **very early.** Control plane skeleton only. Nothing runs an instance yet.
 
-## Prinsip desain
+## Design principles
 
 | | |
 |---|---|
-| `N=1` adalah kasus umum | tidak ada mode "single node" — cluster satu node memakai jalur kode yang sama |
-| Satu objek `instance` | container, VM, dan microVM dibedakan oleh field `isolation`, bukan resource type terpisah |
-| Agent reconcile, bukan terima perintah | control plane mati tidak menjatuhkan instance yang sudah jalan |
-| Native routing, tanpa enkapsulasi | MTU 1500 utuh, nol konfigurasi switch |
-| Nama, bukan IP | setiap instance punya nama DNS internal sejak dibuat |
+| `N=1` is the general case | there is no "single node" mode — a one-node cluster takes the same code path |
+| One `instance` object | containers, VMs, and microVMs differ by an `isolation` field, not by resource type |
+| The agent reconciles | it does not take orders, so a dead control plane does not take running instances down |
+| Native routing, no encapsulation | full 1500 MTU, zero switch configuration |
+| Names, not addresses | every instance gets an internal DNS name the moment it is created |
 
-## Instance
+## Instances
 
-| `isolation` | Dijalankan oleh | Untuk |
+| `isolation` | Runs on | Suited for |
 |---|---|---|
-| `container` | runtime sendiri (namespace, cgroup v2, overlayfs) | workload yang tidak butuh kernel sendiri |
-| `vm` | QEMU | mesin utuh, OS bebas, console grafis |
-| `microvm` | QEMU (v1) → Cloud Hypervisor (v2) | boot cepat, tetap punya kernel sendiri |
-| `sandbox` | Firecracker (v3) | ephemeral, restore dari snapshot |
+| `container` | own runtime (namespaces, cgroup v2, overlayfs) | workloads that do not need their own kernel |
+| `vm` | QEMU | a whole machine: any OS, graphical console, passthrough |
+| `microvm` | QEMU (v1) → Cloud Hypervisor (v2) | fast boot while keeping a private kernel |
+| `sandbox` | Firecracker (v3) | ephemeral work, restored from a snapshot |
 
-Nama VMM tidak pernah muncul di API maupun CLI.
+VMM names never appear in the API or the CLI.
 
-## Menjalankan
+## Running it
 
 ```sh
 make build
@@ -38,20 +38,20 @@ curl -s localhost:7443/healthz
 curl -s localhost:7443/v1/version
 ```
 
-## Peta jalan
+## Roadmap
 
 ```
-1  store + api + objek instance
+1  store + api + instance object
 2  agent + reconcile loop, isolation: container
-3  netdev + nft + dns          → container saling bicara
+3  netdev + nft + dns          → containers can talk
 4  image store
 5  vmm/qemu                    → isolation: vm
 6  node join + routing         → multi node
 7  isolation: microvm
 8  disk + snapshot
-9  cloud hypervisor, lalu sandbox + firecracker
+9  cloud hypervisor, then sandbox + firecracker
 ```
 
-## Lisensi
+## License
 
 Apache-2.0
