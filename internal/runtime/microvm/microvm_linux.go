@@ -24,8 +24,6 @@ import (
 const (
 	stopGrace = 10 * time.Second
 	pollEvery = 100 * time.Millisecond
-
-	consoleDevice = "ttyAMA0"
 )
 
 type tracked struct {
@@ -148,7 +146,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 
 	args, err := r.vmm.Arguments(bootConfig{
 		Kernel:     kernel,
-		Cmdline:    cmdline(),
+		Cmdline:    cmdline(time.Now(), r.vmm.ConsoleDevice()),
 		Rootfs:     r.rootfsFile(spec.InstanceID),
 		Tap:        tap,
 		MAC:        mac,
@@ -169,16 +167,19 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	}
 	defer launch.Close()
 
-	console, err := os.OpenFile(r.consoleFile(spec.InstanceID),
-		os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("open console log: %w", err)
-	}
-	defer console.Close()
-
 	cmd := exec.Command(r.vmm.Binary(), args...)
-	cmd.Stdout = console
 	cmd.Stderr = launch
+	cmd.Stdout = launch
+
+	if !r.vmm.WritesConsoleItself() {
+		console, err := os.OpenFile(r.consoleFile(spec.InstanceID),
+			os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("open console log: %w", err)
+		}
+		defer console.Close()
+		cmd.Stdout = console
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	if err := cmd.Start(); err != nil {
@@ -208,14 +209,15 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	return nil
 }
 
-func cmdline() string {
+func cmdline(now time.Time, console string) string {
 	return strings.Join([]string{
-		"console=" + consoleDevice,
+		"console=" + console,
 		"reboot=k",
 		"panic=1",
 		"root=/dev/vda",
 		"rw",
 		"init=" + initPath,
+		epochKey + "=" + strconv.FormatInt(now.Unix(), 10),
 	}, " ")
 }
 

@@ -16,6 +16,7 @@ import (
 
 const (
 	initPath     = "/sbin/marstack-init"
+	epochKey     = "ms.epoch"
 	envPath      = "etc/marstack/env"
 	commandPath  = "etc/marstack/command"
 	rootfsSlackK = 64 * 1024
@@ -26,7 +27,15 @@ mount -t proc proc /proc 2>/dev/null
 mount -t sysfs sys /sys 2>/dev/null
 mount -t devtmpfs dev /dev 2>/dev/null
 
+for arg in $(cat /proc/cmdline 2>/dev/null); do
+	case "$arg" in
+	ms.epoch=*) date -u -s "@${arg#ms.epoch=}" >/dev/null 2>&1 ;;
+	esac
+done
+
 [ -f /etc/marstack/env ] && . /etc/marstack/env
+
+[ -n "$MS_NAME" ] && hostname "$MS_NAME" 2>/dev/null
 
 ip link set lo up 2>/dev/null
 

@@ -26,6 +26,8 @@ type VMM interface {
 	Name() string
 	Binary() string
 	Arguments(cfg bootConfig) ([]string, error)
+	WritesConsoleItself() bool
+	ConsoleDevice() string
 }
 
 type cloudHypervisor struct{}
@@ -42,12 +44,20 @@ func (cloudHypervisor) Binary() string {
 	return "cloud-hypervisor"
 }
 
+func (cloudHypervisor) WritesConsoleItself() bool {
+	return true
+}
+
+func (cloudHypervisor) ConsoleDevice() string {
+	return "ttyAMA0"
+}
+
 func (cloudHypervisor) Arguments(cfg bootConfig) ([]string, error) {
 	args := []string{
 		"--api-socket", cfg.APISocket,
 		"--kernel", cfg.Kernel,
 		"--cmdline", cfg.Cmdline,
-		"--disk", "path=" + cfg.Rootfs,
+		"--disk", "path=" + cfg.Rootfs + ",image_type=raw",
 		"--cpus", "boot=" + strconv.Itoa(cfg.VCPU),
 		"--memory", "size=" + strconv.Itoa(cfg.MemoryMiB) + "M",
 		"--serial", "file=" + cfg.ConsoleLog,
@@ -71,6 +81,14 @@ func (firecracker) Name() string {
 
 func (firecracker) Binary() string {
 	return "firecracker"
+}
+
+func (firecracker) WritesConsoleItself() bool {
+	return false
+}
+
+func (firecracker) ConsoleDevice() string {
+	return "ttyS0"
 }
 
 func (firecracker) Arguments(cfg bootConfig) ([]string, error) {
