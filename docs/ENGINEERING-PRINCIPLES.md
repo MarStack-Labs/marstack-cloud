@@ -91,6 +91,13 @@ make check      # vet + test + security scans
   change without touching the service; taking that suggestion would silently couple them, and a
   wire-only field would then fail to compile. `ST1000` and `ST102x` are off because this repo does
   not write doc comments.
+- Heartbeats and reconcile are separate goroutines in the agent, and must stay that way. Liveness is
+  measured in seconds while a single reconcile step can take tens of seconds (image pull, VM stop),
+  so sharing a loop makes a busy node look dead.
+- `internal/runtime/container` re-executes `/proc/self/exe` and takes over the process through an
+  init hook keyed on `MARSTACK_INIT_CONFIG`. Do not move that entrypoint back into the CLI: any
+  binary linking the package, including test binaries, has to be able to act as container init, or
+  the child re-runs whatever the parent was doing.
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead

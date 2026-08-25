@@ -69,6 +69,19 @@ bm-1   n-ybttrrpbkargc   ready    rack-a   arm64   4      5910Mi   0.0.1-dev
 A node is `ready` while its last heartbeat is recent and `unreachable` otherwise. Nothing in the
 control plane marks nodes down on a timer; the status is derived when it is read.
 
+Heartbeats run on their own goroutine, separate from reconcile. The two work on different time
+scales and must not share one:
+
+```
+node considered ready within   30s
+stopping a VM (grace period)   30s
+pulling a large image          tens of seconds
+```
+
+With both on one loop, a node stopping a single VM stops heartbeating for as long as the window
+itself, so a node doing exactly what it was asked looks dead and its instances become candidates for
+rescheduling.
+
 With nodes registered, the scheduler fills in the `NODE` column, spreading instances across the
 least loaded ready nodes:
 
