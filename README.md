@@ -3,7 +3,8 @@
 A cloud platform that runs containers, VMs, and microVMs as one kind of resource — on a single
 node or across many baremetal machines, through the same code and the same API.
 
-> Status: **very early.** Control plane skeleton only. Nothing runs an instance yet.
+> Status: **early.** Containers run and are networked across nodes. VMs, image pulling, and
+> identity are not built yet.
 
 ## Design principles
 
@@ -51,8 +52,8 @@ api-1   i-php2q13mwt3qy   container   alpine:3.20    1      512Mi    stopped   p
 db-1    i-cbv25sa6y2z40   vm          ubuntu-24.04   4      4096Mi   running   pending    -
 ```
 
-`OBSERVED` stays `pending` because nothing runs instances yet: the control plane records intent,
-and no runtime reports reality back. That column becomes truthful once the agent runs workloads.
+`OBSERVED` stays `pending` until an agent picks the instance up: the control plane records intent,
+and only a node reports reality back.
 
 Run an agent to make the node itself visible:
 
@@ -118,11 +119,12 @@ An instance is given an address when it is placed, and the agent wires it before
 ```
 $ nsenter -t $PID -n ip -brief addr show
 lo         UNKNOWN   127.0.0.1/8
-eth0@if5   UP        10.20.0.65/16
+eth0@if9   UP        10.20.0.65/26
 
 $ nsenter -t $PID -n ip route show
 default via 10.20.0.1 dev eth0
-10.20.0.0/16 dev eth0 proto kernel scope link src 10.20.0.65
+10.20.0.1 dev eth0 scope link
+10.20.0.64/26 dev eth0 proto kernel scope link src 10.20.0.65
 
 $ nsenter -t $PID -n ping -c2 1.1.1.1        # egress through the node
 $ nsenter -t $PID -n ping -c2 10.20.0.66     # the other container on this node
