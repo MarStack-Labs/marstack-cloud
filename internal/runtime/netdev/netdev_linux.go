@@ -278,6 +278,10 @@ func Attach(pid int, cfg Interface) error {
 	return nil
 }
 
+func TapName(instanceID string) string {
+	return prefixed(tapPrefix, instanceID)
+}
+
 func EnsureTap(name, bridge string) error {
 	if !linkExists(name) {
 		if err := run("ip", "tuntap", "add", "dev", name, "mode", "tap"); err != nil {

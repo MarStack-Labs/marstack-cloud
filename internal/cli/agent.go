@@ -11,6 +11,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/agent"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/container"
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/microvm"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/qemu"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/resolver"
@@ -57,6 +58,8 @@ func newAgentCmd(g *globals) *cobra.Command {
 				Runtimes: map[string]workload.Runtime{
 					"container": container.New(runtimeRoot, log),
 					"vm":        qemu.New(runtimeRoot, log),
+					"microvm":   microvm.New(runtimeRoot, log, microvm.CloudHypervisor()),
+					"sandbox":   microvm.New(runtimeRoot, log, microvm.Firecracker()),
 				},
 				Datapath: netdev.Datapath{},
 				Resolver: resolver.New(log),

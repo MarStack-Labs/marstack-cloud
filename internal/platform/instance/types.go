@@ -8,6 +8,7 @@ const (
 	IsolationContainer Isolation = "container"
 	IsolationVM        Isolation = "vm"
 	IsolationMicroVM   Isolation = "microvm"
+	IsolationSandbox   Isolation = "sandbox"
 )
 
 func AllIsolations() []string {
@@ -15,6 +16,7 @@ func AllIsolations() []string {
 		string(IsolationContainer),
 		string(IsolationVM),
 		string(IsolationMicroVM),
+		string(IsolationSandbox),
 	}
 }
 

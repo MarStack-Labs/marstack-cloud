@@ -23,9 +23,6 @@ import (
 const (
 	stopGrace = 30 * time.Second
 	pollEvery = 250 * time.Millisecond
-
-	tapPrefix = "mst-"
-	maxIfName = 15
 )
 
 type Runtime struct {
@@ -246,7 +243,7 @@ func (r *Runtime) prepareNetwork(spec workload.Spec) (string, error) {
 		return "", err
 	}
 
-	tap := TapName(spec.InstanceID)
+	tap := netdev.TapName(spec.InstanceID)
 	if err := netdev.EnsureTap(tap, spec.Network.Bridge); err != nil {
 		return "", err
 	}
@@ -339,26 +336,13 @@ func (r *Runtime) Remove(ctx context.Context, instanceID string) error {
 	if err := r.Stop(ctx, instanceID); err != nil {
 		return err
 	}
-	if err := netdev.DeleteLink(TapName(instanceID)); err != nil {
+	if err := netdev.DeleteLink(netdev.TapName(instanceID)); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(r.instanceDir(instanceID)); err != nil {
 		return fmt.Errorf("remove instance directory: %w", err)
 	}
 	return nil
-}
-
-func TapName(instanceID string) string {
-	suffix := instanceID
-	if index := strings.IndexByte(suffix, '-'); index >= 0 {
-		suffix = suffix[index+1:]
-	}
-
-	room := maxIfName - len(tapPrefix)
-	if len(suffix) > room {
-		suffix = suffix[:room]
-	}
-	return tapPrefix + suffix
 }
 
 func qemuBinary() string {

@@ -27,6 +27,18 @@ func Detach(string) error {
 	return errUnsupported
 }
 
+func TapName(string) string {
+	return ""
+}
+
+func EnsureTap(string, string) error {
+	return errUnsupported
+}
+
+func DeleteLink(string) error {
+	return errUnsupported
+}
+
 func (Datapath) ApplyRoutes(context.Context, []workload.Route) error {
 	return errUnsupported
 }
