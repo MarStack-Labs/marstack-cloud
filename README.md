@@ -38,6 +38,18 @@ curl -s localhost:7443/healthz
 curl -s localhost:7443/v1/version
 ```
 
+## Development
+
+```sh
+make hooks      # once per clone: install the pre-commit hook
+make tools      # once: install staticcheck, govulncheck, gosec
+make check      # vet, race tests, staticcheck, govulncheck, gosec
+```
+
+Architecture and its enforced boundaries: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Threat model and security invariants: [`docs/SECURITY.md`](docs/SECURITY.md).
+Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERING-PRINCIPLES.md).
+
 ## Roadmap
 
 ```
