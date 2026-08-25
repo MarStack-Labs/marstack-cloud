@@ -39,6 +39,26 @@ type instanceListBody struct {
 	Instances []instanceView `json:"instances"`
 }
 
+type nicView struct {
+	InstanceID string `json:"instance_id"`
+	IP         string `json:"ip"`
+	MAC        string `json:"mac"`
+}
+
+type networkView struct {
+	NetworkID string    `json:"network_id"`
+	Name      string    `json:"name"`
+	Bridge    string    `json:"bridge"`
+	CIDR      string    `json:"cidr"`
+	Gateway   string    `json:"gateway"`
+	Slice     string    `json:"slice"`
+	NICs      []nicView `json:"nics"`
+}
+
+type networkListBody struct {
+	Networks []networkView `json:"networks"`
+}
+
 type statusBody struct {
 	ObservedState string `json:"observed_state"`
 	Message       string `json:"message,omitempty"`
@@ -82,6 +102,12 @@ func (c *client) assignedInstances(ctx context.Context, nodeID string) ([]instan
 	var out instanceListBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/instances", nil, &out)
 	return out.Instances, err
+}
+
+func (c *client) nodeNetworks(ctx context.Context, nodeID string) ([]networkView, error) {
+	var out networkListBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/network", nil, &out)
+	return out.Networks, err
 }
 
 func (c *client) reportStatus(ctx context.Context, nodeID, instanceID, observed, message string) error {

@@ -11,6 +11,15 @@ const (
 	PhaseFailed  Phase = "failed"
 )
 
+type NetworkConfig struct {
+	Bridge     string
+	BridgeAddr string
+	IP         string
+	Prefix     int
+	Gateway    string
+	MAC        string
+}
+
 type Spec struct {
 	InstanceID string
 	Name       string
@@ -18,6 +27,7 @@ type Spec struct {
 	Command    []string
 	VCPU       int
 	MemoryMiB  int
+	Network    *NetworkConfig
 }
 
 type State struct {

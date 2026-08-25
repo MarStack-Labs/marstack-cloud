@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"net/netip"
+	"strconv"
 
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
@@ -25,9 +27,18 @@ func (a *Agent) reconcile(ctx context.Context) {
 		a.log.Warn("could not read assigned instances", "error", err)
 		return
 	}
+	if len(assigned) == 0 {
+		return
+	}
+
+	interfaces, err := a.interfacesByInstance(ctx)
+	if err != nil {
+		a.log.Warn("could not read the node network view", "error", err)
+		return
+	}
 
 	for _, in := range assigned {
-		observed, message := a.reconcileOne(ctx, in)
+		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID])
 
 		if in.ObservedState == observed && in.ObservedMessage == message {
 			continue
@@ -38,7 +49,40 @@ func (a *Agent) reconcile(ctx context.Context) {
 	}
 }
 
-func (a *Agent) reconcileOne(ctx context.Context, in instanceView) (string, string) {
+func (a *Agent) interfacesByInstance(ctx context.Context) (map[string]*workload.NetworkConfig, error) {
+	networks, err := a.client.nodeNetworks(ctx, a.nodeID)
+	if err != nil {
+		return nil, err
+	}
+
+	interfaces := map[string]*workload.NetworkConfig{}
+	for _, n := range networks {
+		prefix, err := netip.ParsePrefix(n.CIDR)
+		if err != nil {
+			a.log.Warn("skipping a network with an unusable cidr",
+				"network", n.Name, "cidr", n.CIDR, "error", err)
+			continue
+		}
+
+		for _, nic := range n.NICs {
+			interfaces[nic.InstanceID] = &workload.NetworkConfig{
+				Bridge:     n.Bridge,
+				BridgeAddr: n.Gateway + "/" + strconv.Itoa(prefix.Bits()),
+				IP:         nic.IP,
+				Prefix:     prefix.Bits(),
+				Gateway:    n.Gateway,
+				MAC:        nic.MAC,
+			}
+		}
+	}
+	return interfaces, nil
+}
+
+func (a *Agent) reconcileOne(
+	ctx context.Context,
+	in instanceView,
+	iface *workload.NetworkConfig,
+) (string, string) {
 	spec := workload.Spec{
 		InstanceID: in.ID,
 		Name:       in.Name,
@@ -46,6 +90,7 @@ func (a *Agent) reconcileOne(ctx context.Context, in instanceView) (string, stri
 		Command:    in.Command,
 		VCPU:       in.VCPU,
 		MemoryMiB:  in.MemoryMiB,
+		Network:    iface,
 	}
 
 	state, err := a.runtime.Status(ctx, in.ID)

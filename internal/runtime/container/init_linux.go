@@ -6,10 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
 )
+
+const gateFD = 3
 
 type initConfig struct {
 	Hostname string   `json:"hostname"`
@@ -46,7 +49,22 @@ func RunInit() error {
 		return err
 	}
 
+	if err := waitForGate(); err != nil {
+		return err
+	}
+
 	return syscall.Exec(binary, cfg.Command, os.Environ())
+}
+
+func waitForGate() error {
+	gate := os.NewFile(gateFD, "start-gate")
+	defer gate.Close()
+
+	buf := make([]byte, 1)
+	if _, err := io.ReadFull(gate, buf); err != nil {
+		return fmt.Errorf("the parent closed the start gate before the container was ready: %w", err)
+	}
+	return nil
 }
 
 func pivotInto(rootfs string) error {

@@ -111,8 +111,39 @@ $ cat /sys/fs/cgroup/marstack/$ID/memory.max   536870912        ← 512Mi enforc
 $ cat /sys/fs/cgroup/marstack/$ID/cpu.max      100000 100000    ← one vCPU
 ```
 
-Not implemented yet: container networking (the network namespace is created but empty), image
-pulling, restart policy, and `isolation: vm`.
+## Networking
+
+An instance is given an address when it is placed, and the agent wires it before the workload runs:
+
+```
+$ nsenter -t $PID -n ip -brief addr show
+lo         UNKNOWN   127.0.0.1/8
+eth0@if5   UP        10.20.0.65/16
+
+$ nsenter -t $PID -n ip route show
+default via 10.20.0.1 dev eth0
+10.20.0.0/16 dev eth0 proto kernel scope link src 10.20.0.65
+
+$ nsenter -t $PID -n ping -c2 1.1.1.1        # egress through the node
+$ nsenter -t $PID -n ping -c2 10.20.0.66     # the other container on this node
+```
+
+Addresses come from a per-node slice of the network, so routes aggregate per node rather than per
+instance:
+
+```
+10.20.0.0/16     network default
+  10.20.0.0/26     reserved for the gateway and platform addresses
+  10.20.0.64/26    node bm-1     → instances get .65, .66, ...
+  10.20.0.128/26   node bm-2
+```
+
+The gateway address lives on the bridge of every node, so an instance always talks to a local
+gateway. Egress is masqueraded on the node the instance runs on; there is no central gateway to
+bottleneck.
+
+Not implemented yet: routing between nodes (a second node's instances are unreachable), anti-spoof
+filtering, internal DNS, image pulling, restart policy, and `isolation: vm`.
 
 ## Development
 

@@ -72,6 +72,7 @@ type report struct {
 type controlPlane struct {
 	mu        sync.Mutex
 	instances []instanceView
+	networks  []networkView
 	reports   []report
 }
 
@@ -88,6 +89,11 @@ func (c *controlPlane) handler() http.Handler {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(instanceListBody{Instances: c.instances})
+	})
+	mux.HandleFunc("GET /v1/nodes/{id}/network", func(w http.ResponseWriter, _ *http.Request) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		json.NewEncoder(w).Encode(networkListBody{Networks: c.networks})
 	})
 	mux.HandleFunc("PUT /v1/nodes/{nodeID}/instances/{instanceID}/status",
 		func(w http.ResponseWriter, r *http.Request) {
@@ -263,5 +269,79 @@ func TestReconcileIsSkippedWithoutARuntime(t *testing.T) {
 
 	if len(cp.reports) != 0 {
 		t.Fatalf("reports = %d, want 0: an agent with no runtime must not claim anything", len(cp.reports))
+	}
+}
+
+func defaultNetworkView(instanceID, ip string) networkView {
+	return networkView{
+		NetworkID: "nw-1",
+		Name:      "default",
+		Bridge:    "msbr-1",
+		CIDR:      "10.20.0.0/16",
+		Gateway:   "10.20.0.1",
+		Slice:     "10.20.0.64/26",
+		NICs:      []nicView{{InstanceID: instanceID, IP: ip, MAC: "02:aa:bb:cc:dd:ee"}},
+	}
+}
+
+func TestReconcilePassesTheInterfaceIntoTheSpec(t *testing.T) {
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	newReconcileHarness(t, cp, rt).reconcile(context.Background())
+
+	if len(rt.started) != 1 {
+		t.Fatalf("starts = %d, want 1", len(rt.started))
+	}
+
+	net := rt.started[0].Network
+	if net == nil {
+		t.Fatal("the workload was started without an interface")
+	}
+	if net.IP != "10.20.0.65" || net.Gateway != "10.20.0.1" || net.Prefix != 16 {
+		t.Fatalf("interface = %+v, want the address from the control plane", net)
+	}
+	if net.BridgeAddr != "10.20.0.1/16" {
+		t.Fatalf("bridge address = %q, want the gateway with the network prefix", net.BridgeAddr)
+	}
+	if net.MAC != "02:aa:bb:cc:dd:ee" {
+		t.Fatalf("mac = %q, want the allocated one", net.MAC)
+	}
+}
+
+func TestReconcileStartsWithoutAnInterfaceWhenNoneIsAllocated(t *testing.T) {
+	cp := &controlPlane{instances: []instanceView{runningInstance()}}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	newReconcileHarness(t, cp, rt).reconcile(context.Background())
+
+	if len(rt.started) != 1 {
+		t.Fatalf("starts = %d, want 1", len(rt.started))
+	}
+	if rt.started[0].Network != nil {
+		t.Fatal("an interface appeared out of nowhere")
+	}
+}
+
+func TestReconcileSkipsAnUnusableNetwork(t *testing.T) {
+	broken := defaultNetworkView("i-1", "10.20.0.65")
+	broken.CIDR = "not-a-cidr"
+
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{broken},
+	}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	newReconcileHarness(t, cp, rt).reconcile(context.Background())
+
+	if len(rt.started) != 1 {
+		t.Fatalf("starts = %d, want 1: a broken network must not stop the workload", len(rt.started))
+	}
+	if rt.started[0].Network != nil {
+		t.Fatal("a network with an unparseable cidr was used anyway")
 	}
 }

@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
@@ -70,6 +71,10 @@ func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
 		return err
 	}
 
+	if err := r.prepareNetwork(spec); err != nil {
+		return err
+	}
+
 	cgroupDir, err := createCgroup(spec.InstanceID, spec.VCPU, spec.MemoryMiB, r.layout)
 	if err != nil {
 		return err
@@ -97,10 +102,18 @@ func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
 	}
 	defer output.Close()
 
+	gate, release, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("create start gate: %w", err)
+	}
+	defer gate.Close()
+	defer release.Close()
+
 	cmd := exec.Command("/proc/self/exe", initCommand)
 	cmd.Env = append(os.Environ(), initEnvConfig+"="+string(cfg))
 	cmd.Stdout = output
 	cmd.Stderr = output
+	cmd.ExtraFiles = []*os.File{gate}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Cloneflags: syscall.CLONE_NEWNS |
 			syscall.CLONE_NEWPID |
@@ -122,6 +135,18 @@ func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
 		return fmt.Errorf("write pid file: %w", err)
 	}
 
+	if err := r.attachNetwork(spec, cmd.Process.Pid); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return err
+	}
+
+	if _, err := release.Write([]byte{1}); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return fmt.Errorf("release the container: %w", err)
+	}
+
 	entry := &tracked{cmd: cmd}
 	r.mu.Lock()
 	r.running[spec.InstanceID] = entry
@@ -134,6 +159,41 @@ func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
 		"pid", cmd.Process.Pid,
 		"vcpu", spec.VCPU,
 		"memory_mib", spec.MemoryMiB,
+	)
+	return nil
+}
+
+func (r *Runtime) prepareNetwork(spec workload.Spec) error {
+	if spec.Network == nil {
+		return nil
+	}
+	if err := netdev.EnsureBridge(spec.Network.Bridge, spec.Network.BridgeAddr); err != nil {
+		return err
+	}
+	return netdev.EnsureEgress(spec.Network.Bridge, spec.Network.BridgeAddr)
+}
+
+func (r *Runtime) attachNetwork(spec workload.Spec, pid int) error {
+	if spec.Network == nil {
+		return nil
+	}
+
+	if err := netdev.Attach(pid, netdev.Interface{
+		Bridge:     spec.Network.Bridge,
+		BridgeAddr: spec.Network.BridgeAddr,
+		InstanceID: spec.InstanceID,
+		IP:         spec.Network.IP,
+		Prefix:     spec.Network.Prefix,
+		Gateway:    spec.Network.Gateway,
+		MAC:        spec.Network.MAC,
+	}); err != nil {
+		return fmt.Errorf("attach network: %w", err)
+	}
+
+	r.log.Info("interface attached",
+		"instance", spec.InstanceID,
+		"ip", spec.Network.IP,
+		"bridge", spec.Network.Bridge,
 	)
 	return nil
 }
@@ -272,6 +332,10 @@ func (r *Runtime) Remove(ctx context.Context, instanceID string) error {
 	r.mu.Lock()
 	delete(r.running, instanceID)
 	r.mu.Unlock()
+
+	if err := netdev.Detach(instanceID); err != nil {
+		return err
+	}
 
 	dir := r.layout.cgroup(instanceID)
 	if cgroupHasProcesses(dir) {
