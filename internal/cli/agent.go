@@ -22,6 +22,7 @@ func newAgentCmd(g *globals) *cobra.Command {
 		name        string
 		zone        string
 		address     string
+		stateDir    string
 		runtimeRoot string
 		interval    time.Duration
 		logLevel    string
@@ -50,6 +51,7 @@ func newAgentCmd(g *globals) *cobra.Command {
 				Name:     name,
 				Zone:     zone,
 				Address:  address,
+				StateDir: stateDir,
 				Interval: interval,
 			}, agent.Deps{
 				Runtimes: map[string]workload.Runtime{
@@ -66,6 +68,8 @@ func newAgentCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&zone, "zone", "", "failure domain this node belongs to")
 	cmd.Flags().StringVar(&address, "address", "",
 		"address the other nodes reach this one on, required for multi-node routing")
+	cmd.Flags().StringVar(&stateDir, "state-dir", container.DefaultRoot+"/agent",
+		"directory where the agent keeps the last known desired state")
 	cmd.Flags().StringVar(&runtimeRoot, "runtime-root", container.DefaultRoot,
 		"directory holding images and instance state on this node")
 	cmd.Flags().DurationVar(&interval, "interval", agent.DefaultInterval, "heartbeat and reconcile interval")

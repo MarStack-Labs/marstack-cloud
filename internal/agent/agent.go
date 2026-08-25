@@ -25,6 +25,7 @@ type Config struct {
 	Name              string
 	Zone              string
 	Address           string
+	StateDir          string
 	Interval          time.Duration
 	HeartbeatInterval time.Duration
 }
@@ -88,8 +89,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		"runtimes", a.runtimeNames(),
 	)
 
-	if err := a.registerWithRetry(ctx); err != nil {
-		return err
+	if err := a.register(ctx); err != nil {
+		a.log.Warn("the control plane is unreachable at startup", "error", err)
+		a.reconcileFromCache(ctx)
+
+		if err := a.registerWithRetry(ctx); err != nil {
+			return err
+		}
 	}
 
 	go a.heartbeatLoop(ctx)

@@ -31,29 +31,66 @@ func (a *Agent) reconcile(ctx context.Context) {
 		return
 	}
 
-	assigned, err := a.client.assignedInstances(ctx, a.currentNodeID())
+	state, err := a.readDesired(ctx)
 	if err != nil {
-		a.log.Warn("could not read assigned instances", "error", err)
+		a.log.Warn("could not read the desired state", "error", err)
 		return
 	}
 
-	networks, err := a.client.nodeNetworks(ctx, a.currentNodeID())
+	a.saveState(state)
+	a.applyDesired(ctx, state, true)
+}
+
+func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
+	nodeID := a.currentNodeID()
+
+	assigned, err := a.client.assignedInstances(ctx, nodeID)
 	if err != nil {
-		a.log.Warn("could not read the node network view", "error", err)
+		return cachedState{}, fmt.Errorf("assigned instances: %w", err)
+	}
+
+	networks, err := a.client.nodeNetworks(ctx, nodeID)
+	if err != nil {
+		return cachedState{}, fmt.Errorf("node network view: %w", err)
+	}
+
+	records, err := a.client.dnsRecords(ctx)
+	if err != nil {
+		return cachedState{}, fmt.Errorf("dns records: %w", err)
+	}
+
+	nodes, err := a.client.nodes(ctx)
+	if err != nil {
+		return cachedState{}, fmt.Errorf("nodes: %w", err)
+	}
+
+	return cachedState{
+		Instances: assigned,
+		Networks:  networks,
+		Records:   records,
+		Nodes:     nodes,
+	}, nil
+}
+
+func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool) {
+	if len(a.runtimes) == 0 {
 		return
 	}
 
-	a.collectGarbage(ctx, assigned, networks)
-	a.serveDNS(ctx, networks)
+	a.collectGarbage(ctx, state.Instances, state.Networks)
+	a.serveDNS(ctx, state.Networks, state.Records)
 
-	interfaces := a.interfacesByInstance(networks)
-	a.applyRoutes(ctx, networks)
-	a.applyFilters(ctx, networks, isolationsOf(assigned))
+	interfaces := a.interfacesByInstance(state.Networks)
+	a.applyRoutes(ctx, state.Networks, state.Nodes)
+	a.applyFilters(ctx, state.Networks, isolationsOf(state.Instances))
 
-	for _, in := range assigned {
+	for _, in := range state.Instances {
 		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID])
 		restarts := a.restartAttempts(in.ID)
 
+		if !report {
+			continue
+		}
 		if in.ObservedState == observed && in.ObservedMessage == message && in.RestartCount == restarts {
 			continue
 		}
@@ -145,7 +182,7 @@ func (a *Agent) interfacesByInstance(networks []networkView) map[string]*workloa
 	return interfaces
 }
 
-func (a *Agent) serveDNS(ctx context.Context, networks []networkView) {
+func (a *Agent) serveDNS(ctx context.Context, networks []networkView, records []dnsRecordView) {
 	if a.resolver == nil {
 		return
 	}
@@ -157,12 +194,6 @@ func (a *Agent) serveDNS(ctx context.Context, networks []networkView) {
 		}
 	}
 
-	records, err := a.client.dnsRecords(ctx)
-	if err != nil {
-		a.log.Warn("could not read dns records", "error", err)
-		return
-	}
-
 	zone := make(map[string]string, len(records))
 	for _, record := range records {
 		zone[record.FQDN] = record.IP
@@ -170,7 +201,7 @@ func (a *Agent) serveDNS(ctx context.Context, networks []networkView) {
 	a.resolver.Update(zone)
 }
 
-func (a *Agent) applyRoutes(ctx context.Context, networks []networkView) {
+func (a *Agent) applyRoutes(ctx context.Context, networks []networkView, nodes []nodeView) {
 	if a.datapath == nil {
 		return
 	}
@@ -183,10 +214,9 @@ func (a *Agent) applyRoutes(ctx context.Context, networks []networkView) {
 		return
 	}
 
-	addresses, err := a.nodeAddresses(ctx)
-	if err != nil {
-		a.log.Warn("could not read node addresses", "error", err)
-		return
+	addresses := make(map[string]string, len(nodes))
+	for _, n := range nodes {
+		addresses[n.ID] = n.Address
 	}
 
 	routes := make([]workload.Route, 0, len(peers))
@@ -233,19 +263,6 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolat
 		return
 	}
 	a.log.Debug("anti-spoof rules applied", "interfaces", len(filters))
-}
-
-func (a *Agent) nodeAddresses(ctx context.Context) (map[string]string, error) {
-	nodes, err := a.client.nodes(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	addresses := make(map[string]string, len(nodes))
-	for _, n := range nodes {
-		addresses[n.ID] = n.Address
-	}
-	return addresses, nil
 }
 
 func (a *Agent) reconcileOne(

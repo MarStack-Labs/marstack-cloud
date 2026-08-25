@@ -205,6 +205,21 @@ addresses that live on another node.
 Multi node needs `--address` on the agent: the address other nodes reach it on. It is not
 auto-detected, because a host with several interfaces has no way to know which one its peers use.
 
+### Surviving a control plane outage
+
+The agent writes the desired state it last read to `--state-dir` on every pass. If the control plane
+is unreachable when the agent starts — a node rebooting during an outage — it replays that state so
+workloads come back, then keeps trying to register:
+
+```
+WARN the control plane is unreachable at startup     error="..."
+WARN reconciling from the cached desired state       node_id=n-... instances=3
+```
+
+A replay never reports anything: there is nothing listening, and a node must not act on its own
+guesses about what the control plane thinks. An agent with no cache starts nothing rather than
+inventing workloads.
+
 ### Garbage collection
 
 Reconcile runs in both directions. Anything on the node that the control plane no longer knows about
