@@ -48,6 +48,7 @@ func (a *Agent) reconcile(ctx context.Context) {
 
 	interfaces := a.interfacesByInstance(networks)
 	a.applyRoutes(ctx, networks)
+	a.applyFilters(ctx, networks)
 
 	for _, in := range assigned {
 		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID])
@@ -194,6 +195,30 @@ func (a *Agent) applyRoutes(ctx context.Context, networks []networkView) {
 		return
 	}
 	a.log.Debug("peer routes programmed", "count", len(routes))
+}
+
+func (a *Agent) applyFilters(ctx context.Context, networks []networkView) {
+	if a.datapath == nil {
+		return
+	}
+
+	filters := make([]workload.Filter, 0)
+	for _, n := range networks {
+		for _, nic := range n.NICs {
+			filters = append(filters, workload.Filter{
+				InstanceID: nic.InstanceID,
+				Bridge:     n.Bridge,
+				IP:         nic.IP,
+				MAC:        nic.MAC,
+			})
+		}
+	}
+
+	if err := a.datapath.ApplyFilters(ctx, filters); err != nil {
+		a.log.Warn("could not apply anti-spoof rules", "error", err)
+		return
+	}
+	a.log.Debug("anti-spoof rules applied", "interfaces", len(filters))
 }
 
 func (a *Agent) nodeAddresses(ctx context.Context) (map[string]string, error) {

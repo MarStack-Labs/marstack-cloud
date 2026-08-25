@@ -31,6 +31,10 @@ func (Datapath) ApplyRoutes(context.Context, []workload.Route) error {
 	return errUnsupported
 }
 
+func (Datapath) ApplyFilters(context.Context, []workload.Filter) error {
+	return errUnsupported
+}
+
 func (Datapath) Prune(context.Context, workload.Keep) error {
 	return errUnsupported
 }

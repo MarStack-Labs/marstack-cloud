@@ -111,8 +111,22 @@ func (f *fakeResolver) snapshotZone() map[string]string {
 type fakeDatapath struct {
 	mu       sync.Mutex
 	routes   []workload.Route
+	filters  []workload.Filter
 	pruned   []workload.Keep
 	pruneErr error
+}
+
+func (f *fakeDatapath) ApplyFilters(_ context.Context, filters []workload.Filter) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.filters = filters
+	return nil
+}
+
+func (f *fakeDatapath) snapshotFilters() []workload.Filter {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]workload.Filter(nil), f.filters...)
 }
 
 func (f *fakeDatapath) Prune(_ context.Context, keep workload.Keep) error {
@@ -688,5 +702,59 @@ func TestReconcileGivesTheContainerItsResolverAndSearchDomain(t *testing.T) {
 	}
 	if net.SearchDomain != "default.internal" {
 		t.Fatalf("search domain = %q, want default.internal so short names resolve", net.SearchDomain)
+	}
+}
+
+func TestReconcileFiltersEveryLocalInterface(t *testing.T) {
+	network := defaultNetworkView("i-1", "10.20.0.65")
+	network.NICs = append(network.NICs, nicView{
+		InstanceID: "i-2", IP: "10.20.0.66", MAC: "02:11:22:33:44:55",
+	})
+
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{network},
+	}
+	dp := &fakeDatapath{}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtime: &fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}}, Datapath: dp},
+		logging.New("error", io.Discard))
+	a.register(context.Background())
+
+	a.reconcile(context.Background())
+
+	filters := dp.snapshotFilters()
+	if len(filters) != 2 {
+		t.Fatalf("filters = %+v, want one per local interface", filters)
+	}
+
+	byInstance := map[string]workload.Filter{}
+	for _, filter := range filters {
+		byInstance[filter.InstanceID] = filter
+	}
+	if got := byInstance["i-2"]; got.IP != "10.20.0.66" || got.MAC != "02:11:22:33:44:55" {
+		t.Fatalf("filter = %+v, want the allocated address and mac", got)
+	}
+}
+
+func TestReconcileClearsFiltersWhenNothingIsLocal(t *testing.T) {
+	cp := &controlPlane{}
+	dp := &fakeDatapath{}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtime: &fakeRuntime{}, Datapath: dp}, logging.New("error", io.Discard))
+	a.register(context.Background())
+
+	a.reconcile(context.Background())
+
+	if filters := dp.snapshotFilters(); len(filters) != 0 {
+		t.Fatalf("filters = %+v, want an empty set so stale rules are removed", filters)
 	}
 }

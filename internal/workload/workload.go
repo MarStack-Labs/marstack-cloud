@@ -48,8 +48,16 @@ type Keep struct {
 	Instances []string
 }
 
+type Filter struct {
+	InstanceID string
+	Bridge     string
+	IP         string
+	MAC        string
+}
+
 type Datapath interface {
 	ApplyRoutes(ctx context.Context, routes []Route) error
+	ApplyFilters(ctx context.Context, filters []Filter) error
 	Prune(ctx context.Context, keep Keep) error
 }
 

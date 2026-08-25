@@ -143,6 +143,41 @@ func (Datapath) ApplyRoutes(_ context.Context, routes []workload.Route) error {
 	return nil
 }
 
+func (Datapath) ApplyFilters(_ context.Context, filters []workload.Filter) error {
+	ruleset := renderFilters(filters)
+
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(ruleset)
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("apply anti-spoof rules: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func renderFilters(filters []workload.Filter) string {
+	var ruleset strings.Builder
+
+	ruleset.WriteString("table bridge " + nftTable + " { }\n")
+	ruleset.WriteString("delete table bridge " + nftTable + "\n")
+	ruleset.WriteString("table bridge " + nftTable + " {\n")
+	ruleset.WriteString("  chain prerouting {\n")
+	ruleset.WriteString("    type filter hook prerouting priority -300; policy accept;\n")
+
+	for _, filter := range filters {
+		if filter.IP == "" || filter.MAC == "" {
+			continue
+		}
+		port := hostName(filter.InstanceID)
+		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" ether saddr != %s drop\n", port, filter.MAC))
+		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n", port, filter.IP))
+		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" arp saddr ip != %s drop\n", port, filter.IP))
+	}
+
+	ruleset.WriteString("  }\n}\n")
+	return ruleset.String()
+}
+
 func (Datapath) Prune(_ context.Context, keep workload.Keep) error {
 	present, err := managedLinks()
 	if err != nil {
