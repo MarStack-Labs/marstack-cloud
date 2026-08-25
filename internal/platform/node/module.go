@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
@@ -22,6 +23,25 @@ func New(st *store.Store, log *slog.Logger) *Module {
 		svc:     svc,
 		handler: &handler{svc: svc},
 	}
+}
+
+func (m *Module) NodesUnreachableFor(ctx context.Context, grace time.Duration) ([]Node, error) {
+	nodes, err := m.svc.list(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	now := m.svc.now()
+	stranded := make([]Node, 0)
+	for _, n := range nodes {
+		if n.StatusAt(now) == StatusReady {
+			continue
+		}
+		if now.Sub(n.LastSeenAt) >= grace {
+			stranded = append(stranded, n)
+		}
+	}
+	return stranded, nil
 }
 
 func (m *Module) ReadyNodes(ctx context.Context) ([]Node, error) {

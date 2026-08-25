@@ -205,6 +205,33 @@ addresses that live on another node.
 Multi node needs `--address` on the agent: the address other nodes reach it on. It is not
 auto-detected, because a host with several interfaces has no way to know which one its peers use.
 
+### Losing a node
+
+A node that stops reporting for longer than the scheduler's grace period has its **containers**
+released and placed again elsewhere:
+
+```
+INFO released a workload from an unreachable node  instance=i-6t1z0... name=web-b node=n-0h79...
+INFO instance placed                              instance=i-6t1z0... name=web-b node=bm-1
+```
+
+A VM is deliberately left where it is:
+
+```
+WARN leaving a workload on an unreachable node because moving it would lose its disk
+     instance=i-yghcz... name=db-1 isolation=vm node=n-0h79...
+```
+
+A container's root filesystem is derived from its image, so starting it elsewhere loses nothing. A
+VM has a copy-on-write disk on the node it ran on, and starting it elsewhere would silently hand
+back a fresh disk from the base image. That is data loss dressed up as recovery, so it does not
+happen.
+
+There is no fencing. If the node was only partitioned rather than dead, its containers keep running
+there until it reconnects, and it then removes them because the control plane no longer assigns them
+to it. Two copies can overlap for that window. The grace period is what keeps the window rare, not a
+guarantee that it cannot happen.
+
 ### Surviving a control plane outage
 
 The agent writes the desired state it last read to `--state-dir` on every pass. If the control plane

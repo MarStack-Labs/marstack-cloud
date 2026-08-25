@@ -218,6 +218,43 @@ func (r *repository) assign(ctx context.Context, id, nodeID string, now time.Tim
 	return nil
 }
 
+func (r *repository) listRunningOn(ctx context.Context, nodeID string) ([]Instance, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+columns+` FROM instances
+		 WHERE desired_state = ? AND node_id = ?
+		 ORDER BY created_at, id`,
+		string(DesiredRunning), nodeID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list instances on node: %w", err)
+	}
+	defer rows.Close()
+
+	instances := make([]Instance, 0)
+	for rows.Next() {
+		in, err := scanInstance(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan instance: %w", err)
+		}
+		instances = append(instances, in)
+	}
+	return instances, rows.Err()
+}
+
+func (r *repository) releasePlacement(ctx context.Context, id, nodeID string, now time.Time) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE instances
+		 SET node_id = '', observed_state = ?, observed_message = ?, updated_at = ?
+		 WHERE id = ? AND node_id = ?`,
+		string(ObservedPending), "the node it ran on stopped reporting, so it is being placed again",
+		now.Format(time.RFC3339Nano), id, nodeID,
+	)
+	if err != nil {
+		return fmt.Errorf("release placement: %w", err)
+	}
+	return expectOneRow(res, "release placement")
+}
+
 func (r *repository) setDesired(ctx context.Context, id string, desired DesiredState, now time.Time) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE instances SET desired_state = ?, updated_at = ? WHERE id = ?`,

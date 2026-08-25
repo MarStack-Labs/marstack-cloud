@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
@@ -12,6 +13,19 @@ import (
 
 type nodeSource struct {
 	nodes *node.Module
+}
+
+func (s nodeSource) UnreachableNodes(ctx context.Context, grace time.Duration) ([]string, error) {
+	lost, err := s.nodes.NodesUnreachableFor(ctx, grace)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(lost))
+	for _, n := range lost {
+		ids = append(ids, n.ID)
+	}
+	return ids, nil
 }
 
 func (s nodeSource) ReadyNodes(ctx context.Context) ([]scheduler.Candidate, error) {
@@ -46,6 +60,28 @@ func (s instanceSource) PendingPlacement(ctx context.Context) ([]scheduler.Pendi
 		})
 	}
 	return pending, nil
+}
+
+func (s instanceSource) StrandedOn(ctx context.Context, nodeIDs []string) ([]scheduler.Stranded, error) {
+	stranded, err := s.instances.StrandedOn(ctx, nodeIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]scheduler.Stranded, 0, len(stranded))
+	for _, in := range stranded {
+		out = append(out, scheduler.Stranded{
+			ID:        in.ID,
+			Name:      in.Name,
+			NodeID:    in.NodeID,
+			Isolation: string(in.Isolation),
+		})
+	}
+	return out, nil
+}
+
+func (s instanceSource) ReleasePlacement(ctx context.Context, instanceID, nodeID string) error {
+	return s.instances.ReleasePlacement(ctx, instanceID, nodeID)
 }
 
 func (s instanceSource) AssignedCounts(ctx context.Context) (map[string]int, error) {

@@ -42,6 +42,14 @@ func (m *Module) AssignedCounts(ctx context.Context) (map[string]int, error) {
 	return m.svc.assignedCounts(ctx)
 }
 
+func (m *Module) StrandedOn(ctx context.Context, nodeIDs []string) ([]Instance, error) {
+	return m.svc.strandedOn(ctx, nodeIDs)
+}
+
+func (m *Module) ReleasePlacement(ctx context.Context, instanceID, nodeID string) error {
+	return m.svc.releasePlacement(ctx, instanceID, nodeID)
+}
+
 func (m *Module) Assign(ctx context.Context, instanceID, nodeID string) error {
 	return m.svc.assign(ctx, instanceID, nodeID)
 }

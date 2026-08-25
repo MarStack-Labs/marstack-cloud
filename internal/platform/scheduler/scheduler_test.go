@@ -11,14 +11,19 @@ import (
 )
 
 type fakeNodes struct {
-	ready []Candidate
-	err   error
-	calls int
+	ready       []Candidate
+	unreachable []string
+	err         error
+	calls       int
 }
 
 func (f *fakeNodes) ReadyNodes(context.Context) ([]Candidate, error) {
 	f.calls++
 	return f.ready, f.err
+}
+
+func (f *fakeNodes) UnreachableNodes(context.Context, time.Duration) ([]string, error) {
+	return f.unreachable, nil
 }
 
 type assignment struct {
@@ -28,10 +33,36 @@ type assignment struct {
 
 type fakeInstances struct {
 	pending     []Pending
+	stranded    []Stranded
 	counts      map[string]int
 	assignments []assignment
+	released    []string
 	pendingErr  error
 	assignErr   error
+	releaseErr  error
+}
+
+func (f *fakeInstances) StrandedOn(_ context.Context, nodeIDs []string) ([]Stranded, error) {
+	wanted := map[string]bool{}
+	for _, id := range nodeIDs {
+		wanted[id] = true
+	}
+
+	matching := make([]Stranded, 0, len(f.stranded))
+	for _, in := range f.stranded {
+		if wanted[in.NodeID] {
+			matching = append(matching, in)
+		}
+	}
+	return matching, nil
+}
+
+func (f *fakeInstances) ReleasePlacement(_ context.Context, instanceID, _ string) error {
+	if f.releaseErr != nil {
+		return f.releaseErr
+	}
+	f.released = append(f.released, instanceID)
+	return nil
 }
 
 func (f *fakeInstances) PendingPlacement(context.Context) ([]Pending, error) {
@@ -204,5 +235,75 @@ func TestPlacementSurvivesAddressAllocationFailure(t *testing.T) {
 
 	if len(instances.assignments) != 1 {
 		t.Fatal("the instance lost its placement because addressing failed")
+	}
+}
+
+func TestStrandedContainersAreReleasedForReplacement(t *testing.T) {
+	nodes := &fakeNodes{
+		ready:       []Candidate{{ID: "n-2", Name: "bm-2"}},
+		unreachable: []string{"n-1"},
+	}
+	instances := &fakeInstances{
+		stranded: []Stranded{
+			{ID: "i-1", Name: "web", NodeID: "n-1", Isolation: "container"},
+			{ID: "i-2", Name: "db", NodeID: "n-1", Isolation: "vm"},
+			{ID: "i-3", Name: "other", NodeID: "n-9", Isolation: "container"},
+		},
+	}
+
+	if err := newTestScheduler(nodes, instances).Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if len(instances.released) != 1 || instances.released[0] != "i-1" {
+		t.Fatalf("released = %v, want only the container on the unreachable node", instances.released)
+	}
+}
+
+func TestVMsAreNotMovedOffAnUnreachableNode(t *testing.T) {
+	nodes := &fakeNodes{
+		ready:       []Candidate{{ID: "n-2", Name: "bm-2"}},
+		unreachable: []string{"n-1"},
+	}
+	instances := &fakeInstances{
+		stranded: []Stranded{{ID: "i-vm", Name: "db", NodeID: "n-1", Isolation: "vm"}},
+	}
+
+	if err := newTestScheduler(nodes, instances).Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if len(instances.released) != 0 {
+		t.Fatal("a vm was moved off its node, which would abandon its local disk")
+	}
+}
+
+func TestNothingIsReleasedWhileEveryNodeReports(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{{ID: "n-1", Name: "bm-1"}}}
+	instances := &fakeInstances{
+		stranded: []Stranded{{ID: "i-1", NodeID: "n-1", Isolation: "container"}},
+	}
+
+	if err := newTestScheduler(nodes, instances).Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if len(instances.released) != 0 {
+		t.Fatalf("released = %v, want none: no node is unreachable", instances.released)
+	}
+}
+
+func TestOneFailedReleaseDoesNotStopTheRest(t *testing.T) {
+	nodes := &fakeNodes{unreachable: []string{"n-1"}}
+	instances := &fakeInstances{
+		stranded: []Stranded{
+			{ID: "i-1", NodeID: "n-1", Isolation: "container"},
+			{ID: "i-2", NodeID: "n-1", Isolation: "container"},
+		},
+		releaseErr: errors.New("conflict"),
+	}
+
+	if err := newTestScheduler(nodes, instances).Tick(context.Background()); err != nil {
+		t.Fatalf("tick returned %v, want the pass to continue", err)
 	}
 }

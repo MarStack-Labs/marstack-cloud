@@ -153,6 +153,28 @@ func (s *service) assignedCounts(ctx context.Context) (map[string]int, error) {
 	return counts, nil
 }
 
+func (s *service) strandedOn(ctx context.Context, nodeIDs []string) ([]Instance, error) {
+	stranded := make([]Instance, 0)
+	for _, nodeID := range nodeIDs {
+		instances, err := s.repo.listRunningOn(ctx, nodeID)
+		if err != nil {
+			return nil, translate(err)
+		}
+		stranded = append(stranded, instances...)
+	}
+	return stranded, nil
+}
+
+func (s *service) releasePlacement(ctx context.Context, id, nodeID string) error {
+	if err := s.repo.releasePlacement(ctx, id, nodeID, s.now()); err != nil {
+		return translate(err)
+	}
+	if s.networks == nil {
+		return nil
+	}
+	return s.networks.ReleaseAddress(ctx, id)
+}
+
 func (s *service) assign(ctx context.Context, id, nodeID string) error {
 	return translate(s.repo.assign(ctx, id, nodeID, s.now()))
 }

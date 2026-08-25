@@ -7,7 +7,13 @@ import (
 	"time"
 )
 
-const DefaultInterval = 5 * time.Second
+const (
+	DefaultInterval = 5 * time.Second
+
+	DefaultStrandedGrace = 2 * time.Minute
+
+	movableIsolation = "container"
+)
 
 type Candidate struct {
 	ID   string
@@ -21,14 +27,24 @@ type Pending struct {
 	NetworkID string
 }
 
+type Stranded struct {
+	ID        string
+	Name      string
+	NodeID    string
+	Isolation string
+}
+
 type NodeSource interface {
 	ReadyNodes(ctx context.Context) ([]Candidate, error)
+	UnreachableNodes(ctx context.Context, grace time.Duration) ([]string, error)
 }
 
 type InstanceSource interface {
 	PendingPlacement(ctx context.Context) ([]Pending, error)
 	AssignedCounts(ctx context.Context) (map[string]int, error)
 	Assign(ctx context.Context, instanceID, nodeID string) error
+	StrandedOn(ctx context.Context, nodeIDs []string) ([]Stranded, error)
+	ReleasePlacement(ctx context.Context, instanceID, nodeID string) error
 }
 
 type AddressSource interface {
@@ -41,6 +57,7 @@ type Scheduler struct {
 	addresses AddressSource
 	log       *slog.Logger
 	interval  time.Duration
+	grace     time.Duration
 }
 
 func New(
@@ -59,6 +76,7 @@ func New(
 		addresses: addresses,
 		log:       log,
 		interval:  interval,
+		grace:     DefaultStrandedGrace,
 	}
 }
 
@@ -82,6 +100,10 @@ func (s *Scheduler) Run(ctx context.Context) {
 }
 
 func (s *Scheduler) Tick(ctx context.Context) error {
+	if err := s.releaseStranded(ctx); err != nil {
+		return err
+	}
+
 	pending, err := s.instances.PendingPlacement(ctx)
 	if err != nil {
 		return err
@@ -120,6 +142,39 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			s.log.Warn("address allocation failed",
 				"instance", p.ID, "network", p.NetworkID, "node", target.ID, "error", err)
 		}
+	}
+
+	return nil
+}
+
+func (s *Scheduler) releaseStranded(ctx context.Context) error {
+	lost, err := s.nodes.UnreachableNodes(ctx, s.grace)
+	if err != nil {
+		return err
+	}
+	if len(lost) == 0 {
+		return nil
+	}
+
+	stranded, err := s.instances.StrandedOn(ctx, lost)
+	if err != nil {
+		return err
+	}
+
+	for _, in := range stranded {
+		if in.Isolation != movableIsolation {
+			s.log.Warn("leaving a workload on an unreachable node because moving it would lose its disk",
+				"instance", in.ID, "name", in.Name, "isolation", in.Isolation, "node", in.NodeID)
+			continue
+		}
+
+		if err := s.instances.ReleasePlacement(ctx, in.ID, in.NodeID); err != nil {
+			s.log.Warn("could not release a stranded workload",
+				"instance", in.ID, "node", in.NodeID, "error", err)
+			continue
+		}
+		s.log.Info("released a workload from an unreachable node",
+			"instance", in.ID, "name", in.Name, "node", in.NodeID)
 	}
 
 	return nil
