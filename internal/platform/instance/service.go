@@ -163,10 +163,6 @@ func normalize(params CreateParams) (CreateParams, error) {
 			"command must have at most %d arguments", MaxCommandArgs,
 		))
 	}
-	if params.Isolation == string(IsolationContainer) && len(params.Command) == 0 {
-		return params, fault.Invalid("invalid_command",
-			"container instances need an explicit command until image metadata is available")
-	}
 
 	if params.VCPU == 0 {
 		params.VCPU = DefaultVCPU

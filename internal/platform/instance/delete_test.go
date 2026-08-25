@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
@@ -99,5 +100,38 @@ func TestDeleteOfAnUnknownInstanceDoesNotReleaseAnything(t *testing.T) {
 	}
 	if len(networks.released) != 0 {
 		t.Fatalf("released = %v, want nothing", networks.released)
+	}
+}
+
+func TestCreateWithoutACommandIsAllowed(t *testing.T) {
+	h, _ := newModuleWithNetworks(t, &fakeNetworks{})
+
+	rec := request(t, h, http.MethodPost, "/v1/instances",
+		`{"name":"api-1","isolation":"container","image":"nginx:alpine"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: the image can supply the command", rec.Code, http.StatusCreated)
+	}
+
+	if got := decodeInstance(t, rec); len(got.Command) != 0 {
+		t.Fatalf("command = %v, want it left empty so the node reads it from the image", got.Command)
+	}
+}
+
+func TestCreateRejectsAnAbsurdlyLongCommand(t *testing.T) {
+	h, _ := newModuleWithNetworks(t, &fakeNetworks{})
+
+	args := make([]string, MaxCommandArgs+1)
+	for i := range args {
+		args[i] = `"x"`
+	}
+	body := `{"name":"api-1","isolation":"container","image":"alpine","command":[` +
+		strings.Join(args, ",") + `]}`
+
+	rec := request(t, h, http.MethodPost, "/v1/instances", body)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	if code := errorCode(t, rec); code != "invalid_command" {
+		t.Fatalf("error code = %q, want %q", code, "invalid_command")
 	}
 }

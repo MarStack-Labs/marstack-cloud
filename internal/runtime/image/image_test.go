@@ -70,6 +70,7 @@ type fakeRegistry struct {
 	layers     [][]byte
 	blobs      map[string][]byte
 	realm      string
+	config     any
 	corrupt    bool
 	tokenAsked bool
 	served     map[string]int
@@ -117,8 +118,21 @@ func (f *fakeRegistry) start() *httptest.Server {
 					Size:      int64(len(layer)),
 				})
 			}
+
+			config := descriptor{}
+			if f.config != nil {
+				raw, _ := json.Marshal(f.config)
+				digest := digestOf(raw)
+				f.blobs[digest] = raw
+				config = descriptor{Digest: digest, Size: int64(len(raw))}
+			}
+
 			w.Header().Set("Content-Type", ociManifest)
-			json.NewEncoder(w).Encode(manifest{MediaType: ociManifest, Layers: descriptors})
+			json.NewEncoder(w).Encode(manifest{
+				MediaType: ociManifest,
+				Config:    config,
+				Layers:    descriptors,
+			})
 
 		case strings.Contains(r.URL.Path, "/blobs/"):
 			digest := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
@@ -192,7 +206,7 @@ func pullInto(t *testing.T, layers [][]byte) (string, *fakeRegistry) {
 	dest := t.TempDir()
 	reference := strings.TrimPrefix(srv.URL, "http://") + "/library/demo:latest"
 
-	if err := store.Pull(context.Background(), reference, dest); err != nil {
+	if _, err := store.Pull(context.Background(), reference, dest); err != nil {
 		t.Fatalf("pull: %v", err)
 	}
 	return dest, fake
@@ -260,7 +274,7 @@ func TestLayerCannotEscapeTheRootFilesystem(t *testing.T) {
 	outside := filepath.Join(filepath.Dir(dest), "etc", "shadow")
 
 	reference := strings.TrimPrefix(srv.URL, "http://") + "/library/demo:latest"
-	_ = store.Pull(context.Background(), reference, dest)
+	_, _ = store.Pull(context.Background(), reference, dest)
 
 	if _, err := os.Stat(outside); err == nil {
 		t.Fatal("a layer entry wrote outside the root filesystem")
@@ -278,7 +292,7 @@ func TestBlobsAreCachedBetweenPulls(t *testing.T) {
 
 	reference := strings.TrimPrefix(srv.URL, "http://") + "/library/demo:latest"
 	for range 2 {
-		if err := store.Pull(context.Background(), reference, t.TempDir()); err != nil {
+		if _, err := store.Pull(context.Background(), reference, t.TempDir()); err != nil {
 			t.Fatalf("pull: %v", err)
 		}
 	}
@@ -300,7 +314,7 @@ func TestCorruptBlobIsRejected(t *testing.T) {
 	store.registry = newRegistry(true)
 
 	reference := strings.TrimPrefix(srv.URL, "http://") + "/library/demo:latest"
-	err := store.Pull(context.Background(), reference, t.TempDir())
+	_, err := store.Pull(context.Background(), reference, t.TempDir())
 
 	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
 		t.Fatalf("error = %v, want a digest mismatch", err)
@@ -335,5 +349,46 @@ func TestSelectPlatformFailsClearlyWhenAbsent(t *testing.T) {
 		t.Fatal("expected an error naming the missing platform")
 	} else if !strings.Contains(err.Error(), fmt.Sprintf("linux/%s", runtime.GOARCH)) {
 		t.Fatalf("error = %v, want it to name the platform we need", err)
+	}
+}
+
+func TestPullReturnsTheImageCommandAndEnvironment(t *testing.T) {
+	fake := newFakeRegistry(t, [][]byte{layerWith(t, map[string]string{"bin/app": "x"}, true)})
+	fake.config = map[string]any{
+		"config": map[string]any{
+			"Entrypoint": []string{"/bin/app"},
+			"Cmd":        []string{"--serve"},
+			"Env":        []string{"PATH=/bin", "APP_ENV=prod"},
+			"WorkingDir": "/srv",
+		},
+	}
+	srv := fake.start()
+
+	store := New(t.TempDir(), logging.New("error", io.Discard))
+	store.registry = newRegistry(true)
+
+	reference := strings.TrimPrefix(srv.URL, "http://") + "/library/demo:latest"
+	config, err := store.Pull(context.Background(), reference, t.TempDir())
+	if err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+
+	command := config.Command()
+	if len(command) != 2 || command[0] != "/bin/app" || command[1] != "--serve" {
+		t.Fatalf("command = %v, want the entrypoint followed by the cmd", command)
+	}
+	if config.WorkingDir != "/srv" {
+		t.Fatalf("working dir = %q, want /srv", config.WorkingDir)
+	}
+	if len(config.Env) != 2 {
+		t.Fatalf("env = %v, want both variables", config.Env)
+	}
+}
+
+func TestPullToleratesAnImageWithoutAConfig(t *testing.T) {
+	dest, _ := pullInto(t, [][]byte{layerWith(t, map[string]string{"a": "one"}, true)})
+
+	if _, err := os.Stat(filepath.Join(dest, "a")); err != nil {
+		t.Fatalf("layer was not applied: %v", err)
 	}
 }

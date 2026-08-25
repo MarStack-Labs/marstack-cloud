@@ -136,7 +136,6 @@ func TestCreateRejectsInvalidInput(t *testing.T) {
 		{"vcpu too high", `{"name":"api-1","isolation":"container","image":"alpine","command":["/bin/sh","-c","sleep 100"],"vcpu":9999}`, "invalid_vcpu"},
 		{"memory too low", `{"name":"api-1","isolation":"container","image":"alpine","command":["/bin/sh","-c","sleep 100"],"memory_mib":1}`, "invalid_memory"},
 		{"unknown field", `{"name":"api-1","isolation":"container","image":"alpine","root":true}`, "invalid_json"},
-		{"container without command", `{"name":"api-1","isolation":"container","image":"alpine"}`, "invalid_command"},
 	}
 
 	for _, tc := range cases {

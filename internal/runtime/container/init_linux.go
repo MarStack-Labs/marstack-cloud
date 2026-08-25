@@ -15,9 +15,11 @@ import (
 const gateFD = 3
 
 type initConfig struct {
-	Hostname string   `json:"hostname"`
-	Rootfs   string   `json:"rootfs"`
-	Command  []string `json:"command"`
+	Hostname   string   `json:"hostname"`
+	Rootfs     string   `json:"rootfs"`
+	Command    []string `json:"command"`
+	Env        []string `json:"env,omitempty"`
+	WorkingDir string   `json:"working_dir,omitempty"`
 }
 
 func RunInit() error {
@@ -49,11 +51,24 @@ func RunInit() error {
 		return err
 	}
 
+	if cfg.WorkingDir != "" {
+		if err := syscall.Chdir(cfg.WorkingDir); err != nil {
+			return fmt.Errorf("enter working directory %s: %w", cfg.WorkingDir, err)
+		}
+	}
+
 	if err := waitForGate(); err != nil {
 		return err
 	}
 
-	return syscall.Exec(binary, cfg.Command, os.Environ())
+	return syscall.Exec(binary, cfg.Command, environment(cfg.Env))
+}
+
+func environment(fromImage []string) []string {
+	if len(fromImage) > 0 {
+		return fromImage
+	}
+	return []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
 }
 
 func waitForGate() error {

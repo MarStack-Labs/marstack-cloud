@@ -82,16 +82,21 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	if os.Geteuid() != 0 {
 		return errors.New("the container runtime must run as root")
 	}
-	if len(spec.Command) == 0 {
-		return errors.New("no command was given for this instance")
-	}
-
 	if state, err := r.Status(ctx, spec.InstanceID); err == nil && state.Phase == workload.PhaseRunning {
 		return nil
 	}
 
-	if err := r.prepareRootfs(ctx, spec); err != nil {
+	imageConfig, err := r.prepareRootfs(ctx, spec)
+	if err != nil {
 		return err
+	}
+
+	command := spec.Command
+	if len(command) == 0 {
+		command = imageConfig.Command()
+	}
+	if len(command) == 0 {
+		return errors.New("the image declares no command and none was given")
 	}
 
 	if err := r.prepareNetwork(spec); err != nil {
@@ -114,9 +119,11 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	defer syscall.Close(cgroupFD)
 
 	cfg, err := json.Marshal(initConfig{
-		Hostname: spec.Name,
-		Rootfs:   r.layout.rootfs(spec.InstanceID),
-		Command:  spec.Command,
+		Hostname:   spec.Name,
+		Rootfs:     r.layout.rootfs(spec.InstanceID),
+		Command:    command,
+		Env:        imageConfig.Env,
+		WorkingDir: imageConfig.WorkingDir,
 	})
 	if err != nil {
 		return fmt.Errorf("encode init config: %w", err)
@@ -184,6 +191,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	r.log.Info("container started",
 		"instance", spec.InstanceID,
 		"pid", cmd.Process.Pid,
+		"command", command,
 		"vcpu", spec.VCPU,
 		"memory_mib", spec.MemoryMiB,
 	)
@@ -266,33 +274,69 @@ func (r *Runtime) reap(instanceID string, entry *tracked) {
 	)
 }
 
-func (r *Runtime) prepareRootfs(ctx context.Context, spec workload.Spec) error {
+func (r *Runtime) prepareRootfs(ctx context.Context, spec workload.Spec) (image.Config, error) {
 	rootfs := r.layout.rootfs(spec.InstanceID)
 
 	if entries, err := os.ReadDir(rootfs); err == nil && len(entries) > 0 {
-		return nil
+		return r.readImageConfig(spec.InstanceID)
 	}
 	if err := os.MkdirAll(rootfs, 0o755); err != nil {
-		return fmt.Errorf("create rootfs: %w", err)
+		return image.Config{}, fmt.Errorf("create rootfs: %w", err)
 	}
 
 	if archive, found := r.findLocalArchive(spec.Image); found {
 		extract := exec.Command("tar", "--numeric-owner", "-C", rootfs, "-xf", archive)
 		if out, err := extract.CombinedOutput(); err != nil {
-			return fmt.Errorf("extract %s: %w: %s",
+			return image.Config{}, fmt.Errorf("extract %s: %w: %s",
 				filepath.Base(archive), err, strings.TrimSpace(string(out)))
 		}
-		return nil
+		return image.Config{}, nil
 	}
 
-	if err := r.images.Pull(ctx, spec.Image, rootfs); err != nil {
+	config, err := r.images.Pull(ctx, spec.Image, rootfs)
+	if err != nil {
 		if removeErr := os.RemoveAll(rootfs); removeErr != nil {
 			r.log.Warn("could not clean a half-extracted rootfs",
 				"instance", spec.InstanceID, "error", removeErr)
 		}
-		return err
+		return image.Config{}, err
+	}
+
+	if err := r.writeImageConfig(spec.InstanceID, config); err != nil {
+		return image.Config{}, err
+	}
+	return config, nil
+}
+
+func (r *Runtime) imageConfigPath(instanceID string) string {
+	return filepath.Join(r.layout.instance(instanceID), "image.json")
+}
+
+func (r *Runtime) writeImageConfig(instanceID string, config image.Config) error {
+	encoded, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("encode image config: %w", err)
+	}
+	if err := os.WriteFile(r.imageConfigPath(instanceID), encoded, 0o640); err != nil {
+		return fmt.Errorf("write image config: %w", err)
 	}
 	return nil
+}
+
+func (r *Runtime) readImageConfig(instanceID string) (image.Config, error) {
+	raw, err := os.ReadFile(r.imageConfigPath(instanceID))
+	if os.IsNotExist(err) {
+		return image.Config{}, nil
+	}
+	if err != nil {
+		return image.Config{}, fmt.Errorf("read image config: %w", err)
+	}
+
+	var config image.Config
+	if err := json.Unmarshal(raw, &config); err != nil {
+		return image.Config{}, fmt.Errorf("decode image config: %w", err)
+	}
+	return config, nil
 }
 
 func (r *Runtime) findLocalArchive(reference string) (string, bool) {

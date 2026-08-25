@@ -85,11 +85,22 @@ node registers.
 
 ## Running a container
 
-The node pulls the image itself. The command follows `--`, like `docker run`:
+The node pulls the image and takes the command from it, so nothing else is needed:
 
 ```sh
 sudo marstack agent --name bm-1 --zone rack-a
-marstack instance create --name web --image nginx:alpine -- /bin/sh -c 'nginx -g "daemon off;"'
+marstack instance create --name web --image nginx:alpine
+```
+
+```
+INFO image ready       command="[/docker-entrypoint.sh nginx -g daemon off;]"
+INFO container started command="[/docker-entrypoint.sh nginx -g daemon off;]"
+```
+
+Override it after `--`, like `docker run`:
+
+```sh
+marstack instance create --name shell --image alpine:3.20 -- /bin/sh -c 'sleep 3600'
 ```
 
 ```
