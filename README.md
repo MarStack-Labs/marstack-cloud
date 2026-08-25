@@ -33,10 +33,26 @@ make build
 ./bin/marstack server
 ```
 
+In another shell:
+
 ```sh
-curl -s localhost:7443/healthz
-curl -s localhost:7443/v1/version
+export MARSTACK_ENDPOINT=http://127.0.0.1:7443
+
+marstack instance create --name api-1 --image alpine:3.20
+marstack instance create --name db-1 --isolation vm --image ubuntu-24.04 --vcpu 4 --memory-mib 4096
+marstack instance list
+marstack instance stop  i-php2q13mwt3qy
+marstack instance list --output json
 ```
+
+```
+NAME    ID                ISOLATION   IMAGE          VCPU   MEMORY   DESIRED   OBSERVED   NODE
+api-1   i-php2q13mwt3qy   container   alpine:3.20    1      512Mi    stopped   pending    -
+db-1    i-cbv25sa6y2z40   vm          ubuntu-24.04   4      4096Mi   running   pending    -
+```
+
+`OBSERVED` stays `pending` because no agent exists yet: the control plane records intent, and
+nothing reports reality back. That column becomes truthful in step 2 of the roadmap.
 
 ## Development
 
