@@ -7,30 +7,35 @@ import (
 )
 
 type instanceView struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Isolation string `json:"isolation"`
-	Image     string `json:"image"`
-	VCPU      int    `json:"vcpu"`
-	MemoryMiB int    `json:"memory_mib"`
-	Desired   string `json:"desired_state"`
-	Observed  string `json:"observed_state"`
-	NodeID    string `json:"node_id,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Isolation       string `json:"isolation"`
+	Image           string `json:"image"`
+	VCPU            int    `json:"vcpu"`
+	MemoryMiB       int    `json:"memory_mib"`
+	Desired         string `json:"desired_state"`
+	Observed        string `json:"observed_state"`
+	ObservedMessage string `json:"observed_message,omitempty"`
+	NodeID          string `json:"node_id,omitempty"`
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
 }
 
 type instanceListView struct {
 	Instances []instanceView `json:"instances"`
 }
 
-var instanceHeaders = []string{"NAME", "ID", "ISOLATION", "IMAGE", "VCPU", "MEMORY", "DESIRED", "OBSERVED", "NODE"}
+var instanceHeaders = []string{"NAME", "ID", "ISOLATION", "IMAGE", "VCPU", "MEMORY", "DESIRED", "OBSERVED", "MESSAGE"}
 
 func instanceRow(in instanceView) []string {
-	node := in.NodeID
-	if node == "" {
-		node = "-"
+	message := in.ObservedMessage
+	if message == "" {
+		message = "-"
 	}
+	if len(message) > 60 {
+		message = message[:57] + "..."
+	}
+
 	return []string{
 		in.Name,
 		in.ID,
@@ -40,7 +45,7 @@ func instanceRow(in instanceView) []string {
 		strconv.Itoa(in.MemoryMiB) + "Mi",
 		in.Desired,
 		in.Observed,
-		node,
+		message,
 	}
 }
 
@@ -63,18 +68,21 @@ func newInstanceCmd(g *globals) *cobra.Command {
 
 func newInstanceCreateCmd(g *globals) *cobra.Command {
 	var req struct {
-		Name      string `json:"name"`
-		Isolation string `json:"isolation"`
-		Image     string `json:"image"`
-		VCPU      int    `json:"vcpu,omitempty"`
-		MemoryMiB int    `json:"memory_mib,omitempty"`
+		Name      string   `json:"name"`
+		Isolation string   `json:"isolation"`
+		Image     string   `json:"image"`
+		Command   []string `json:"command,omitempty"`
+		VCPU      int      `json:"vcpu,omitempty"`
+		MemoryMiB int      `json:"memory_mib,omitempty"`
 	}
 
 	cmd := &cobra.Command{
-		Use:   "create",
+		Use:   "create [-- command args...]",
 		Short: "Create an instance",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args:  cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			req.Command = args
+
 			var created instanceView
 			if err := newClient(g.endpoint).do(
 				cmd.Context(), "POST", "/v1/instances", req, &created,

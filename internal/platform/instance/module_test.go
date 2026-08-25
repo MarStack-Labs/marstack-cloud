@@ -81,7 +81,7 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return body.Error.Code
 }
 
-const validBody = `{"name":"api-1","isolation":"container","image":"alpine:3.20"}`
+const validBody = `{"name":"api-1","isolation":"container","image":"alpine:3.20","command":["/bin/sh","-c","sleep 100"]}`
 
 func TestCreateAppliesDefaultsAndStartsPending(t *testing.T) {
 	h := newTestModule(t)
@@ -129,13 +129,14 @@ func TestCreateRejectsInvalidInput(t *testing.T) {
 		body     string
 		wantCode string
 	}{
-		{"empty name", `{"name":"","isolation":"container","image":"alpine"}`, "invalid_name"},
-		{"uppercase name", `{"name":"API-1","isolation":"container","image":"alpine"}`, "invalid_name"},
-		{"unknown isolation", `{"name":"api-1","isolation":"jail","image":"alpine"}`, "invalid_isolation"},
-		{"empty image", `{"name":"api-1","isolation":"container","image":""}`, "invalid_image"},
-		{"vcpu too high", `{"name":"api-1","isolation":"container","image":"alpine","vcpu":9999}`, "invalid_vcpu"},
-		{"memory too low", `{"name":"api-1","isolation":"container","image":"alpine","memory_mib":1}`, "invalid_memory"},
+		{"empty name", `{"name":"","isolation":"container","image":"alpine","command":["/bin/sh","-c","sleep 100"]}`, "invalid_name"},
+		{"uppercase name", `{"name":"API-1","isolation":"container","image":"alpine","command":["/bin/sh","-c","sleep 100"]}`, "invalid_name"},
+		{"unknown isolation", `{"name":"api-1","isolation":"jail","image":"alpine","command":["/bin/sh","-c","sleep 100"]}`, "invalid_isolation"},
+		{"empty image", `{"name":"api-1","isolation":"container","image":"","command":["/bin/sh","-c","sleep 100"]}`, "invalid_image"},
+		{"vcpu too high", `{"name":"api-1","isolation":"container","image":"alpine","command":["/bin/sh","-c","sleep 100"],"vcpu":9999}`, "invalid_vcpu"},
+		{"memory too low", `{"name":"api-1","isolation":"container","image":"alpine","command":["/bin/sh","-c","sleep 100"],"memory_mib":1}`, "invalid_memory"},
 		{"unknown field", `{"name":"api-1","isolation":"container","image":"alpine","root":true}`, "invalid_json"},
+		{"container without command", `{"name":"api-1","isolation":"container","image":"alpine"}`, "invalid_command"},
 	}
 
 	for _, tc := range cases {

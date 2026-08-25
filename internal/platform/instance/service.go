@@ -37,6 +37,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		Name:      normalized.Name,
 		Isolation: Isolation(normalized.Isolation),
 		Image:     normalized.Image,
+		Command:   normalized.Command,
 		VCPU:      normalized.VCPU,
 		MemoryMiB: normalized.MemoryMiB,
 		Desired:   DesiredRunning,
@@ -136,6 +137,15 @@ func normalize(params CreateParams) (CreateParams, error) {
 	}
 	if params.Image == "" {
 		return params, fault.Invalid("invalid_image", "image must not be empty")
+	}
+	if len(params.Command) > MaxCommandArgs {
+		return params, fault.Invalid("invalid_command", fmt.Sprintf(
+			"command must have at most %d arguments", MaxCommandArgs,
+		))
+	}
+	if params.Isolation == string(IsolationContainer) && len(params.Command) == 0 {
+		return params, fault.Invalid("invalid_command",
+			"container instances need an explicit command until image metadata is available")
 	}
 
 	if params.VCPU == 0 {

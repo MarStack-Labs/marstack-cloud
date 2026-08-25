@@ -23,6 +23,27 @@ type nodeView struct {
 	Status string `json:"status"`
 }
 
+type instanceView struct {
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Image           string   `json:"image"`
+	Command         []string `json:"command,omitempty"`
+	VCPU            int      `json:"vcpu"`
+	MemoryMiB       int      `json:"memory_mib"`
+	DesiredState    string   `json:"desired_state"`
+	ObservedState   string   `json:"observed_state"`
+	ObservedMessage string   `json:"observed_message,omitempty"`
+}
+
+type instanceListBody struct {
+	Instances []instanceView `json:"instances"`
+}
+
+type statusBody struct {
+	ObservedState string `json:"observed_state"`
+	Message       string `json:"message,omitempty"`
+}
+
 type registerBody struct {
 	Name         string `json:"name"`
 	Zone         string `json:"zone,omitempty"`
@@ -55,6 +76,18 @@ func (c *client) heartbeat(ctx context.Context, nodeID string) (nodeView, error)
 	var out nodeView
 	err := c.do(ctx, http.MethodPost, "/v1/nodes/"+nodeID+"/heartbeat", nil, &out)
 	return out, err
+}
+
+func (c *client) assignedInstances(ctx context.Context, nodeID string) ([]instanceView, error) {
+	var out instanceListBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/instances", nil, &out)
+	return out.Instances, err
+}
+
+func (c *client) reportStatus(ctx context.Context, nodeID, instanceID, observed, message string) error {
+	return c.do(ctx, http.MethodPut,
+		"/v1/nodes/"+nodeID+"/instances/"+instanceID+"/status",
+		statusBody{ObservedState: observed, Message: message}, nil)
 }
 
 type statusError struct {

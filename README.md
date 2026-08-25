@@ -82,6 +82,38 @@ cache-1   i-v3j0c58rhr16g   container   alpine:3.20   running   pending    n-t28
 An instance created while no node is ready simply waits, and is placed on the next pass after a
 node registers.
 
+## Running a container
+
+There is no image store yet, so the agent reads root filesystem archives from its own directory.
+Put one there, then create an instance whose command follows `--`:
+
+```sh
+sudo mkdir -p /var/lib/marstack/images
+sudo curl -fsSLo /var/lib/marstack/images/alpine_3.20.tar.gz \
+  https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-minirootfs-3.20.3-aarch64.tar.gz
+
+sudo marstack agent --name bm-1 --zone rack-a
+marstack instance create --name web-1 --image alpine:3.20 -- /bin/sh -c 'while true; do echo alive; sleep 2; done'
+```
+
+```
+NAME       ID                ISOLATION   IMAGE         DESIRED   OBSERVED   MESSAGE
+web-1      i-bfyv2jzjrq6dp   container   alpine:3.20   running   running    -
+broken-1   i-s2tr5qz81hcnw   container   nginx:1.27    running   failed     image nginx:1.27 is not present on this node
+```
+
+`OBSERVED` is now the node's report, not a guess. What the kernel says about a running instance:
+
+```
+$ sudo readlink /proc/$PID/ns/pid          pid:[4026532433]     ← its own PID namespace
+$ sudo cat /proc/$PID/cgroup               0::/marstack/i-bfyv2jzjrq6dp
+$ cat /sys/fs/cgroup/marstack/$ID/memory.max   536870912        ← 512Mi enforced
+$ cat /sys/fs/cgroup/marstack/$ID/cpu.max      100000 100000    ← one vCPU
+```
+
+Not implemented yet: container networking (the network namespace is created but empty), image
+pulling, restart policy, and `isolation: vm`.
+
 ## Development
 
 ```sh

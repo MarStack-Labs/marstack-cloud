@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/version"
+	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
 const (
@@ -31,20 +32,22 @@ func (c Config) withDefaults() Config {
 }
 
 type Agent struct {
-	cfg    Config
-	client *client
-	log    *slog.Logger
-	host   hostInfo
-	nodeID string
+	cfg     Config
+	client  *client
+	log     *slog.Logger
+	host    hostInfo
+	runtime workload.Runtime
+	nodeID  string
 }
 
-func New(cfg Config, log *slog.Logger) *Agent {
+func New(cfg Config, rt workload.Runtime, log *slog.Logger) *Agent {
 	cfg = cfg.withDefaults()
 	return &Agent{
-		cfg:    cfg,
-		client: newClient(cfg.Endpoint),
-		log:    log,
-		host:   inspectHost(),
+		cfg:     cfg,
+		client:  newClient(cfg.Endpoint),
+		log:     log,
+		host:    inspectHost(),
+		runtime: rt,
 	}
 }
 
@@ -55,6 +58,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		"arch", a.host.Arch,
 		"cpus", a.host.CPUs,
 		"memory_mib", a.host.MemoryMiB,
+		"runtime", a.runtimeName(),
 	)
 
 	if err := a.registerWithRetry(ctx); err != nil {
@@ -94,6 +98,8 @@ func (a *Agent) tick(ctx context.Context) {
 		return
 	}
 	a.log.Debug("heartbeat sent", "node_id", a.nodeID)
+
+	a.reconcile(ctx)
 }
 
 func (a *Agent) register(ctx context.Context) error {
@@ -142,4 +148,11 @@ func (a *Agent) registerWithRetry(ctx context.Context) error {
 			backoff = maxBackoff
 		}
 	}
+}
+
+func (a *Agent) runtimeName() string {
+	if a.runtime == nil {
+		return "none"
+	}
+	return a.runtime.Name()
 }

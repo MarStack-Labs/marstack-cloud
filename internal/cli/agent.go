@@ -10,14 +10,16 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/agent"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/container"
 )
 
 func newAgentCmd(g *globals) *cobra.Command {
 	var (
-		name     string
-		zone     string
-		interval time.Duration
-		logLevel string
+		name        string
+		zone        string
+		runtimeRoot string
+		interval    time.Duration
+		logLevel    string
 	)
 
 	cmd := &cobra.Command{
@@ -43,14 +45,28 @@ func newAgentCmd(g *globals) *cobra.Command {
 				Name:     name,
 				Zone:     zone,
 				Interval: interval,
-			}, log).Run(ctx)
+			}, container.New(runtimeRoot, log), log).Run(ctx)
 		},
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "node name, defaults to the hostname")
 	cmd.Flags().StringVar(&zone, "zone", "", "failure domain this node belongs to")
-	cmd.Flags().DurationVar(&interval, "interval", agent.DefaultInterval, "heartbeat interval")
+	cmd.Flags().StringVar(&runtimeRoot, "runtime-root", container.DefaultRoot,
+		"directory holding images and instance state on this node")
+	cmd.Flags().DurationVar(&interval, "interval", agent.DefaultInterval, "heartbeat and reconcile interval")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
 
 	return cmd
+}
+
+func newContainerInitCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:    "container-init",
+		Short:  "Internal: become the init process of a container",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return container.RunInit()
+		},
+	}
 }

@@ -76,7 +76,7 @@ func TestSchedulerPlacesInstanceOnRegisteredNode(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	rec := post(t, a, "/v1/instances", `{"name":"api-1","isolation":"container","image":"alpine:3.20"}`)
+	rec := post(t, a, "/v1/instances", `{"name":"api-1","isolation":"container","image":"alpine:3.20","command":["/bin/sh","-c","sleep 100"]}`)
 	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode created instance: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestPlacementIsNotUndoneByAFurtherPass(t *testing.T) {
 	var created struct {
 		ID string `json:"id"`
 	}
-	rec := post(t, a, "/v1/instances", `{"name":"api-1","isolation":"container","image":"alpine:3.20"}`)
+	rec := post(t, a, "/v1/instances", `{"name":"api-1","isolation":"container","image":"alpine:3.20","command":["/bin/sh","-c","sleep 100"]}`)
 	json.Unmarshal(rec.Body.Bytes(), &created)
 
 	first := waitForPlacement(t, a, created.ID)

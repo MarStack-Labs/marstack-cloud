@@ -10,7 +10,7 @@ func placedInstance(t *testing.T, h http.Handler, m *Module, name, nodeID string
 	t.Helper()
 
 	created := decodeInstance(t, request(t, h, http.MethodPost, "/v1/instances",
-		`{"name":"`+name+`","isolation":"container","image":"alpine:3.20"}`))
+		`{"name":"`+name+`","isolation":"container","image":"alpine:3.20","command":["/bin/sh","-c","sleep 100"]}`))
 
 	if err := m.Assign(t.Context(), created.ID, nodeID); err != nil {
 		t.Fatalf("assign: %v", err)
@@ -167,11 +167,11 @@ func TestPendingPlacementSkipsPlacedAndStoppedInstances(t *testing.T) {
 	h, m := newTestModuleWithAssign(t)
 
 	waiting := decodeInstance(t, request(t, h, http.MethodPost, "/v1/instances",
-		`{"name":"waiting","isolation":"container","image":"alpine"}`))
+		`{"name":"waiting","isolation":"container","image":"alpine","command":["/bin/sh","-c","sleep 100"]}`))
 	placedInstance(t, h, m, "placed", "n-mine")
 
 	stopped := decodeInstance(t, request(t, h, http.MethodPost, "/v1/instances",
-		`{"name":"stopped","isolation":"container","image":"alpine"}`))
+		`{"name":"stopped","isolation":"container","image":"alpine","command":["/bin/sh","-c","sleep 100"]}`))
 	request(t, h, http.MethodPost, "/v1/instances/"+stopped.ID+"/stop", "")
 
 	pending, err := m.PendingPlacement(t.Context())

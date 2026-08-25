@@ -60,6 +60,7 @@ type Instance struct {
 	Name            string
 	Isolation       Isolation
 	Image           string
+	Command         []string
 	VCPU            int
 	MemoryMiB       int
 	Desired         DesiredState
@@ -74,6 +75,9 @@ type CreateParams struct {
 	Name      string
 	Isolation string
 	Image     string
+	Command   []string
 	VCPU      int
 	MemoryMiB int
 }
+
+const MaxCommandArgs = 64

@@ -3,6 +3,7 @@ package instance
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -24,7 +25,7 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, name, isolation, image, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
+const columns = `id, name, isolation, image, command, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
 	taken, err := r.nameTaken(ctx, in.Name)
@@ -35,9 +36,14 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 		return errNameTaken
 	}
 
+	command, err := json.Marshal(in.Command)
+	if err != nil {
+		return fmt.Errorf("encode command: %w", err)
+	}
+
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO instances (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.ID, in.Name, string(in.Isolation), in.Image, in.VCPU, in.MemoryMiB,
+		`INSERT INTO instances (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.ID, in.Name, string(in.Isolation), in.Image, string(command), in.VCPU, in.MemoryMiB,
 		string(in.Desired), string(in.Observed), in.ObservedMessage, in.NodeID,
 		in.CreatedAt.Format(time.RFC3339Nano), in.UpdatedAt.Format(time.RFC3339Nano),
 	)
@@ -241,6 +247,7 @@ func scanInstance(row scanner) (Instance, error) {
 	var (
 		in         Instance
 		isolation  string
+		command    string
 		desired    string
 		observed   string
 		nodeID     sql.NullString
@@ -249,10 +256,16 @@ func scanInstance(row scanner) (Instance, error) {
 	)
 
 	if err := row.Scan(
-		&in.ID, &in.Name, &isolation, &in.Image, &in.VCPU, &in.MemoryMiB,
+		&in.ID, &in.Name, &isolation, &in.Image, &command, &in.VCPU, &in.MemoryMiB,
 		&desired, &observed, &in.ObservedMessage, &nodeID, &createdRaw, &updatedRaw,
 	); err != nil {
 		return Instance{}, err
+	}
+
+	if command != "" {
+		if err := json.Unmarshal([]byte(command), &in.Command); err != nil {
+			return Instance{}, fmt.Errorf("decode command: %w", err)
+		}
 	}
 
 	in.Isolation = Isolation(isolation)

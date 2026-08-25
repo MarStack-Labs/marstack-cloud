@@ -8,11 +8,12 @@ import (
 )
 
 type createRequest struct {
-	Name      string `json:"name"`
-	Isolation string `json:"isolation"`
-	Image     string `json:"image"`
-	VCPU      int    `json:"vcpu,omitempty"`
-	MemoryMiB int    `json:"memory_mib,omitempty"`
+	Name      string   `json:"name"`
+	Isolation string   `json:"isolation"`
+	Image     string   `json:"image"`
+	Command   []string `json:"command,omitempty"`
+	VCPU      int      `json:"vcpu,omitempty"`
+	MemoryMiB int      `json:"memory_mib,omitempty"`
 }
 
 type statusRequest struct {
@@ -21,18 +22,19 @@ type statusRequest struct {
 }
 
 type response struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Isolation       string `json:"isolation"`
-	Image           string `json:"image"`
-	VCPU            int    `json:"vcpu"`
-	MemoryMiB       int    `json:"memory_mib"`
-	Desired         string `json:"desired_state"`
-	Observed        string `json:"observed_state"`
-	ObservedMessage string `json:"observed_message,omitempty"`
-	NodeID          string `json:"node_id,omitempty"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
+	ID              string   `json:"id"`
+	Name            string   `json:"name"`
+	Isolation       string   `json:"isolation"`
+	Image           string   `json:"image"`
+	Command         []string `json:"command,omitempty"`
+	VCPU            int      `json:"vcpu"`
+	MemoryMiB       int      `json:"memory_mib"`
+	Desired         string   `json:"desired_state"`
+	Observed        string   `json:"observed_state"`
+	ObservedMessage string   `json:"observed_message,omitempty"`
+	NodeID          string   `json:"node_id,omitempty"`
+	CreatedAt       string   `json:"created_at"`
+	UpdatedAt       string   `json:"updated_at"`
 }
 
 type listResponse struct {
@@ -45,6 +47,7 @@ func toResponse(in Instance) response {
 		Name:            in.Name,
 		Isolation:       string(in.Isolation),
 		Image:           in.Image,
+		Command:         in.Command,
 		VCPU:            in.VCPU,
 		MemoryMiB:       in.MemoryMiB,
 		Desired:         string(in.Desired),
@@ -70,6 +73,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		Name:      req.Name,
 		Isolation: req.Isolation,
 		Image:     req.Image,
+		Command:   req.Command,
 		VCPU:      req.VCPU,
 		MemoryMiB: req.MemoryMiB,
 	})
