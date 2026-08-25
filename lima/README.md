@@ -43,19 +43,23 @@ it, because `bin/` is not on `PATH`.
 refuses to stamp VCS information from a repository it considers unsafe. Put it in `~/.bashrc` inside
 the VM to stop repeating it.
 
-Then run the control plane in one shell:
+Then bring up a control plane and one agent:
 
 ```sh
-marstack server --data-dir ~/marstack-data
+make dev-up      # builds, starts both, prints the node list
+make dev-logs    # tail both logs
+make dev-down    # stop them
+make dev-reset   # stop, drop the database and all instance state
 ```
 
-and talk to it from another:
-
 ```sh
-export MARSTACK_ENDPOINT=http://127.0.0.1:7443
-marstack instance create --name api-1 --image alpine:3.20
+marstack network list
+marstack instance create --name api-1 --image alpine:3.20 -- /bin/sh -c 'sleep 3600'
 marstack instance list
 ```
+
+`dev-up` runs the agent under `sudo` because the container runtime needs root for namespaces and
+cgroups. The control plane does not.
 
 The control plane may also run on the macOS host instead; the VM reaches it at `192.168.5.2`.
 

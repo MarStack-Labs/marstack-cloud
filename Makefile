@@ -6,7 +6,7 @@ LDFLAGS := -X github.com/marstack-labs/marstack-cloud/internal/version.Version=$
 GOBIN  ?= $(shell go env GOPATH)/bin
 PREFIX ?= /usr/local
 
-.PHONY: build install uninstall test vet fmt staticcheck vuln gosec secrets security check tools hooks run clean
+.PHONY: build install uninstall test vet fmt staticcheck vuln gosec secrets security check tools hooks run dev-up dev-down dev-logs dev-reset clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/marstack ./cmd/marstack
@@ -54,6 +54,29 @@ hooks:
 
 run: build
 	./bin/marstack server
+
+DEV_DATA ?= $(HOME)/marstack-data
+DEV_LOGS ?= $(HOME)
+DEV_NODE ?= bm-1
+DEV_ZONE ?= rack-a
+
+dev-up: build
+	@$(MAKE) --no-print-directory dev-down
+	setsid nohup ./bin/marstack server --data-dir $(DEV_DATA) > $(DEV_LOGS)/ms-server.log 2>&1 < /dev/null &
+	@sleep 2
+	setsid sudo nohup ./bin/marstack agent --name $(DEV_NODE) --zone $(DEV_ZONE) > $(DEV_LOGS)/ms-agent.log 2>&1 < /dev/null &
+	@sleep 3
+	@./bin/marstack node list
+
+dev-down:
+	@for p in $$(pgrep -x marstack); do sudo kill $$p 2>/dev/null || true; done; sleep 1
+
+dev-logs:
+	@tail -n 30 $(DEV_LOGS)/ms-server.log $(DEV_LOGS)/ms-agent.log
+
+dev-reset: dev-down
+	rm -rf $(DEV_DATA)
+	sudo rm -rf /var/lib/marstack/instances
 
 clean:
 	rm -rf bin data coverage.out
