@@ -43,18 +43,19 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 
 	now := s.now()
 	in := Instance{
-		ID:        ids.New("i"),
-		Name:      normalized.Name,
-		Isolation: Isolation(normalized.Isolation),
-		Image:     normalized.Image,
-		Command:   normalized.Command,
-		NetworkID: networkID,
-		VCPU:      normalized.VCPU,
-		MemoryMiB: normalized.MemoryMiB,
-		Desired:   DesiredRunning,
-		Observed:  ObservedPending,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:            ids.New("i"),
+		Name:          normalized.Name,
+		Isolation:     Isolation(normalized.Isolation),
+		Image:         normalized.Image,
+		Command:       normalized.Command,
+		NetworkID:     networkID,
+		RestartPolicy: RestartPolicy(normalized.RestartPolicy),
+		VCPU:          normalized.VCPU,
+		MemoryMiB:     normalized.MemoryMiB,
+		Desired:       DesiredRunning,
+		Observed:      ObservedPending,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	if err := s.repo.insert(ctx, in); err != nil {
@@ -107,7 +108,9 @@ func (s *service) listByNode(ctx context.Context, nodeID string) ([]Instance, er
 	return instances, nil
 }
 
-func (s *service) reportObserved(ctx context.Context, nodeID, instanceID, observed, message string) (Instance, error) {
+func (s *service) reportObserved(
+	ctx context.Context, nodeID, instanceID, observed, message string, restarts int,
+) (Instance, error) {
 	if err := validate.OneOf("observed_state", observed, AllObservedStates()...); err != nil {
 		return Instance{}, err
 	}
@@ -117,7 +120,13 @@ func (s *service) reportObserved(ctx context.Context, nodeID, instanceID, observ
 		))
 	}
 
-	if err := s.repo.setObserved(ctx, instanceID, nodeID, ObservedState(observed), message, s.now()); err != nil {
+	if restarts < 0 {
+		return Instance{}, fault.Invalid("invalid_restarts", "restarts must not be negative")
+	}
+
+	if err := s.repo.setObserved(
+		ctx, instanceID, nodeID, ObservedState(observed), message, restarts, s.now(),
+	); err != nil {
 		if errors.Is(err, errNotFound) {
 			return Instance{}, fault.NotFound("instance_not_on_node",
 				"no instance with that id is assigned to this node")
@@ -157,6 +166,12 @@ func normalize(params CreateParams) (CreateParams, error) {
 	}
 	if params.Image == "" {
 		return params, fault.Invalid("invalid_image", "image must not be empty")
+	}
+	if params.RestartPolicy == "" {
+		params.RestartPolicy = string(DefaultRestartPolicy)
+	}
+	if err := validate.OneOf("restart_policy", params.RestartPolicy, AllRestartPolicies()...); err != nil {
+		return params, err
 	}
 	if len(params.Command) > MaxCommandArgs {
 		return params, fault.Invalid("invalid_command", fmt.Sprintf(

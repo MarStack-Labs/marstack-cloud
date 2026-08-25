@@ -13,6 +13,8 @@ type instanceView struct {
 	Image           string `json:"image"`
 	VCPU            int    `json:"vcpu"`
 	MemoryMiB       int    `json:"memory_mib"`
+	RestartPolicy   string `json:"restart_policy,omitempty"`
+	RestartCount    int    `json:"restart_count,omitempty"`
 	Desired         string `json:"desired_state"`
 	Observed        string `json:"observed_state"`
 	ObservedMessage string `json:"observed_message,omitempty"`
@@ -25,7 +27,7 @@ type instanceListView struct {
 	Instances []instanceView `json:"instances"`
 }
 
-var instanceHeaders = []string{"NAME", "ID", "ISOLATION", "IMAGE", "VCPU", "MEMORY", "DESIRED", "OBSERVED", "MESSAGE"}
+var instanceHeaders = []string{"NAME", "ID", "IMAGE", "SIZE", "DESIRED", "OBSERVED", "RESTARTS", "MESSAGE"}
 
 func instanceRow(in instanceView) []string {
 	message := in.ObservedMessage
@@ -39,12 +41,11 @@ func instanceRow(in instanceView) []string {
 	return []string{
 		in.Name,
 		in.ID,
-		in.Isolation,
 		in.Image,
-		strconv.Itoa(in.VCPU),
-		strconv.Itoa(in.MemoryMiB) + "Mi",
+		strconv.Itoa(in.VCPU) + "cpu/" + strconv.Itoa(in.MemoryMiB) + "Mi",
 		in.Desired,
 		in.Observed,
+		strconv.Itoa(in.RestartCount),
 		message,
 	}
 }
@@ -68,12 +69,13 @@ func newInstanceCmd(g *globals) *cobra.Command {
 
 func newInstanceCreateCmd(g *globals) *cobra.Command {
 	var req struct {
-		Name      string   `json:"name"`
-		Isolation string   `json:"isolation"`
-		Image     string   `json:"image"`
-		Command   []string `json:"command,omitempty"`
-		VCPU      int      `json:"vcpu,omitempty"`
-		MemoryMiB int      `json:"memory_mib,omitempty"`
+		Name          string   `json:"name"`
+		Isolation     string   `json:"isolation"`
+		Image         string   `json:"image"`
+		Command       []string `json:"command,omitempty"`
+		RestartPolicy string   `json:"restart_policy,omitempty"`
+		VCPU          int      `json:"vcpu,omitempty"`
+		MemoryMiB     int      `json:"memory_mib,omitempty"`
 	}
 
 	cmd := &cobra.Command{
@@ -96,6 +98,8 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&req.Name, "name", "", "instance name, unique within the platform")
 	cmd.Flags().StringVar(&req.Isolation, "isolation", "container", "isolation: container, vm, microvm")
 	cmd.Flags().StringVar(&req.Image, "image", "", "image the instance boots from")
+	cmd.Flags().StringVar(&req.RestartPolicy, "restart", "",
+		"restart policy: always, on-failure, never")
 	cmd.Flags().IntVar(&req.VCPU, "vcpu", 0, "virtual CPUs, defaults to the platform default")
 	cmd.Flags().IntVar(&req.MemoryMiB, "memory-mib", 0, "memory in MiB, defaults to the platform default")
 

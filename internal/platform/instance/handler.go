@@ -8,18 +8,20 @@ import (
 )
 
 type createRequest struct {
-	Name      string   `json:"name"`
-	Isolation string   `json:"isolation"`
-	Image     string   `json:"image"`
-	Command   []string `json:"command,omitempty"`
-	NetworkID string   `json:"network_id,omitempty"`
-	VCPU      int      `json:"vcpu,omitempty"`
-	MemoryMiB int      `json:"memory_mib,omitempty"`
+	Name          string   `json:"name"`
+	Isolation     string   `json:"isolation"`
+	Image         string   `json:"image"`
+	Command       []string `json:"command,omitempty"`
+	NetworkID     string   `json:"network_id,omitempty"`
+	RestartPolicy string   `json:"restart_policy,omitempty"`
+	VCPU          int      `json:"vcpu,omitempty"`
+	MemoryMiB     int      `json:"memory_mib,omitempty"`
 }
 
 type statusRequest struct {
 	ObservedState string `json:"observed_state"`
 	Message       string `json:"message,omitempty"`
+	Restarts      int    `json:"restarts,omitempty"`
 }
 
 type response struct {
@@ -29,6 +31,8 @@ type response struct {
 	Image           string   `json:"image"`
 	Command         []string `json:"command,omitempty"`
 	NetworkID       string   `json:"network_id,omitempty"`
+	RestartPolicy   string   `json:"restart_policy"`
+	RestartCount    int      `json:"restart_count"`
 	VCPU            int      `json:"vcpu"`
 	MemoryMiB       int      `json:"memory_mib"`
 	Desired         string   `json:"desired_state"`
@@ -51,6 +55,8 @@ func toResponse(in Instance) response {
 		Image:           in.Image,
 		Command:         in.Command,
 		NetworkID:       in.NetworkID,
+		RestartPolicy:   string(in.RestartPolicy),
+		RestartCount:    in.RestartCount,
 		VCPU:            in.VCPU,
 		MemoryMiB:       in.MemoryMiB,
 		Desired:         string(in.Desired),
@@ -73,13 +79,14 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	in, err := h.svc.create(r.Context(), CreateParams{
-		Name:      req.Name,
-		Isolation: req.Isolation,
-		Image:     req.Image,
-		Command:   req.Command,
-		NetworkID: req.NetworkID,
-		VCPU:      req.VCPU,
-		MemoryMiB: req.MemoryMiB,
+		Name:          req.Name,
+		Isolation:     req.Isolation,
+		Image:         req.Image,
+		Command:       req.Command,
+		NetworkID:     req.NetworkID,
+		RestartPolicy: req.RestartPolicy,
+		VCPU:          req.VCPU,
+		MemoryMiB:     req.MemoryMiB,
 	})
 	if err != nil {
 		return err
@@ -157,6 +164,7 @@ func (h *handler) reportStatus(w http.ResponseWriter, r *http.Request) error {
 		r.PathValue("instanceID"),
 		req.ObservedState,
 		req.Message,
+		req.Restarts,
 	)
 	if err != nil {
 		return err

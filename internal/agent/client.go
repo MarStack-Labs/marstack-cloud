@@ -35,6 +35,8 @@ type instanceView struct {
 	Command         []string `json:"command,omitempty"`
 	VCPU            int      `json:"vcpu"`
 	MemoryMiB       int      `json:"memory_mib"`
+	RestartPolicy   string   `json:"restart_policy,omitempty"`
+	RestartCount    int      `json:"restart_count,omitempty"`
 	DesiredState    string   `json:"desired_state"`
 	ObservedState   string   `json:"observed_state"`
 	ObservedMessage string   `json:"observed_message,omitempty"`
@@ -73,6 +75,7 @@ type networkListBody struct {
 type statusBody struct {
 	ObservedState string `json:"observed_state"`
 	Message       string `json:"message,omitempty"`
+	Restarts      int    `json:"restarts,omitempty"`
 }
 
 type registerBody struct {
@@ -143,10 +146,12 @@ func (c *client) dnsRecords(ctx context.Context) ([]dnsRecordView, error) {
 	return out.Records, err
 }
 
-func (c *client) reportStatus(ctx context.Context, nodeID, instanceID, observed, message string) error {
+func (c *client) reportStatus(
+	ctx context.Context, nodeID, instanceID, observed, message string, restarts int,
+) error {
 	return c.do(ctx, http.MethodPut,
 		"/v1/nodes/"+nodeID+"/instances/"+instanceID+"/status",
-		statusBody{ObservedState: observed, Message: message}, nil)
+		statusBody{ObservedState: observed, Message: message, Restarts: restarts}, nil)
 }
 
 type statusError struct {

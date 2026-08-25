@@ -2,14 +2,20 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"net/netip"
 	"strconv"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
 const (
 	dnsSuffix = "internal"
+
+	restartNever     = "never"
+	restartOnFailure = "on-failure"
+	restartAlways    = "always"
 
 	desiredRunning = "running"
 	desiredStopped = "stopped"
@@ -45,11 +51,12 @@ func (a *Agent) reconcile(ctx context.Context) {
 
 	for _, in := range assigned {
 		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID])
+		restarts := a.restartAttempts(in.ID)
 
-		if in.ObservedState == observed && in.ObservedMessage == message {
+		if in.ObservedState == observed && in.ObservedMessage == message && in.RestartCount == restarts {
 			continue
 		}
-		if err := a.client.reportStatus(ctx, a.nodeID, in.ID, observed, message); err != nil {
+		if err := a.client.reportStatus(ctx, a.nodeID, in.ID, observed, message, restarts); err != nil {
 			a.log.Warn("could not report status", "instance", in.ID, "error", err)
 		}
 	}
@@ -227,7 +234,7 @@ func (a *Agent) reconcileOne(
 		if iface == nil {
 			return observedPending, "waiting for an address"
 		}
-		return a.ensureRunning(ctx, spec, state)
+		return a.ensureRunning(ctx, spec, state, in.RestartPolicy)
 	case desiredStopped:
 		return a.ensureStopped(ctx, in.ID, state)
 	default:
@@ -235,32 +242,78 @@ func (a *Agent) reconcileOne(
 	}
 }
 
-func (a *Agent) ensureRunning(ctx context.Context, spec workload.Spec, state workload.State) (string, string) {
+func (a *Agent) ensureRunning(
+	ctx context.Context,
+	spec workload.Spec,
+	state workload.State,
+	policy string,
+) (string, string) {
 	switch state.Phase {
 	case workload.PhaseRunning:
 		return observedRunning, state.Message
 
 	case workload.PhaseExited:
-		return observedFailed, state.Message
+		return a.handleExit(ctx, spec, state, policy)
 
 	default:
-		if err := a.runtime.Start(ctx, spec); err != nil {
-			a.log.Warn("could not start workload", "instance", spec.InstanceID, "error", err)
-			return observedFailed, err.Error()
-		}
-
-		after, err := a.runtime.Status(ctx, spec.InstanceID)
-		if err != nil {
-			return observedFailed, "started but could not be inspected: " + err.Error()
-		}
-		if after.Phase != workload.PhaseRunning {
-			return observedFailed, after.Message
-		}
-		return observedRunning, ""
+		return a.start(ctx, spec, "")
 	}
 }
 
+func (a *Agent) handleExit(
+	ctx context.Context,
+	spec workload.Spec,
+	state workload.State,
+	policy string,
+) (string, string) {
+	if !shouldRestart(policy, state.ExitCode) {
+		if state.ExitCode == 0 {
+			return observedStopped, state.Message
+		}
+		return observedFailed, state.Message
+	}
+
+	if allowed, wait := a.restartAllowed(spec.InstanceID); !allowed {
+		return observedFailed, fmt.Sprintf("%s, restarting in %s (attempt %d)",
+			state.Message, wait.Round(time.Second), a.restartAttempts(spec.InstanceID)+1)
+	}
+
+	attempt := a.noteRestart(spec.InstanceID)
+	a.log.Info("restarting workload",
+		"instance", spec.InstanceID,
+		"exit_code", state.ExitCode,
+		"attempt", attempt,
+	)
+
+	if err := a.runtime.Remove(ctx, spec.InstanceID); err != nil {
+		a.log.Warn("could not clear the exited workload", "instance", spec.InstanceID, "error", err)
+		return observedFailed, "could not clear the exited workload: " + err.Error()
+	}
+
+	return a.start(ctx, spec, fmt.Sprintf("restarted after %s", state.Message))
+}
+
+func (a *Agent) start(ctx context.Context, spec workload.Spec, note string) (string, string) {
+	if err := a.runtime.Start(ctx, spec); err != nil {
+		a.log.Warn("could not start workload", "instance", spec.InstanceID, "error", err)
+		return observedFailed, err.Error()
+	}
+
+	after, err := a.runtime.Status(ctx, spec.InstanceID)
+	if err != nil {
+		return observedFailed, "started but could not be inspected: " + err.Error()
+	}
+	if after.Phase != workload.PhaseRunning {
+		return observedFailed, after.Message
+	}
+
+	a.noteStarted(spec.InstanceID)
+	return observedRunning, note
+}
+
 func (a *Agent) ensureStopped(ctx context.Context, instanceID string, state workload.State) (string, string) {
+	a.forgetRestarts(instanceID)
+
 	if state.Phase == workload.PhaseRunning {
 		if err := a.runtime.Stop(ctx, instanceID); err != nil {
 			a.log.Warn("could not stop workload", "instance", instanceID, "error", err)

@@ -155,6 +155,7 @@ type report struct {
 	InstanceID string
 	State      string
 	Message    string
+	Restarts   int
 }
 
 type controlPlane struct {
@@ -205,6 +206,7 @@ func (c *controlPlane) handler() http.Handler {
 				InstanceID: r.PathValue("instanceID"),
 				State:      body.ObservedState,
 				Message:    body.Message,
+				Restarts:   body.Restarts,
 			})
 			c.mu.Unlock()
 
@@ -343,8 +345,9 @@ func TestReconcileReportsFailureWhenAWorkloadDies(t *testing.T) {
 		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
 	}
 	rt := &fakeRuntime{state: workload.State{
-		Phase:   workload.PhaseExited,
-		Message: "exited with code 137",
+		Phase:    workload.PhaseExited,
+		Message:  "exited with code 137",
+		ExitCode: 137,
 	}}
 
 	newReconcileHarness(t, cp, rt).reconcile(context.Background())

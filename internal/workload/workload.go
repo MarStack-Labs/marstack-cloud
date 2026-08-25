@@ -33,8 +33,9 @@ type Spec struct {
 }
 
 type State struct {
-	Phase   Phase
-	Message string
+	Phase    Phase
+	Message  string
+	ExitCode int
 }
 
 type Route struct {

@@ -114,7 +114,7 @@ func TestInstanceListRendersTable(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	for _, want := range []string{"NAME", "OBSERVED", "api-1", "512Mi", "-"} {
+	for _, want := range []string{"NAME", "OBSERVED", "RESTARTS", "api-1", "1cpu/512Mi", "-"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/version"
@@ -47,6 +48,10 @@ type Agent struct {
 	datapath workload.Datapath
 	resolver workload.Resolver
 	nodeID   string
+	now      func() time.Time
+
+	restartsMu sync.Mutex
+	restarts   map[string]*restartState
 }
 
 func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
@@ -59,6 +64,8 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 		runtime:  deps.Runtime,
 		datapath: deps.Datapath,
 		resolver: deps.Resolver,
+		now:      time.Now,
+		restarts: map[string]*restartState{},
 	}
 }
 

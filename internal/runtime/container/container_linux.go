@@ -388,7 +388,11 @@ func (r *Runtime) Status(_ context.Context, instanceID string) (workload.State, 
 		if tail := r.tailOutput(instanceID); tail != "" {
 			message += ": " + tail
 		}
-		return workload.State{Phase: workload.PhaseExited, Message: message}, nil
+		return workload.State{
+			Phase:    workload.PhaseExited,
+			Message:  message,
+			ExitCode: entry.exitCode,
+		}, nil
 	}
 
 	if _, alive := r.livePID(instanceID); alive {

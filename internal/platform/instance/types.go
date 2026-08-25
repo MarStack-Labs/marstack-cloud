@@ -45,6 +45,24 @@ func AllObservedStates() []string {
 
 const MaxObservedMessage = 512
 
+type RestartPolicy string
+
+const (
+	RestartNever     RestartPolicy = "never"
+	RestartOnFailure RestartPolicy = "on-failure"
+	RestartAlways    RestartPolicy = "always"
+
+	DefaultRestartPolicy = RestartAlways
+)
+
+func AllRestartPolicies() []string {
+	return []string{
+		string(RestartNever),
+		string(RestartOnFailure),
+		string(RestartAlways),
+	}
+}
+
 const (
 	MinVCPU      = 1
 	MaxVCPU      = 256
@@ -64,6 +82,8 @@ type Instance struct {
 	NetworkID       string
 	VCPU            int
 	MemoryMiB       int
+	RestartPolicy   RestartPolicy
+	RestartCount    int
 	Desired         DesiredState
 	Observed        ObservedState
 	ObservedMessage string
@@ -73,13 +93,14 @@ type Instance struct {
 }
 
 type CreateParams struct {
-	Name      string
-	Isolation string
-	Image     string
-	Command   []string
-	NetworkID string
-	VCPU      int
-	MemoryMiB int
+	Name          string
+	Isolation     string
+	Image         string
+	Command       []string
+	NetworkID     string
+	RestartPolicy string
+	VCPU          int
+	MemoryMiB     int
 }
 
 const MaxCommandArgs = 64

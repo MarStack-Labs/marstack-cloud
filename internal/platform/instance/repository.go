@@ -25,7 +25,7 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, name, isolation, image, command, network_id, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
+const columns = `id, name, isolation, image, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
 	taken, err := r.nameTaken(ctx, in.Name)
@@ -42,8 +42,9 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 	}
 
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO instances (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.ID, in.Name, string(in.Isolation), in.Image, string(command), in.NetworkID, in.VCPU, in.MemoryMiB,
+		`INSERT INTO instances (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.ID, in.Name, string(in.Isolation), in.Image, string(command), in.NetworkID,
+		string(in.RestartPolicy), in.RestartCount, in.VCPU, in.MemoryMiB,
 		string(in.Desired), string(in.Observed), in.ObservedMessage, in.NodeID,
 		in.CreatedAt.Format(time.RFC3339Nano), in.UpdatedAt.Format(time.RFC3339Nano),
 	)
@@ -149,12 +150,12 @@ func (r *repository) listByNode(ctx context.Context, nodeID string) ([]Instance,
 
 func (r *repository) setObserved(
 	ctx context.Context, instanceID, nodeID string,
-	observed ObservedState, message string, now time.Time,
+	observed ObservedState, message string, restarts int, now time.Time,
 ) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE instances SET observed_state = ?, observed_message = ?, updated_at = ?
+		`UPDATE instances SET observed_state = ?, observed_message = ?, restart_count = ?, updated_at = ?
 		 WHERE id = ? AND node_id = ?`,
-		string(observed), message, now.Format(time.RFC3339Nano), instanceID, nodeID,
+		string(observed), message, restarts, now.Format(time.RFC3339Nano), instanceID, nodeID,
 	)
 	if err != nil {
 		return fmt.Errorf("set observed state: %w", err)
@@ -248,6 +249,7 @@ func scanInstance(row scanner) (Instance, error) {
 		in         Instance
 		isolation  string
 		command    string
+		policy     string
 		desired    string
 		observed   string
 		nodeID     sql.NullString
@@ -256,7 +258,8 @@ func scanInstance(row scanner) (Instance, error) {
 	)
 
 	if err := row.Scan(
-		&in.ID, &in.Name, &isolation, &in.Image, &command, &in.NetworkID, &in.VCPU, &in.MemoryMiB,
+		&in.ID, &in.Name, &isolation, &in.Image, &command, &in.NetworkID,
+		&policy, &in.RestartCount, &in.VCPU, &in.MemoryMiB,
 		&desired, &observed, &in.ObservedMessage, &nodeID, &createdRaw, &updatedRaw,
 	); err != nil {
 		return Instance{}, err
@@ -269,6 +272,7 @@ func scanInstance(row scanner) (Instance, error) {
 	}
 
 	in.Isolation = Isolation(isolation)
+	in.RestartPolicy = RestartPolicy(policy)
 	in.Desired = DesiredState(desired)
 	in.Observed = ObservedState(observed)
 	in.NodeID = nodeID.String

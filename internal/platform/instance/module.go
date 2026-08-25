@@ -94,6 +94,16 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  6,
 			SQL:    `ALTER TABLE instances ADD COLUMN network_id TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "instance",
+			Index:  7,
+			SQL:    `ALTER TABLE instances ADD COLUMN restart_policy TEXT NOT NULL DEFAULT 'always'`,
+		},
+		{
+			Module: "instance",
+			Index:  8,
+			SQL:    `ALTER TABLE instances ADD COLUMN restart_count INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 }
 
