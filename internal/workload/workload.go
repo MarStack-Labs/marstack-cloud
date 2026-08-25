@@ -35,6 +35,15 @@ type State struct {
 	Message string
 }
 
+type Route struct {
+	Slice string
+	Via   string
+}
+
+type Datapath interface {
+	ApplyRoutes(ctx context.Context, routes []Route) error
+}
+
 type Runtime interface {
 	Name() string
 	Start(ctx context.Context, spec Spec) error

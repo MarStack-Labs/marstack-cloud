@@ -246,7 +246,7 @@ func TestReleaseFreesTheAddressForReuse(t *testing.T) {
 
 	first, _ := m.svc.repo.nic(ctx, "i-1")
 
-	if err := m.Release(ctx, "i-1"); err != nil {
+	if err := m.ReleaseAddress(ctx, "i-1"); err != nil {
 		t.Fatalf("release: %v", err)
 	}
 	if err := m.Allocate(ctx, "i-2", n.ID, "n-1"); err != nil {

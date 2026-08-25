@@ -142,8 +142,40 @@ The gateway address lives on the bridge of every node, so an instance always tal
 gateway. Egress is masqueraded on the node the instance runs on; there is no central gateway to
 bottleneck.
 
-Not implemented yet: routing between nodes (a second node's instances are unreachable), anti-spoof
-filtering, internal DNS, image pulling, restart policy, and `isolation: vm`.
+### Across nodes
+
+Each node programs one route per peer slice, using the address the peer reported at registration:
+
+```
+bm-1$ ip route show | grep 10.20
+10.20.0.0/16       dev msbr-mr94p0t0 proto kernel scope link src 10.20.0.1
+10.20.0.128/26 via 192.168.107.3 dev lima0
+
+bm-2$ ip route show | grep 10.20
+10.20.0.0/16       dev msbr-mr94p0t0 proto kernel scope link src 10.20.0.1
+10.20.0.64/26  via 192.168.107.2 dev lima0
+```
+
+A container on one node reaches a container on the other with its own source address intact — inter
+node traffic is routed, not masqueraded:
+
+```
+bm-2$ tcpdump -ni any icmp
+lima0            In  IP 10.20.0.66 > 10.20.0.130: ICMP echo request
+msbr-mr94p0t0   Out  IP 10.20.0.66 > 10.20.0.130: ICMP echo request
+msv-1qkjab6xkyz Out  IP 10.20.0.66 > 10.20.0.130: ICMP echo request
+msv-1qkjab6xkyz   P  IP 10.20.0.130 > 10.20.0.66: ICMP echo reply
+```
+
+A container's address carries the **slice** prefix, not the network prefix, plus a link route to the
+gateway. With the network prefix the container would treat the whole network as on-link and ARP for
+addresses that live on another node.
+
+Multi node needs `--address` on the agent: the address other nodes reach it on. It is not
+auto-detected, because a host with several interfaces has no way to know which one its peers use.
+
+Not implemented yet: anti-spoof filtering, internal DNS, garbage collection of datapath state left
+behind by a deleted network, image pulling, restart policy, and `isolation: vm`.
 
 ## Development
 

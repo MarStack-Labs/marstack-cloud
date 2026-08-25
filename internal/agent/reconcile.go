@@ -12,6 +12,7 @@ const (
 	desiredRunning = "running"
 	desiredStopped = "stopped"
 
+	observedPending = "pending"
 	observedRunning = "running"
 	observedStopped = "stopped"
 	observedFailed  = "failed"
@@ -31,11 +32,14 @@ func (a *Agent) reconcile(ctx context.Context) {
 		return
 	}
 
-	interfaces, err := a.interfacesByInstance(ctx)
+	networks, err := a.client.nodeNetworks(ctx, a.nodeID)
 	if err != nil {
 		a.log.Warn("could not read the node network view", "error", err)
 		return
 	}
+
+	interfaces := a.interfacesByInstance(networks)
+	a.applyRoutes(ctx, networks)
 
 	for _, in := range assigned {
 		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID])
@@ -49,33 +53,88 @@ func (a *Agent) reconcile(ctx context.Context) {
 	}
 }
 
-func (a *Agent) interfacesByInstance(ctx context.Context) (map[string]*workload.NetworkConfig, error) {
-	networks, err := a.client.nodeNetworks(ctx, a.nodeID)
-	if err != nil {
-		return nil, err
-	}
-
+func (a *Agent) interfacesByInstance(networks []networkView) map[string]*workload.NetworkConfig {
 	interfaces := map[string]*workload.NetworkConfig{}
 	for _, n := range networks {
-		prefix, err := netip.ParsePrefix(n.CIDR)
+		network, err := netip.ParsePrefix(n.CIDR)
 		if err != nil {
 			a.log.Warn("skipping a network with an unusable cidr",
 				"network", n.Name, "cidr", n.CIDR, "error", err)
 			continue
 		}
 
+		slice, err := netip.ParsePrefix(n.Slice)
+		if err != nil {
+			a.log.Warn("skipping a network with an unusable slice",
+				"network", n.Name, "slice", n.Slice, "error", err)
+			continue
+		}
+
 		for _, nic := range n.NICs {
 			interfaces[nic.InstanceID] = &workload.NetworkConfig{
 				Bridge:     n.Bridge,
-				BridgeAddr: n.Gateway + "/" + strconv.Itoa(prefix.Bits()),
+				BridgeAddr: n.Gateway + "/" + strconv.Itoa(network.Bits()),
 				IP:         nic.IP,
-				Prefix:     prefix.Bits(),
+				Prefix:     slice.Bits(),
 				Gateway:    n.Gateway,
 				MAC:        nic.MAC,
 			}
 		}
 	}
-	return interfaces, nil
+	return interfaces
+}
+
+func (a *Agent) applyRoutes(ctx context.Context, networks []networkView) {
+	if a.datapath == nil {
+		return
+	}
+
+	var peers []peerView
+	for _, n := range networks {
+		peers = append(peers, n.Peers...)
+	}
+	if len(peers) == 0 {
+		return
+	}
+
+	addresses, err := a.nodeAddresses(ctx)
+	if err != nil {
+		a.log.Warn("could not read node addresses", "error", err)
+		return
+	}
+
+	routes := make([]workload.Route, 0, len(peers))
+	for _, peer := range peers {
+		via, known := addresses[peer.NodeID]
+		if !known || via == "" {
+			a.log.Warn("peer has no reachable address, skipping its route",
+				"node", peer.NodeID, "slice", peer.Slice)
+			continue
+		}
+		routes = append(routes, workload.Route{Slice: peer.Slice, Via: via})
+	}
+	if len(routes) == 0 {
+		return
+	}
+
+	if err := a.datapath.ApplyRoutes(ctx, routes); err != nil {
+		a.log.Warn("could not program peer routes", "error", err)
+		return
+	}
+	a.log.Debug("peer routes programmed", "count", len(routes))
+}
+
+func (a *Agent) nodeAddresses(ctx context.Context) (map[string]string, error) {
+	nodes, err := a.client.nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	addresses := make(map[string]string, len(nodes))
+	for _, n := range nodes {
+		addresses[n.ID] = n.Address
+	}
+	return addresses, nil
 }
 
 func (a *Agent) reconcileOne(
@@ -100,6 +159,9 @@ func (a *Agent) reconcileOne(
 
 	switch in.DesiredState {
 	case desiredRunning:
+		if iface == nil {
+			return observedPending, "waiting for an address"
+		}
 		return a.ensureRunning(ctx, spec, state)
 	case desiredStopped:
 		return a.ensureStopped(ctx, in.ID, state)

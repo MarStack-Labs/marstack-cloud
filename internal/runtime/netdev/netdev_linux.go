@@ -3,11 +3,14 @@
 package netdev
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
 const (
@@ -119,12 +122,24 @@ func EnsureEgress(bridge, cidr string) error {
 	if err != nil {
 		return err
 	}
-	if strings.Contains(existing, cidr) {
+	if strings.Contains(existing, "ip daddr != "+cidr) {
 		return nil
 	}
 
 	return run("nft", "add", "rule", "inet", nftTable, "postrouting",
-		"ip", "saddr", cidr, "oifname", "!=", bridge, "masquerade")
+		"ip", "saddr", cidr, "ip", "daddr", "!=", cidr, "oifname", "!=", bridge, "masquerade")
+}
+
+func (Datapath) ApplyRoutes(_ context.Context, routes []workload.Route) error {
+	for _, route := range routes {
+		if route.Slice == "" || route.Via == "" {
+			continue
+		}
+		if err := run("ip", "route", "replace", route.Slice, "via", route.Via); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func Attach(pid int, cfg Interface) error {
@@ -161,6 +176,7 @@ func Attach(pid int, cfg Interface) error {
 		{"ip", "addr", "add", address, "dev", guestIface},
 		{"ip", "link", "set", guestIface, "up"},
 		{"ip", "link", "set", "lo", "up"},
+		{"ip", "route", "add", cfg.Gateway, "dev", guestIface, "scope", "link"},
 		{"ip", "route", "add", "default", "via", cfg.Gateway},
 	}
 	for _, step := range steps {

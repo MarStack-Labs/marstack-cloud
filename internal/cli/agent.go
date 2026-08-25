@@ -11,12 +11,14 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/agent"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/container"
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
 )
 
 func newAgentCmd(g *globals) *cobra.Command {
 	var (
 		name        string
 		zone        string
+		address     string
 		runtimeRoot string
 		interval    time.Duration
 		logLevel    string
@@ -44,13 +46,19 @@ func newAgentCmd(g *globals) *cobra.Command {
 				Endpoint: g.endpoint,
 				Name:     name,
 				Zone:     zone,
+				Address:  address,
 				Interval: interval,
-			}, container.New(runtimeRoot, log), log).Run(ctx)
+			}, agent.Deps{
+				Runtime:  container.New(runtimeRoot, log),
+				Datapath: netdev.Datapath{},
+			}, log).Run(ctx)
 		},
 	}
 
 	cmd.Flags().StringVar(&name, "name", "", "node name, defaults to the hostname")
 	cmd.Flags().StringVar(&zone, "zone", "", "failure domain this node belongs to")
+	cmd.Flags().StringVar(&address, "address", "",
+		"address the other nodes reach this one on, required for multi-node routing")
 	cmd.Flags().StringVar(&runtimeRoot, "runtime-root", container.DefaultRoot,
 		"directory holding images and instance state on this node")
 	cmd.Flags().DurationVar(&interval, "interval", agent.DefaultInterval, "heartbeat and reconcile interval")

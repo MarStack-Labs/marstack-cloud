@@ -12,7 +12,7 @@ import (
 
 var errNotFound = errors.New("node not found")
 
-const columns = `id, name, zone, arch, os, cpus, memory_mib, agent_version, registered_at, last_seen_at`
+const columns = `id, name, zone, address, arch, os, cpus, memory_mib, agent_version, registered_at, last_seen_at`
 
 type repository struct {
 	db *sql.DB
@@ -37,8 +37,8 @@ func (r *repository) findByName(ctx context.Context, name string) (Node, error) 
 
 func (r *repository) insert(ctx context.Context, n Node) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO nodes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.ID, n.Name, n.Zone, n.Arch, n.OS, n.CPUs, n.MemoryMiB, n.AgentVersion,
+		`INSERT INTO nodes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.ID, n.Name, n.Zone, n.Address, n.Arch, n.OS, n.CPUs, n.MemoryMiB, n.AgentVersion,
 		n.RegisteredAt.Format(time.RFC3339Nano), n.LastSeenAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -49,9 +49,9 @@ func (r *repository) insert(ctx context.Context, n Node) error {
 
 func (r *repository) updateOnRegister(ctx context.Context, n Node) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE nodes SET zone = ?, arch = ?, os = ?, cpus = ?, memory_mib = ?,
+		`UPDATE nodes SET zone = ?, address = ?, arch = ?, os = ?, cpus = ?, memory_mib = ?,
 		 agent_version = ?, last_seen_at = ? WHERE id = ?`,
-		n.Zone, n.Arch, n.OS, n.CPUs, n.MemoryMiB, n.AgentVersion,
+		n.Zone, n.Address, n.Arch, n.OS, n.CPUs, n.MemoryMiB, n.AgentVersion,
 		n.LastSeenAt.Format(time.RFC3339Nano), n.ID,
 	)
 	if err != nil {
@@ -128,7 +128,7 @@ func scanNode(row scanner) (Node, error) {
 	)
 
 	if err := row.Scan(
-		&n.ID, &n.Name, &n.Zone, &n.Arch, &n.OS, &n.CPUs, &n.MemoryMiB, &n.AgentVersion,
+		&n.ID, &n.Name, &n.Zone, &n.Address, &n.Arch, &n.OS, &n.CPUs, &n.MemoryMiB, &n.AgentVersion,
 		&registeredRaw, &lastSeenRaw,
 	); err != nil {
 		return Node{}, err

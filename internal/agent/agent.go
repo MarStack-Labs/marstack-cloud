@@ -21,6 +21,7 @@ type Config struct {
 	Endpoint string
 	Name     string
 	Zone     string
+	Address  string
 	Interval time.Duration
 }
 
@@ -31,23 +32,30 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-type Agent struct {
-	cfg     Config
-	client  *client
-	log     *slog.Logger
-	host    hostInfo
-	runtime workload.Runtime
-	nodeID  string
+type Deps struct {
+	Runtime  workload.Runtime
+	Datapath workload.Datapath
 }
 
-func New(cfg Config, rt workload.Runtime, log *slog.Logger) *Agent {
+type Agent struct {
+	cfg      Config
+	client   *client
+	log      *slog.Logger
+	host     hostInfo
+	runtime  workload.Runtime
+	datapath workload.Datapath
+	nodeID   string
+}
+
+func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 	cfg = cfg.withDefaults()
 	return &Agent{
-		cfg:     cfg,
-		client:  newClient(cfg.Endpoint),
-		log:     log,
-		host:    inspectHost(),
-		runtime: rt,
+		cfg:      cfg,
+		client:   newClient(cfg.Endpoint),
+		log:      log,
+		host:     inspectHost(),
+		runtime:  deps.Runtime,
+		datapath: deps.Datapath,
 	}
 }
 
@@ -56,6 +64,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		"node", a.cfg.Name,
 		"endpoint", a.cfg.Endpoint,
 		"arch", a.host.Arch,
+		"address", a.cfg.Address,
 		"cpus", a.host.CPUs,
 		"memory_mib", a.host.MemoryMiB,
 		"runtime", a.runtimeName(),
@@ -106,6 +115,7 @@ func (a *Agent) register(ctx context.Context) error {
 	view, err := a.client.register(ctx, registerBody{
 		Name:         a.cfg.Name,
 		Zone:         a.cfg.Zone,
+		Address:      a.cfg.Address,
 		Arch:         a.host.Arch,
 		OS:           a.host.OS,
 		CPUs:         a.host.CPUs,

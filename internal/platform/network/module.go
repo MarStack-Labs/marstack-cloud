@@ -13,6 +13,7 @@ type NodeNetwork struct {
 	Network Network
 	Slice   Slice
 	NICs    []NIC
+	Peers   []Slice
 }
 
 type Module struct {
@@ -127,7 +128,7 @@ func (m *Module) Allocate(ctx context.Context, instanceID, networkID, nodeID str
 	return nil
 }
 
-func (m *Module) Release(ctx context.Context, instanceID string) error {
+func (m *Module) ReleaseAddress(ctx context.Context, instanceID string) error {
 	return m.svc.release(ctx, instanceID)
 }
 

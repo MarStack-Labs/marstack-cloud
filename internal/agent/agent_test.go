@@ -47,7 +47,7 @@ func newTestAgent(t *testing.T, endpoint string, interval time.Duration) *Agent 
 		Name:     "bm-1",
 		Zone:     "rack-a",
 		Interval: interval,
-	}, nil, logging.New("error", io.Discard))
+	}, Deps{}, logging.New("error", io.Discard))
 }
 
 func TestAgentRegistersThenHeartbeats(t *testing.T) {

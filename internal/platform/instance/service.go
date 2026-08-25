@@ -16,7 +16,7 @@ type clock func() time.Time
 type service struct {
 	repo     *repository
 	now      clock
-	networks NetworkResolver
+	networks Networks
 }
 
 func newService(repo *repository, now clock) *service {
@@ -87,7 +87,16 @@ func (s *service) setDesired(ctx context.Context, id string, desired DesiredStat
 }
 
 func (s *service) delete(ctx context.Context, id string) error {
-	return translate(s.repo.delete(ctx, id))
+	if err := s.repo.delete(ctx, id); err != nil {
+		return translate(err)
+	}
+	if s.networks == nil {
+		return nil
+	}
+	if err := s.networks.ReleaseAddress(ctx, id); err != nil {
+		return fault.Internal(fmt.Errorf("instance %s was deleted but its address was not released: %w", id, err))
+	}
+	return nil
 }
 
 func (s *service) listByNode(ctx context.Context, nodeID string) ([]Instance, error) {

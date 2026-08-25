@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
@@ -41,6 +42,7 @@ func (s *service) register(ctx context.Context, params RegisterParams) (Node, er
 	switch {
 	case err == nil:
 		existing.Zone = params.Zone
+		existing.Address = params.Address
 		existing.Arch = params.Arch
 		existing.OS = params.OS
 		existing.CPUs = params.CPUs
@@ -58,6 +60,7 @@ func (s *service) register(ctx context.Context, params RegisterParams) (Node, er
 			ID:           ids.New("n"),
 			Name:         params.Name,
 			Zone:         params.Zone,
+			Address:      params.Address,
 			Arch:         params.Arch,
 			OS:           params.OS,
 			CPUs:         params.CPUs,
@@ -106,6 +109,11 @@ func validateRegister(params RegisterParams) error {
 	if params.Zone != "" {
 		if err := validate.Name("zone", params.Zone); err != nil {
 			return err
+		}
+	}
+	if params.Address != "" {
+		if _, err := netip.ParseAddr(params.Address); err != nil {
+			return fault.Invalid("invalid_address", "address must be a bare IP the other nodes can reach")
 		}
 	}
 	if params.Arch == "" {

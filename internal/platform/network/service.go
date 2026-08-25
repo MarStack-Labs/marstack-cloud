@@ -201,10 +201,16 @@ func (s *service) nodeView(ctx context.Context, nodeID string) ([]NodeNetwork, e
 		if err != nil {
 			return nil, err
 		}
+		peers, err := s.repo.slicesExcept(ctx, networkID, nodeID)
+		if err != nil {
+			return nil, translate(err)
+		}
+
 		views = append(views, NodeNetwork{
 			Network: n,
 			Slice:   slice,
 			NICs:    byNetwork[networkID],
+			Peers:   peers,
 		})
 	}
 	return views, nil

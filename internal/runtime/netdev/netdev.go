@@ -9,3 +9,5 @@ type Interface struct {
 	Gateway    string
 	MAC        string
 }
+
+type Datapath struct{}

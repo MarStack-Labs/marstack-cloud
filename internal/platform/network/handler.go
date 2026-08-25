@@ -31,14 +31,20 @@ type nicResponse struct {
 	MAC        string `json:"mac"`
 }
 
+type peerResponse struct {
+	NodeID string `json:"node_id"`
+	Slice  string `json:"slice"`
+}
+
 type nodeNetworkResponse struct {
-	NetworkID string        `json:"network_id"`
-	Name      string        `json:"name"`
-	Bridge    string        `json:"bridge"`
-	CIDR      string        `json:"cidr"`
-	Gateway   string        `json:"gateway"`
-	Slice     string        `json:"slice"`
-	NICs      []nicResponse `json:"nics"`
+	NetworkID string         `json:"network_id"`
+	Name      string         `json:"name"`
+	Bridge    string         `json:"bridge"`
+	CIDR      string         `json:"cidr"`
+	Gateway   string         `json:"gateway"`
+	Slice     string         `json:"slice"`
+	NICs      []nicResponse  `json:"nics"`
+	Peers     []peerResponse `json:"peers"`
 }
 
 type nodeViewResponse struct {
@@ -115,6 +121,7 @@ func (h *handler) nodeView(w http.ResponseWriter, r *http.Request) error {
 			Gateway:   v.Network.Gateway,
 			Slice:     v.Slice.CIDR,
 			NICs:      make([]nicResponse, 0, len(v.NICs)),
+			Peers:     make([]peerResponse, 0, len(v.Peers)),
 		}
 		for _, nic := range v.NICs {
 			entry.NICs = append(entry.NICs, nicResponse{
@@ -122,6 +129,9 @@ func (h *handler) nodeView(w http.ResponseWriter, r *http.Request) error {
 				IP:         nic.IP,
 				MAC:        nic.MAC,
 			})
+		}
+		for _, peer := range v.Peers {
+			entry.Peers = append(entry.Peers, peerResponse{NodeID: peer.NodeID, Slice: peer.CIDR})
 		}
 		body.Networks = append(body.Networks, entry)
 	}

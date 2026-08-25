@@ -15,6 +15,7 @@ type Node struct {
 	ID           string
 	Name         string
 	Zone         string
+	Address      string
 	Arch         string
 	OS           string
 	CPUs         int
@@ -34,6 +35,7 @@ func (n Node) StatusAt(now time.Time) Status {
 type RegisterParams struct {
 	Name         string
 	Zone         string
+	Address      string
 	Arch         string
 	OS           string
 	CPUs         int

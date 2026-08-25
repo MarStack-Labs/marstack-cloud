@@ -123,6 +123,36 @@ func (r *repository) takenSlices(ctx context.Context, networkID string) (map[str
 	return taken, rows.Err()
 }
 
+func (r *repository) slicesExcept(ctx context.Context, networkID, nodeID string) ([]Slice, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT network_id, node_id, cidr, created_at FROM node_slices
+		 WHERE network_id = ? AND node_id != ? ORDER BY cidr`,
+		networkID, nodeID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list peer slices: %w", err)
+	}
+	defer rows.Close()
+
+	slices := make([]Slice, 0)
+	for rows.Next() {
+		var (
+			s          Slice
+			createdRaw string
+		)
+		if err := rows.Scan(&s.NetworkID, &s.NodeID, &s.CIDR, &createdRaw); err != nil {
+			return nil, fmt.Errorf("scan peer slice: %w", err)
+		}
+		created, err := time.Parse(time.RFC3339Nano, createdRaw)
+		if err != nil {
+			return nil, fmt.Errorf("parse peer slice created_at: %w", err)
+		}
+		s.CreatedAt = created
+		slices = append(slices, s)
+	}
+	return slices, rows.Err()
+}
+
 func (r *repository) insertSlice(ctx context.Context, s Slice) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO node_slices (network_id, node_id, cidr, created_at) VALUES (?, ?, ?, ?)`,

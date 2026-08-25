@@ -2,7 +2,12 @@
 
 package netdev
 
-import "errors"
+import (
+	"context"
+	"errors"
+
+	"github.com/marstack-labs/marstack-cloud/internal/workload"
+)
 
 var errUnsupported = errors.New("the network datapath needs Linux")
 
@@ -19,5 +24,9 @@ func Attach(int, Interface) error {
 }
 
 func Detach(string) error {
+	return errUnsupported
+}
+
+func (Datapath) ApplyRoutes(context.Context, []workload.Route) error {
 	return errUnsupported
 }

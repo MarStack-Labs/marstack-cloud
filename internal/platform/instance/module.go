@@ -15,11 +15,12 @@ type Module struct {
 	handler *handler
 }
 
-type NetworkResolver interface {
+type Networks interface {
 	DefaultNetworkID(ctx context.Context) (string, error)
+	ReleaseAddress(ctx context.Context, instanceID string) error
 }
 
-func New(st *store.Store, log *slog.Logger, networks NetworkResolver) *Module {
+func New(st *store.Store, log *slog.Logger, networks Networks) *Module {
 	svc := newService(newRepository(st), nil)
 	svc.networks = networks
 	return &Module{

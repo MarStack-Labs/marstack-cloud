@@ -17,10 +17,15 @@ const (
 )
 
 type nodeView struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Zone   string `json:"zone,omitempty"`
-	Status string `json:"status"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Zone    string `json:"zone,omitempty"`
+	Address string `json:"address,omitempty"`
+	Status  string `json:"status"`
+}
+
+type nodeListBody struct {
+	Nodes []nodeView `json:"nodes"`
 }
 
 type instanceView struct {
@@ -45,14 +50,20 @@ type nicView struct {
 	MAC        string `json:"mac"`
 }
 
+type peerView struct {
+	NodeID string `json:"node_id"`
+	Slice  string `json:"slice"`
+}
+
 type networkView struct {
-	NetworkID string    `json:"network_id"`
-	Name      string    `json:"name"`
-	Bridge    string    `json:"bridge"`
-	CIDR      string    `json:"cidr"`
-	Gateway   string    `json:"gateway"`
-	Slice     string    `json:"slice"`
-	NICs      []nicView `json:"nics"`
+	NetworkID string     `json:"network_id"`
+	Name      string     `json:"name"`
+	Bridge    string     `json:"bridge"`
+	CIDR      string     `json:"cidr"`
+	Gateway   string     `json:"gateway"`
+	Slice     string     `json:"slice"`
+	NICs      []nicView  `json:"nics"`
+	Peers     []peerView `json:"peers"`
 }
 
 type networkListBody struct {
@@ -67,6 +78,7 @@ type statusBody struct {
 type registerBody struct {
 	Name         string `json:"name"`
 	Zone         string `json:"zone,omitempty"`
+	Address      string `json:"address,omitempty"`
 	Arch         string `json:"arch"`
 	OS           string `json:"os"`
 	CPUs         int    `json:"cpus"`
@@ -102,6 +114,12 @@ func (c *client) assignedInstances(ctx context.Context, nodeID string) ([]instan
 	var out instanceListBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/instances", nil, &out)
 	return out.Instances, err
+}
+
+func (c *client) nodes(ctx context.Context) ([]nodeView, error) {
+	var out nodeListBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes", nil, &out)
+	return out.Nodes, err
 }
 
 func (c *client) nodeNetworks(ctx context.Context, nodeID string) ([]networkView, error) {

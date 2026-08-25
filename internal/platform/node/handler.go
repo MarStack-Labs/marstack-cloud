@@ -10,6 +10,7 @@ import (
 type registerRequest struct {
 	Name         string `json:"name"`
 	Zone         string `json:"zone,omitempty"`
+	Address      string `json:"address,omitempty"`
 	Arch         string `json:"arch"`
 	OS           string `json:"os"`
 	CPUs         int    `json:"cpus"`
@@ -21,6 +22,7 @@ type response struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	Zone         string `json:"zone,omitempty"`
+	Address      string `json:"address,omitempty"`
 	Status       string `json:"status"`
 	Arch         string `json:"arch"`
 	OS           string `json:"os"`
@@ -44,6 +46,7 @@ func (h *handler) toResponse(n Node) response {
 		ID:           n.ID,
 		Name:         n.Name,
 		Zone:         n.Zone,
+		Address:      n.Address,
 		Status:       string(n.StatusAt(h.svc.now())),
 		Arch:         n.Arch,
 		OS:           n.OS,
@@ -64,6 +67,7 @@ func (h *handler) register(w http.ResponseWriter, r *http.Request) error {
 	n, err := h.svc.register(r.Context(), RegisterParams{
 		Name:         req.Name,
 		Zone:         req.Zone,
+		Address:      req.Address,
 		Arch:         req.Arch,
 		OS:           req.OS,
 		CPUs:         req.CPUs,

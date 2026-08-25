@@ -67,6 +67,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  2,
 			SQL:    `CREATE UNIQUE INDEX nodes_name_unique ON nodes (name)`,
 		},
+		{
+			Module: "node",
+			Index:  3,
+			SQL:    `ALTER TABLE nodes ADD COLUMN address TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 

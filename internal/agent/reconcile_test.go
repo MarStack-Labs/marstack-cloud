@@ -63,6 +63,24 @@ func (f *fakeRuntime) Status(context.Context, string) (workload.State, error) {
 
 func (f *fakeRuntime) Remove(context.Context, string) error { return nil }
 
+type fakeDatapath struct {
+	mu     sync.Mutex
+	routes []workload.Route
+}
+
+func (f *fakeDatapath) ApplyRoutes(_ context.Context, routes []workload.Route) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.routes = append(f.routes, routes...)
+	return nil
+}
+
+func (f *fakeDatapath) snapshot() []workload.Route {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]workload.Route(nil), f.routes...)
+}
+
 type report struct {
 	InstanceID string
 	State      string
@@ -73,6 +91,7 @@ type controlPlane struct {
 	mu        sync.Mutex
 	instances []instanceView
 	networks  []networkView
+	nodes     []nodeView
 	reports   []report
 }
 
@@ -81,6 +100,11 @@ func (c *controlPlane) handler() http.Handler {
 
 	mux.HandleFunc("POST /v1/nodes/register", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(nodeView{ID: "n-abc", Name: "bm-1"})
+	})
+	mux.HandleFunc("GET /v1/nodes", func(w http.ResponseWriter, _ *http.Request) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		json.NewEncoder(w).Encode(nodeListBody{Nodes: c.nodes})
 	})
 	mux.HandleFunc("POST /v1/nodes/{id}/heartbeat", func(w http.ResponseWriter, _ *http.Request) {
 		json.NewEncoder(w).Encode(nodeView{ID: "n-abc"})
@@ -134,7 +158,7 @@ func newReconcileHarness(t *testing.T, cp *controlPlane, rt workload.Runtime) *A
 	t.Cleanup(srv.Close)
 
 	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
-		rt, logging.New("error", io.Discard))
+		Deps{Runtime: rt, Datapath: &fakeDatapath{}}, logging.New("error", io.Discard))
 
 	if err := a.register(context.Background()); err != nil {
 		t.Fatalf("register: %v", err)
@@ -156,7 +180,10 @@ func runningInstance() instanceView {
 }
 
 func TestReconcileStartsAWorkloadThatShouldRun(t *testing.T) {
-	cp := &controlPlane{instances: []instanceView{runningInstance()}}
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
 	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
 
 	newReconcileHarness(t, cp, rt).reconcile(context.Background())
@@ -176,7 +203,10 @@ func TestReconcileDoesNotRestartAWorkloadAlreadyRunning(t *testing.T) {
 	instance := runningInstance()
 	instance.ObservedState = "running"
 
-	cp := &controlPlane{instances: []instanceView{instance}}
+	cp := &controlPlane{
+		instances: []instanceView{instance},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
 	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}}
 
 	newReconcileHarness(t, cp, rt).reconcile(context.Background())
@@ -208,7 +238,10 @@ func TestReconcileStopsAWorkloadThatShouldNotRun(t *testing.T) {
 }
 
 func TestReconcileReportsFailureWhenStartFails(t *testing.T) {
-	cp := &controlPlane{instances: []instanceView{runningInstance()}}
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
 	rt := &fakeRuntime{
 		state:    workload.State{Phase: workload.PhaseAbsent},
 		startErr: errors.New("image alpine:3.20 is not present on this node"),
@@ -229,7 +262,10 @@ func TestReconcileReportsFailureWhenAWorkloadDies(t *testing.T) {
 	instance := runningInstance()
 	instance.ObservedState = "running"
 
-	cp := &controlPlane{instances: []instanceView{instance}}
+	cp := &controlPlane{
+		instances: []instanceView{instance},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
 	rt := &fakeRuntime{state: workload.State{
 		Phase:   workload.PhaseExited,
 		Message: "exited with code 137",
@@ -250,7 +286,10 @@ func TestReconcileReportsFailureWhenAWorkloadDies(t *testing.T) {
 }
 
 func TestReconcileSurvivesAnUninspectableWorkload(t *testing.T) {
-	cp := &controlPlane{instances: []instanceView{runningInstance()}}
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
 	rt := &fakeRuntime{statErr: errors.New("cgroup vanished")}
 
 	newReconcileHarness(t, cp, rt).reconcile(context.Background())
@@ -301,8 +340,12 @@ func TestReconcilePassesTheInterfaceIntoTheSpec(t *testing.T) {
 	if net == nil {
 		t.Fatal("the workload was started without an interface")
 	}
-	if net.IP != "10.20.0.65" || net.Gateway != "10.20.0.1" || net.Prefix != 16 {
+	if net.IP != "10.20.0.65" || net.Gateway != "10.20.0.1" {
 		t.Fatalf("interface = %+v, want the address from the control plane", net)
+	}
+	if net.Prefix != 26 {
+		t.Fatalf("prefix = %d, want the slice prefix: a container that treats the whole "+
+			"network as on-link will ARP for addresses that live on another node", net.Prefix)
 	}
 	if net.BridgeAddr != "10.20.0.1/16" {
 		t.Fatalf("bridge address = %q, want the gateway with the network prefix", net.BridgeAddr)
@@ -312,17 +355,22 @@ func TestReconcilePassesTheInterfaceIntoTheSpec(t *testing.T) {
 	}
 }
 
-func TestReconcileStartsWithoutAnInterfaceWhenNoneIsAllocated(t *testing.T) {
+func TestReconcileWaitsForAnAddressBeforeStarting(t *testing.T) {
 	cp := &controlPlane{instances: []instanceView{runningInstance()}}
 	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
 
 	newReconcileHarness(t, cp, rt).reconcile(context.Background())
 
-	if len(rt.started) != 1 {
-		t.Fatalf("starts = %d, want 1", len(rt.started))
+	if len(rt.started) != 0 {
+		t.Fatal("the workload was started before it had an address; it would come up with no network")
 	}
-	if rt.started[0].Network != nil {
-		t.Fatal("an interface appeared out of nowhere")
+
+	got := cp.lastReport(t)
+	if got.State != observedPending {
+		t.Fatalf("reported %q, want %q", got.State, observedPending)
+	}
+	if got.Message == "" {
+		t.Fatal("the wait carried no reason, so an operator cannot tell it apart from a stall")
 	}
 }
 
@@ -338,10 +386,71 @@ func TestReconcileSkipsAnUnusableNetwork(t *testing.T) {
 
 	newReconcileHarness(t, cp, rt).reconcile(context.Background())
 
-	if len(rt.started) != 1 {
-		t.Fatalf("starts = %d, want 1: a broken network must not stop the workload", len(rt.started))
+	if len(rt.started) != 0 {
+		t.Fatal("a workload was started from a network the agent could not parse")
 	}
-	if rt.started[0].Network != nil {
-		t.Fatal("a network with an unparseable cidr was used anyway")
+	if got := cp.lastReport(t); got.State != observedPending {
+		t.Fatalf("reported %q, want %q", got.State, observedPending)
+	}
+}
+
+func TestReconcileProgramsRoutesToPeerSlices(t *testing.T) {
+	network := defaultNetworkView("i-1", "10.20.0.65")
+	network.Peers = []peerView{
+		{NodeID: "n-two", Slice: "10.20.0.128/26"},
+		{NodeID: "n-three", Slice: "10.20.0.192/26"},
+	}
+
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{network},
+		nodes: []nodeView{
+			{ID: "n-abc", Address: "192.168.107.5"},
+			{ID: "n-two", Address: "192.168.107.6"},
+		},
+	}
+
+	dp := &fakeDatapath{}
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtime: &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}, Datapath: dp},
+		logging.New("error", io.Discard))
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	a.reconcile(context.Background())
+
+	routes := dp.snapshot()
+	if len(routes) != 1 {
+		t.Fatalf("routes = %+v, want only the peer with a known address", routes)
+	}
+	if routes[0].Slice != "10.20.0.128/26" || routes[0].Via != "192.168.107.6" {
+		t.Fatalf("route = %+v, want 10.20.0.128/26 via 192.168.107.6", routes[0])
+	}
+}
+
+func TestReconcileProgramsNoRoutesOnASingleNode(t *testing.T) {
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+		nodes:     []nodeView{{ID: "n-abc", Address: "192.168.107.5"}},
+	}
+
+	dp := &fakeDatapath{}
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtime: &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}, Datapath: dp},
+		logging.New("error", io.Discard))
+	a.register(context.Background())
+
+	a.reconcile(context.Background())
+
+	if routes := dp.snapshot(); len(routes) != 0 {
+		t.Fatalf("routes = %+v, want none: there are no peers", routes)
 	}
 }
