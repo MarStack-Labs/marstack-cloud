@@ -43,10 +43,11 @@ func (r *recorder) count(call string) int {
 func newTestAgent(t *testing.T, endpoint string, interval time.Duration) *Agent {
 	t.Helper()
 	return New(Config{
-		Endpoint: endpoint,
-		Name:     "bm-1",
-		Zone:     "rack-a",
-		Interval: interval,
+		Endpoint:          endpoint,
+		Name:              "bm-1",
+		Zone:              "rack-a",
+		Interval:          interval,
+		HeartbeatInterval: interval,
 	}, Deps{}, logging.New("error", io.Discard))
 }
 

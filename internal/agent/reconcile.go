@@ -31,13 +31,13 @@ func (a *Agent) reconcile(ctx context.Context) {
 		return
 	}
 
-	assigned, err := a.client.assignedInstances(ctx, a.nodeID)
+	assigned, err := a.client.assignedInstances(ctx, a.currentNodeID())
 	if err != nil {
 		a.log.Warn("could not read assigned instances", "error", err)
 		return
 	}
 
-	networks, err := a.client.nodeNetworks(ctx, a.nodeID)
+	networks, err := a.client.nodeNetworks(ctx, a.currentNodeID())
 	if err != nil {
 		a.log.Warn("could not read the node network view", "error", err)
 		return
@@ -57,7 +57,7 @@ func (a *Agent) reconcile(ctx context.Context) {
 		if in.ObservedState == observed && in.ObservedMessage == message && in.RestartCount == restarts {
 			continue
 		}
-		if err := a.client.reportStatus(ctx, a.nodeID, in.ID, observed, message, restarts); err != nil {
+		if err := a.client.reportStatus(ctx, a.currentNodeID(), in.ID, observed, message, restarts); err != nil {
 			a.log.Warn("could not report status", "instance", in.ID, "error", err)
 		}
 	}

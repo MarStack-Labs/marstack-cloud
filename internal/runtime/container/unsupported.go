@@ -41,7 +41,3 @@ func (r *Runtime) Status(context.Context, string) (workload.State, error) {
 func (r *Runtime) Remove(context.Context, string) error {
 	return errUnsupported
 }
-
-func RunInit() error {
-	return errUnsupported
-}

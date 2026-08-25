@@ -73,15 +73,3 @@ func newAgentCmd(g *globals) *cobra.Command {
 
 	return cmd
 }
-
-func newContainerInitCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:    "container-init",
-		Short:  "Internal: become the init process of a container",
-		Hidden: true,
-		Args:   cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return container.RunInit()
-		},
-	}
-}

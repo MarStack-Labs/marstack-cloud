@@ -22,10 +22,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
-const (
-	stopGrace   = 5 * time.Second
-	initCommand = "container-init"
-)
+const stopGrace = 5 * time.Second
 
 type tracked struct {
 	cmd      *exec.Cmd
@@ -143,7 +140,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	defer gate.Close()
 	defer release.Close()
 
-	cmd := exec.Command("/proc/self/exe", initCommand)
+	cmd := exec.Command("/proc/self/exe")
 	cmd.Env = append(os.Environ(), initEnvConfig+"="+string(cfg))
 	cmd.Stdout = output
 	cmd.Stderr = output
@@ -255,21 +252,32 @@ func (r *Runtime) attachNetwork(spec workload.Spec, pid int) error {
 	return nil
 }
 
-func (r *Runtime) reap(instanceID string, entry *tracked) {
-	err := entry.cmd.Wait()
-
+func (r *Runtime) snapshot(instanceID string) (tracked, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	entry, known := r.running[instanceID]
+	if !known {
+		return tracked{}, false
+	}
+	return *entry, true
+}
+
+func (r *Runtime) reap(instanceID string, entry *tracked) {
+	waitErr := entry.cmd.Wait()
+
+	r.mu.Lock()
 	entry.exited = true
 	entry.exitCode = entry.cmd.ProcessState.ExitCode()
-	if err != nil {
-		entry.message = err.Error()
+	if waitErr != nil {
+		entry.message = waitErr.Error()
 	}
+	exitCode := entry.exitCode
+	r.mu.Unlock()
 
 	r.log.Info("container exited",
 		"instance", instanceID,
-		"exit_code", entry.exitCode,
+		"exit_code", exitCode,
 		"tail", r.tailOutput(instanceID),
 	)
 }
@@ -376,22 +384,20 @@ func (r *Runtime) Stop(_ context.Context, instanceID string) error {
 }
 
 func (r *Runtime) Status(_ context.Context, instanceID string) (workload.State, error) {
-	r.mu.Lock()
-	entry, tracked := r.running[instanceID]
-	r.mu.Unlock()
+	snapshot, tracked := r.snapshot(instanceID)
 
 	if tracked {
-		if !entry.exited {
+		if !snapshot.exited {
 			return workload.State{Phase: workload.PhaseRunning}, nil
 		}
-		message := fmt.Sprintf("exited with code %d", entry.exitCode)
+		message := fmt.Sprintf("exited with code %d", snapshot.exitCode)
 		if tail := r.tailOutput(instanceID); tail != "" {
 			message += ": " + tail
 		}
 		return workload.State{
 			Phase:    workload.PhaseExited,
 			Message:  message,
-			ExitCode: entry.exitCode,
+			ExitCode: snapshot.exitCode,
 		}, nil
 	}
 

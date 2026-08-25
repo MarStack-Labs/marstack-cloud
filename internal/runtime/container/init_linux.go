@@ -14,6 +14,17 @@ import (
 
 const gateFD = 3
 
+func init() {
+	if os.Getenv(initEnvConfig) == "" {
+		return
+	}
+	if err := RunInit(); err != nil {
+		fmt.Fprintln(os.Stderr, "container init:", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
 type initConfig struct {
 	Hostname   string   `json:"hostname"`
 	Rootfs     string   `json:"rootfs"`

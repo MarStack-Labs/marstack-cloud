@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/store"
@@ -49,9 +50,16 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 		in.CreatedAt.Format(time.RFC3339Nano), in.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
+		if isUniqueViolation(err) {
+			return errNameTaken
+		}
 		return fmt.Errorf("insert instance: %w", err)
 	}
 	return nil
+}
+
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
 func (r *repository) nameTaken(ctx context.Context, name string) (bool, error) {

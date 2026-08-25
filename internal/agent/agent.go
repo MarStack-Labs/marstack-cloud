@@ -13,23 +13,28 @@ import (
 )
 
 const (
-	DefaultInterval = 10 * time.Second
+	DefaultInterval          = 10 * time.Second
+	DefaultHeartbeatInterval = 5 * time.Second
 
 	minBackoff = 1 * time.Second
 	maxBackoff = 30 * time.Second
 )
 
 type Config struct {
-	Endpoint string
-	Name     string
-	Zone     string
-	Address  string
-	Interval time.Duration
+	Endpoint          string
+	Name              string
+	Zone              string
+	Address           string
+	Interval          time.Duration
+	HeartbeatInterval time.Duration
 }
 
 func (c Config) withDefaults() Config {
 	if c.Interval <= 0 {
 		c.Interval = DefaultInterval
+	}
+	if c.HeartbeatInterval <= 0 {
+		c.HeartbeatInterval = DefaultHeartbeatInterval
 	}
 	return c
 }
@@ -48,8 +53,10 @@ type Agent struct {
 	runtimes map[string]workload.Runtime
 	datapath workload.Datapath
 	resolver workload.Resolver
-	nodeID   string
 	now      func() time.Time
+
+	nodeMu sync.RWMutex
+	nodeID string
 
 	restartsMu sync.Mutex
 	restarts   map[string]*restartState
@@ -85,6 +92,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		return err
 	}
 
+	go a.heartbeatLoop(ctx)
+
 	ticker := time.NewTicker(a.cfg.Interval)
 	defer ticker.Stop()
 
@@ -94,32 +103,73 @@ func (a *Agent) Run(ctx context.Context) error {
 			a.log.Info("agent stopping", "node", a.cfg.Name)
 			return nil
 		case <-ticker.C:
-			a.tick(ctx)
+			a.reconcileTick(ctx)
 		}
 	}
 }
 
-func (a *Agent) tick(ctx context.Context) {
-	if a.nodeID == "" {
+func (a *Agent) heartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(a.cfg.HeartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.beat(ctx)
+		}
+	}
+}
+
+func (a *Agent) beat(ctx context.Context) {
+	nodeID := a.currentNodeID()
+	if nodeID == "" {
 		if err := a.register(ctx); err != nil {
 			a.log.Warn("register failed, will retry", "error", err)
 		}
 		return
 	}
 
-	if _, err := a.client.heartbeat(ctx, a.nodeID); err != nil {
+	if _, err := a.client.heartbeat(ctx, nodeID); err != nil {
 		var statusErr *statusError
 		if errors.As(err, &statusErr) && statusErr.Code == "node_not_found" {
-			a.log.Warn("control plane forgot this node, registering again", "node_id", a.nodeID)
-			a.nodeID = ""
+			a.log.Warn("control plane forgot this node, registering again", "node_id", nodeID)
+			a.clearNodeID()
 			return
 		}
 		a.log.Warn("heartbeat failed", "error", err)
 		return
 	}
-	a.log.Debug("heartbeat sent", "node_id", a.nodeID)
+	a.log.Debug("heartbeat sent", "node_id", nodeID)
+}
 
+func (a *Agent) reconcileTick(ctx context.Context) {
+	if a.currentNodeID() == "" {
+		return
+	}
 	a.reconcile(ctx)
+}
+
+func (a *Agent) tick(ctx context.Context) {
+	a.beat(ctx)
+	a.reconcileTick(ctx)
+}
+
+func (a *Agent) currentNodeID() string {
+	a.nodeMu.RLock()
+	defer a.nodeMu.RUnlock()
+	return a.nodeID
+}
+
+func (a *Agent) setNodeID(id string) {
+	a.nodeMu.Lock()
+	defer a.nodeMu.Unlock()
+	a.nodeID = id
+}
+
+func (a *Agent) clearNodeID() {
+	a.setNodeID("")
 }
 
 func (a *Agent) register(ctx context.Context) error {
@@ -137,7 +187,7 @@ func (a *Agent) register(ctx context.Context) error {
 		return err
 	}
 
-	a.nodeID = view.ID
+	a.setNodeID(view.ID)
 	a.log.Info("node registered", "node_id", view.ID, "name", view.Name, "zone", view.Zone)
 	return nil
 }
