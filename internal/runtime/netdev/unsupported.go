@@ -30,3 +30,7 @@ func Detach(string) error {
 func (Datapath) ApplyRoutes(context.Context, []workload.Route) error {
 	return errUnsupported
 }
+
+func (Datapath) Prune(context.Context, workload.Keep) error {
+	return errUnsupported
+}

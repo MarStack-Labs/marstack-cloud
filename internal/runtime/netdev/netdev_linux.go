@@ -14,11 +14,12 @@ import (
 )
 
 const (
-	hostPrefix = "msv-"
-	peerPrefix = "msvp-"
-	nftTable   = "marstack"
-	guestIface = "eth0"
-	maxIfName  = 15
+	hostPrefix   = "msv-"
+	peerPrefix   = "msvp-"
+	bridgePrefix = "msbr-"
+	nftTable     = "marstack"
+	guestIface   = "eth0"
+	maxIfName    = 15
 )
 
 func hostName(instanceID string) string {
@@ -140,6 +141,51 @@ func (Datapath) ApplyRoutes(_ context.Context, routes []workload.Route) error {
 		}
 	}
 	return nil
+}
+
+func (Datapath) Prune(_ context.Context, keep workload.Keep) error {
+	present, err := managedLinks()
+	if err != nil {
+		return err
+	}
+
+	wanted := map[string]bool{}
+	for _, bridge := range keep.Bridges {
+		wanted[bridge] = true
+	}
+	for _, instanceID := range keep.Instances {
+		wanted[hostName(instanceID)] = true
+	}
+
+	for _, link := range present {
+		if wanted[link] {
+			continue
+		}
+		if err := run("ip", "link", "del", link); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func managedLinks() ([]string, error) {
+	out, err := output("ip", "-brief", "link", "show")
+	if err != nil {
+		return nil, err
+	}
+
+	links := make([]string, 0)
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		name := strings.SplitN(fields[0], "@", 2)[0]
+		if strings.HasPrefix(name, hostPrefix) || strings.HasPrefix(name, bridgePrefix) {
+			links = append(links, name)
+		}
+	}
+	return links, nil
 }
 
 func Attach(pid int, cfg Interface) error {

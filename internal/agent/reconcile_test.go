@@ -18,11 +18,20 @@ import (
 type fakeRuntime struct {
 	mu       sync.Mutex
 	state    workload.State
+	present  []string
 	started  []workload.Spec
 	stopped  []string
+	removed  []string
 	startErr error
 	stopErr  error
 	statErr  error
+	listErr  error
+}
+
+func (f *fakeRuntime) List(context.Context) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.present, f.listErr
 }
 
 func (f *fakeRuntime) Name() string { return "fake" }
@@ -61,11 +70,47 @@ func (f *fakeRuntime) Status(context.Context, string) (workload.State, error) {
 	return f.state, nil
 }
 
-func (f *fakeRuntime) Remove(context.Context, string) error { return nil }
+func (f *fakeRuntime) Remove(_ context.Context, instanceID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removed = append(f.removed, instanceID)
+	return nil
+}
+
+func (f *fakeRuntime) removals() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.removed...)
+}
 
 type fakeDatapath struct {
-	mu     sync.Mutex
-	routes []workload.Route
+	mu       sync.Mutex
+	routes   []workload.Route
+	pruned   []workload.Keep
+	pruneErr error
+}
+
+func (f *fakeDatapath) Prune(_ context.Context, keep workload.Keep) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.pruneErr != nil {
+		return f.pruneErr
+	}
+	f.pruned = append(f.pruned, keep)
+	return nil
+}
+
+func (f *fakeDatapath) lastPrune(t *testing.T) workload.Keep {
+	t.Helper()
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if len(f.pruned) == 0 {
+		t.Fatal("the datapath was never pruned")
+	}
+	return f.pruned[len(f.pruned)-1]
 }
 
 func (f *fakeDatapath) ApplyRoutes(_ context.Context, routes []workload.Route) error {
@@ -452,5 +497,107 @@ func TestReconcileProgramsNoRoutesOnASingleNode(t *testing.T) {
 
 	if routes := dp.snapshot(); len(routes) != 0 {
 		t.Fatalf("routes = %+v, want none: there are no peers", routes)
+	}
+}
+
+func TestReconcileRemovesWorkloadsTheControlPlaneForgot(t *testing.T) {
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
+	rt := &fakeRuntime{
+		state:   workload.State{Phase: workload.PhaseRunning},
+		present: []string{"i-1", "i-gone", "i-also-gone"},
+	}
+
+	newReconcileHarness(t, cp, rt).reconcile(context.Background())
+
+	removed := rt.removals()
+	if len(removed) != 2 {
+		t.Fatalf("removed = %v, want the two workloads no longer assigned", removed)
+	}
+	for _, id := range removed {
+		if id == "i-1" {
+			t.Fatal("a workload that is still assigned was removed")
+		}
+	}
+}
+
+func TestReconcilePrunesDatapathToWhatIsAssigned(t *testing.T) {
+	network := defaultNetworkView("i-1", "10.20.0.65")
+
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{network},
+	}
+	dp := &fakeDatapath{}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtime: &fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}}, Datapath: dp},
+		logging.New("error", io.Discard))
+	a.register(context.Background())
+
+	a.reconcile(context.Background())
+
+	keep := dp.lastPrune(t)
+	if len(keep.Bridges) != 1 || keep.Bridges[0] != network.Bridge {
+		t.Fatalf("kept bridges = %v, want only %q", keep.Bridges, network.Bridge)
+	}
+	if len(keep.Instances) != 1 || keep.Instances[0] != "i-1" {
+		t.Fatalf("kept instances = %v, want only i-1", keep.Instances)
+	}
+}
+
+func TestReconcilePrunesEverythingWhenNothingIsAssigned(t *testing.T) {
+	cp := &controlPlane{}
+	dp := &fakeDatapath{}
+	rt := &fakeRuntime{present: []string{"i-old"}}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtime: rt, Datapath: dp}, logging.New("error", io.Discard))
+	a.register(context.Background())
+
+	a.reconcile(context.Background())
+
+	if removed := rt.removals(); len(removed) != 1 || removed[0] != "i-old" {
+		t.Fatalf("removed = %v, want [i-old]", removed)
+	}
+
+	keep := dp.lastPrune(t)
+	if len(keep.Bridges) != 0 || len(keep.Instances) != 0 {
+		t.Fatalf("keep = %+v, want nothing kept", keep)
+	}
+}
+
+func TestReconcileDoesNotPruneWhenTheControlPlaneIsUnreachable(t *testing.T) {
+	dp := &fakeDatapath{}
+	rt := &fakeRuntime{present: []string{"i-1"}}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/nodes/register" {
+			json.NewEncoder(w).Encode(nodeView{ID: "n-abc"})
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtime: rt, Datapath: dp}, logging.New("error", io.Discard))
+	a.register(context.Background())
+
+	a.reconcile(context.Background())
+
+	if removed := rt.removals(); len(removed) != 0 {
+		t.Fatalf("removed = %v: a lost control plane must never look like an empty cluster", removed)
+	}
+	if len(dp.pruned) != 0 {
+		t.Fatal("the datapath was pruned from an unknown desired state")
 	}
 }

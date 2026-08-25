@@ -28,15 +28,14 @@ func (a *Agent) reconcile(ctx context.Context) {
 		a.log.Warn("could not read assigned instances", "error", err)
 		return
 	}
-	if len(assigned) == 0 {
-		return
-	}
 
 	networks, err := a.client.nodeNetworks(ctx, a.nodeID)
 	if err != nil {
 		a.log.Warn("could not read the node network view", "error", err)
 		return
 	}
+
+	a.collectGarbage(ctx, assigned, networks)
 
 	interfaces := a.interfacesByInstance(networks)
 	a.applyRoutes(ctx, networks)
@@ -50,6 +49,42 @@ func (a *Agent) reconcile(ctx context.Context) {
 		if err := a.client.reportStatus(ctx, a.nodeID, in.ID, observed, message); err != nil {
 			a.log.Warn("could not report status", "instance", in.ID, "error", err)
 		}
+	}
+}
+
+func (a *Agent) collectGarbage(ctx context.Context, assigned []instanceView, networks []networkView) {
+	wanted := make(map[string]bool, len(assigned))
+	instanceIDs := make([]string, 0, len(assigned))
+	for _, in := range assigned {
+		wanted[in.ID] = true
+		instanceIDs = append(instanceIDs, in.ID)
+	}
+
+	if present, err := a.runtime.List(ctx); err != nil {
+		a.log.Warn("could not list local workloads", "error", err)
+	} else {
+		for _, id := range present {
+			if wanted[id] {
+				continue
+			}
+			a.log.Info("removing a workload the control plane no longer knows", "instance", id)
+			if err := a.runtime.Remove(ctx, id); err != nil {
+				a.log.Warn("could not remove an orphaned workload", "instance", id, "error", err)
+			}
+		}
+	}
+
+	if a.datapath == nil {
+		return
+	}
+
+	bridges := make([]string, 0, len(networks))
+	for _, n := range networks {
+		bridges = append(bridges, n.Bridge)
+	}
+
+	if err := a.datapath.Prune(ctx, workload.Keep{Bridges: bridges, Instances: instanceIDs}); err != nil {
+		a.log.Warn("could not prune the datapath", "error", err)
 	}
 }
 

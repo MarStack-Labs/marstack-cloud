@@ -55,6 +55,26 @@ func (r *Runtime) Name() string {
 	return "container"
 }
 
+func (r *Runtime) List(context.Context) ([]string, error) {
+	dir := filepath.Join(r.layout.root, "instances")
+
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list instances: %w", err)
+	}
+
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			ids = append(ids, entry.Name())
+		}
+	}
+	return ids, nil
+}
+
 func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
 	if os.Geteuid() != 0 {
 		return errors.New("the container runtime must run as root")

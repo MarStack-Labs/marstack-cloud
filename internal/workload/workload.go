@@ -40,12 +40,19 @@ type Route struct {
 	Via   string
 }
 
+type Keep struct {
+	Bridges   []string
+	Instances []string
+}
+
 type Datapath interface {
 	ApplyRoutes(ctx context.Context, routes []Route) error
+	Prune(ctx context.Context, keep Keep) error
 }
 
 type Runtime interface {
 	Name() string
+	List(ctx context.Context) ([]string, error)
 	Start(ctx context.Context, spec Spec) error
 	Stop(ctx context.Context, instanceID string) error
 	Status(ctx context.Context, instanceID string) (State, error)

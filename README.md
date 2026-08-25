@@ -176,8 +176,29 @@ addresses that live on another node.
 Multi node needs `--address` on the agent: the address other nodes reach it on. It is not
 auto-detected, because a host with several interfaces has no way to know which one its peers use.
 
-Not implemented yet: anti-spoof filtering, internal DNS, garbage collection of datapath state left
-behind by a deleted network, image pulling, restart policy, and `isolation: vm`.
+### Garbage collection
+
+Reconcile runs in both directions. Anything on the node that the control plane no longer knows about
+is removed: workloads whose instance is gone, their cgroups and directories, their veths, and
+bridges for networks the node no longer serves.
+
+```
+INFO removing a workload the control plane no longer knows  instance=i-doesnotexist
+```
+
+Collection only runs after a successful read of the desired state. A control plane that cannot be
+reached must never look like an empty cluster, and a test asserts that nothing is removed in that
+case.
+
+A workload that survives an agent restart is adopted rather than restarted, and says so:
+
+```
+NAME    ID                DESIRED   OBSERVED   MESSAGE
+web-1   i-2ar4kjvfepncp   running   running    adopted after an agent restart
+```
+
+Not implemented yet: anti-spoof filtering, internal DNS, image pulling, restart policy, and
+`isolation: vm`.
 
 ## Development
 

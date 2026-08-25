@@ -22,6 +22,10 @@ func (r *Runtime) Name() string {
 	return "container"
 }
 
+func (r *Runtime) List(context.Context) ([]string, error) {
+	return nil, errUnsupported
+}
+
 func (r *Runtime) Start(context.Context, workload.Spec) error {
 	return errUnsupported
 }
