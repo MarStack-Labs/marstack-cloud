@@ -51,8 +51,22 @@ api-1   i-php2q13mwt3qy   container   alpine:3.20    1      512Mi    stopped   p
 db-1    i-cbv25sa6y2z40   vm          ubuntu-24.04   4      4096Mi   running   pending    -
 ```
 
-`OBSERVED` stays `pending` because no agent exists yet: the control plane records intent, and
-nothing reports reality back. That column becomes truthful in step 2 of the roadmap.
+`OBSERVED` stays `pending` because nothing runs instances yet: the control plane records intent,
+and no runtime reports reality back. That column becomes truthful once the agent runs workloads.
+
+Run an agent to make the node itself visible:
+
+```sh
+marstack agent --name bm-1 --zone rack-a
+```
+
+```
+NAME   ID                STATUS   ZONE     ARCH    CPUS   MEMORY   AGENT
+bm-1   n-ybttrrpbkargc   ready    rack-a   arm64   4      5910Mi   0.0.1-dev
+```
+
+A node is `ready` while its last heartbeat is recent and `unreachable` otherwise. Nothing in the
+control plane marks nodes down on a timer; the status is derived when it is read.
 
 ## Development
 

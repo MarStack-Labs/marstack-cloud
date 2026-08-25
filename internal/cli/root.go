@@ -36,7 +36,9 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newVersionCmd(),
 		newServerCmd(),
+		newAgentCmd(g),
 		newInstanceCmd(g),
+		newNodeCmd(g),
 	)
 	return root
 }

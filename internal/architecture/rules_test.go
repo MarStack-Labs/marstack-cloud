@@ -124,6 +124,19 @@ func TestPlatformDoesNotImportApp(t *testing.T) {
 	}
 }
 
+func TestAgentDoesNotReachIntoTheControlPlane(t *testing.T) {
+	for _, f := range loadSources(t) {
+		if !strings.HasPrefix(f.pkg, "internal/agent") {
+			continue
+		}
+		for _, imp := range f.imports {
+			if strings.HasPrefix(imp, "internal/platform/") || imp == "internal/app" || imp == "internal/store" {
+				t.Errorf("%s imports %s: the agent talks to the control plane over HTTP, not in process", f.path, imp)
+			}
+		}
+	}
+}
+
 func TestStoreStaysInfrastructure(t *testing.T) {
 	for _, f := range loadSources(t) {
 		if f.pkg != "internal/store" {

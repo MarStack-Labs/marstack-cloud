@@ -9,6 +9,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
@@ -58,6 +59,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a := &App{cfg: cfg, log: log, store: st}
 	a.modules = []Module{
 		system.New(st, log),
+		node.New(st, log),
 		instance.New(st, log),
 	}
 
