@@ -197,8 +197,37 @@ NAME    ID                DESIRED   OBSERVED   MESSAGE
 web-1   i-2ar4kjvfepncp   running   running    adopted after an agent restart
 ```
 
-Not implemented yet: anti-spoof filtering, internal DNS, image pulling, restart policy, and
-`isolation: vm`.
+### Internal DNS
+
+Every instance is resolvable at `<instance>.<network>.internal`, and the search domain makes the
+short name work. The resolver runs on each node's gateway address, so a container always talks to a
+local one:
+
+```
+$ cat /etc/resolv.conf
+nameserver 10.20.0.1
+search default.internal
+options ndots:1
+
+$ nslookup db
+Name:    db.default.internal
+Address: 10.20.0.130          # on the other node
+
+$ ping -c2 db
+2 packets transmitted, 2 packets received, 0% packet loss
+
+$ nslookup dl-cdn.alpinelinux.org
+Address: 151.101.130.132      # forwarded upstream
+```
+
+Names outside `.internal` are forwarded to the node's own upstream resolvers, with loopback
+addresses skipped so the resolver can never forward to itself.
+
+The resolver answers `A` queries only. A query for another type on a known name returns an empty
+answer rather than `NXDOMAIN`, because `NXDOMAIN` makes a client give up on the name entirely — a
+container asking for `AAAA` first would then never try `A`.
+
+Not implemented yet: anti-spoof filtering, image pulling, restart policy, and `isolation: vm`.
 
 ## Development
 

@@ -132,6 +132,23 @@ func (m *Module) ReleaseAddress(ctx context.Context, instanceID string) error {
 	return m.svc.release(ctx, instanceID)
 }
 
+func (m *Module) AllAddresses(ctx context.Context) (map[string]string, error) {
+	return m.svc.allAddresses(ctx)
+}
+
+func (m *Module) NetworkNames(ctx context.Context) (map[string]string, error) {
+	networks, err := m.svc.list(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	names := make(map[string]string, len(networks))
+	for _, n := range networks {
+		names[n.ID] = n.Name
+	}
+	return names, nil
+}
+
 func (m *Module) SliceFor(ctx context.Context, networkID, nodeID string) (Slice, error) {
 	return m.svc.ensureSlice(ctx, networkID, nodeID)
 }

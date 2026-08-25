@@ -172,6 +172,14 @@ func (s *service) allocate(ctx context.Context, instanceID, networkID, nodeID st
 	return nic, nil
 }
 
+func (s *service) allAddresses(ctx context.Context) (map[string]string, error) {
+	addresses, err := s.repo.allAddresses(ctx)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return addresses, nil
+}
+
 func (s *service) release(ctx context.Context, instanceID string) error {
 	return translate(s.repo.deleteNIC(ctx, instanceID))
 }

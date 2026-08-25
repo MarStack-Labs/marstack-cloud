@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 
+	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
@@ -61,4 +62,21 @@ type addressSource struct {
 
 func (s addressSource) Allocate(ctx context.Context, instanceID, networkID, nodeID string) error {
 	return s.networks.Allocate(ctx, instanceID, networkID, nodeID)
+}
+
+type dnsInstances struct {
+	instances *instance.Module
+}
+
+func (s dnsInstances) AllInstances(ctx context.Context) ([]dns.InstanceRef, error) {
+	all, err := s.instances.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	refs := make([]dns.InstanceRef, 0, len(all))
+	for _, in := range all {
+		refs = append(refs, dns.InstanceRef{ID: in.ID, Name: in.Name, NetworkID: in.NetworkID})
+	}
+	return refs, nil
 }

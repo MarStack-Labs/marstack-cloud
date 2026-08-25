@@ -12,12 +12,14 @@ const (
 )
 
 type NetworkConfig struct {
-	Bridge     string
-	BridgeAddr string
-	IP         string
-	Prefix     int
-	Gateway    string
-	MAC        string
+	Bridge       string
+	BridgeAddr   string
+	IP           string
+	Prefix       int
+	Gateway      string
+	MAC          string
+	Nameserver   string
+	SearchDomain string
 }
 
 type Spec struct {
@@ -48,6 +50,11 @@ type Keep struct {
 type Datapath interface {
 	ApplyRoutes(ctx context.Context, routes []Route) error
 	Prune(ctx context.Context, keep Keep) error
+}
+
+type Resolver interface {
+	Listen(ctx context.Context, address string) error
+	Update(records map[string]string)
 }
 
 type Runtime interface {

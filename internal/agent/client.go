@@ -128,6 +128,21 @@ func (c *client) nodeNetworks(ctx context.Context, nodeID string) ([]networkView
 	return out.Networks, err
 }
 
+type dnsRecordView struct {
+	FQDN string `json:"fqdn"`
+	IP   string `json:"ip"`
+}
+
+type dnsRecordsBody struct {
+	Records []dnsRecordView `json:"records"`
+}
+
+func (c *client) dnsRecords(ctx context.Context) ([]dnsRecordView, error) {
+	var out dnsRecordsBody
+	err := c.do(ctx, http.MethodGet, "/v1/dns/records", nil, &out)
+	return out.Records, err
+}
+
 func (c *client) reportStatus(ctx context.Context, nodeID, instanceID, observed, message string) error {
 	return c.do(ctx, http.MethodPut,
 		"/v1/nodes/"+nodeID+"/instances/"+instanceID+"/status",

@@ -9,6 +9,8 @@ import (
 )
 
 const (
+	dnsSuffix = "internal"
+
 	desiredRunning = "running"
 	desiredStopped = "stopped"
 
@@ -36,6 +38,7 @@ func (a *Agent) reconcile(ctx context.Context) {
 	}
 
 	a.collectGarbage(ctx, assigned, networks)
+	a.serveDNS(ctx, networks)
 
 	interfaces := a.interfacesByInstance(networks)
 	a.applyRoutes(ctx, networks)
@@ -107,16 +110,43 @@ func (a *Agent) interfacesByInstance(networks []networkView) map[string]*workloa
 
 		for _, nic := range n.NICs {
 			interfaces[nic.InstanceID] = &workload.NetworkConfig{
-				Bridge:     n.Bridge,
-				BridgeAddr: n.Gateway + "/" + strconv.Itoa(network.Bits()),
-				IP:         nic.IP,
-				Prefix:     slice.Bits(),
-				Gateway:    n.Gateway,
-				MAC:        nic.MAC,
+				Bridge:       n.Bridge,
+				BridgeAddr:   n.Gateway + "/" + strconv.Itoa(network.Bits()),
+				IP:           nic.IP,
+				Prefix:       slice.Bits(),
+				Gateway:      n.Gateway,
+				MAC:          nic.MAC,
+				Nameserver:   n.Gateway,
+				SearchDomain: n.Name + "." + dnsSuffix,
 			}
 		}
 	}
 	return interfaces
+}
+
+func (a *Agent) serveDNS(ctx context.Context, networks []networkView) {
+	if a.resolver == nil {
+		return
+	}
+
+	for _, n := range networks {
+		if err := a.resolver.Listen(ctx, n.Gateway); err != nil {
+			a.log.Warn("could not serve dns on the gateway",
+				"network", n.Name, "gateway", n.Gateway, "error", err)
+		}
+	}
+
+	records, err := a.client.dnsRecords(ctx)
+	if err != nil {
+		a.log.Warn("could not read dns records", "error", err)
+		return
+	}
+
+	zone := make(map[string]string, len(records))
+	for _, record := range records {
+		zone[record.FQDN] = record.IP
+	}
+	a.resolver.Update(zone)
 }
 
 func (a *Agent) applyRoutes(ctx context.Context, networks []networkView) {

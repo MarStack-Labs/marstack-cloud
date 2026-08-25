@@ -30,6 +30,10 @@ func New(st *store.Store, log *slog.Logger, networks Networks) *Module {
 	}
 }
 
+func (m *Module) All(ctx context.Context) ([]Instance, error) {
+	return m.svc.list(ctx)
+}
+
 func (m *Module) PendingPlacement(ctx context.Context) ([]Instance, error) {
 	return m.svc.pendingPlacement(ctx)
 }

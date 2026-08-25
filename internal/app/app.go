@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
@@ -74,6 +75,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		nodes,
 		networks,
 		instances,
+		dns.New(log, dnsInstances{instances: instances}, networks),
 	}
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},

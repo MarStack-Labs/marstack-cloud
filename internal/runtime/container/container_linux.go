@@ -95,6 +95,10 @@ func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
 		return err
 	}
 
+	if err := r.writeResolvConf(spec); err != nil {
+		return err
+	}
+
 	cgroupDir, err := createCgroup(spec.InstanceID, spec.VCPU, spec.MemoryMiB, r.layout)
 	if err != nil {
 		return err
@@ -180,6 +184,28 @@ func (r *Runtime) Start(_ context.Context, spec workload.Spec) error {
 		"vcpu", spec.VCPU,
 		"memory_mib", spec.MemoryMiB,
 	)
+	return nil
+}
+
+func (r *Runtime) writeResolvConf(spec workload.Spec) error {
+	if spec.Network == nil || spec.Network.Nameserver == "" {
+		return nil
+	}
+
+	dir := filepath.Join(r.layout.rootfs(spec.InstanceID), "etc")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create /etc in the rootfs: %w", err)
+	}
+
+	contents := "nameserver " + spec.Network.Nameserver + "\n"
+	if spec.Network.SearchDomain != "" {
+		contents += "search " + spec.Network.SearchDomain + "\noptions ndots:1\n"
+	}
+
+	path := filepath.Join(dir, "resolv.conf")
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		return fmt.Errorf("write resolv.conf: %w", err)
+	}
 	return nil
 }
 

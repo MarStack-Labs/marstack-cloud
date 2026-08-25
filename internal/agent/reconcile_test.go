@@ -83,6 +83,31 @@ func (f *fakeRuntime) removals() []string {
 	return append([]string(nil), f.removed...)
 }
 
+type fakeResolver struct {
+	mu       sync.Mutex
+	listened []string
+	zone     map[string]string
+}
+
+func (f *fakeResolver) Listen(_ context.Context, address string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listened = append(f.listened, address)
+	return nil
+}
+
+func (f *fakeResolver) Update(records map[string]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.zone = records
+}
+
+func (f *fakeResolver) snapshotZone() map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.zone
+}
+
 type fakeDatapath struct {
 	mu       sync.Mutex
 	routes   []workload.Route
@@ -137,6 +162,7 @@ type controlPlane struct {
 	instances []instanceView
 	networks  []networkView
 	nodes     []nodeView
+	records   []dnsRecordView
 	reports   []report
 }
 
@@ -158,6 +184,11 @@ func (c *controlPlane) handler() http.Handler {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(instanceListBody{Instances: c.instances})
+	})
+	mux.HandleFunc("GET /v1/dns/records", func(w http.ResponseWriter, _ *http.Request) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		json.NewEncoder(w).Encode(dnsRecordsBody{Records: c.records})
 	})
 	mux.HandleFunc("GET /v1/nodes/{id}/network", func(w http.ResponseWriter, _ *http.Request) {
 		c.mu.Lock()
@@ -599,5 +630,60 @@ func TestReconcileDoesNotPruneWhenTheControlPlaneIsUnreachable(t *testing.T) {
 	}
 	if len(dp.pruned) != 0 {
 		t.Fatal("the datapath was pruned from an unknown desired state")
+	}
+}
+
+func TestReconcileServesTheZoneOnEachGateway(t *testing.T) {
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+		records: []dnsRecordView{
+			{FQDN: "web-1.default.internal", IP: "10.20.0.65"},
+			{FQDN: "web-2.default.internal", IP: "10.20.0.130"},
+		},
+	}
+	res := &fakeResolver{}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{
+			Runtime:  &fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}},
+			Resolver: res,
+		}, logging.New("error", io.Discard))
+	a.register(context.Background())
+
+	a.reconcile(context.Background())
+
+	if len(res.listened) != 1 || res.listened[0] != "10.20.0.1" {
+		t.Fatalf("listened on %v, want the network gateway", res.listened)
+	}
+
+	zone := res.snapshotZone()
+	if zone["web-2.default.internal"] != "10.20.0.130" {
+		t.Fatalf("zone = %v, want a record for a workload on another node", zone)
+	}
+}
+
+func TestReconcileGivesTheContainerItsResolverAndSearchDomain(t *testing.T) {
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	newReconcileHarness(t, cp, rt).reconcile(context.Background())
+
+	if len(rt.started) != 1 {
+		t.Fatalf("starts = %d, want 1", len(rt.started))
+	}
+
+	net := rt.started[0].Network
+	if net.Nameserver != "10.20.0.1" {
+		t.Fatalf("nameserver = %q, want the local gateway", net.Nameserver)
+	}
+	if net.SearchDomain != "default.internal" {
+		t.Fatalf("search domain = %q, want default.internal so short names resolve", net.SearchDomain)
 	}
 }

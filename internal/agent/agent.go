@@ -35,6 +35,7 @@ func (c Config) withDefaults() Config {
 type Deps struct {
 	Runtime  workload.Runtime
 	Datapath workload.Datapath
+	Resolver workload.Resolver
 }
 
 type Agent struct {
@@ -44,6 +45,7 @@ type Agent struct {
 	host     hostInfo
 	runtime  workload.Runtime
 	datapath workload.Datapath
+	resolver workload.Resolver
 	nodeID   string
 }
 
@@ -56,6 +58,7 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 		host:     inspectHost(),
 		runtime:  deps.Runtime,
 		datapath: deps.Datapath,
+		resolver: deps.Resolver,
 	}
 }
 

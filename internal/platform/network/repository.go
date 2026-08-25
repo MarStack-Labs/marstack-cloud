@@ -256,6 +256,24 @@ func (r *repository) nicsOnNode(ctx context.Context, nodeID string) ([]NIC, erro
 	return nics, rows.Err()
 }
 
+func (r *repository) allAddresses(ctx context.Context) (map[string]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT instance_id, ip FROM nics`)
+	if err != nil {
+		return nil, fmt.Errorf("list all addresses: %w", err)
+	}
+	defer rows.Close()
+
+	addresses := map[string]string{}
+	for rows.Next() {
+		var instanceID, ip string
+		if err := rows.Scan(&instanceID, &ip); err != nil {
+			return nil, fmt.Errorf("scan address: %w", err)
+		}
+		addresses[instanceID] = ip
+	}
+	return addresses, rows.Err()
+}
+
 func (r *repository) deleteNIC(ctx context.Context, instanceID string) error {
 	if _, err := r.db.ExecContext(ctx, `DELETE FROM nics WHERE instance_id = ?`, instanceID); err != nil {
 		return fmt.Errorf("delete nic: %w", err)
