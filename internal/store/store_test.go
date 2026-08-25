@@ -5,32 +5,14 @@ import (
 	"testing"
 )
 
-func TestOpenIsIdempotent(t *testing.T) {
-	dir := t.TempDir()
-	ctx := context.Background()
-
-	first, err := Open(ctx, dir)
-	if err != nil {
-		t.Fatalf("first open: %v", err)
-	}
-	first.Close()
-
-	second, err := Open(ctx, dir)
-	if err != nil {
-		t.Fatalf("second open: %v", err)
-	}
-	defer second.Close()
-
-	var version int
-	if err := second.DB().QueryRowContext(ctx, `SELECT version FROM schema_version`).Scan(&version); err != nil {
-		t.Fatalf("read schema_version: %v", err)
-	}
-	if version != len(migrations) {
-		t.Fatalf("schema_version = %d, want %d", version, len(migrations))
+func testMigrations() []Migration {
+	return []Migration{
+		{Module: "demo", Index: 1, SQL: `CREATE TABLE demo (id TEXT PRIMARY KEY)`},
+		{Module: "demo", Index: 2, SQL: `CREATE INDEX demo_id ON demo (id)`},
 	}
 }
 
-func TestSchemaVersionHasSingleRow(t *testing.T) {
+func TestMigrateIsIdempotent(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 
@@ -38,6 +20,9 @@ func TestSchemaVersionHasSingleRow(t *testing.T) {
 		st, err := Open(ctx, dir)
 		if err != nil {
 			t.Fatalf("open: %v", err)
+		}
+		if err := st.Migrate(ctx, testMigrations()); err != nil {
+			t.Fatalf("migrate: %v", err)
 		}
 		st.Close()
 	}
@@ -48,11 +33,63 @@ func TestSchemaVersionHasSingleRow(t *testing.T) {
 	}
 	defer st.Close()
 
-	var rows int
-	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_version`).Scan(&rows); err != nil {
-		t.Fatalf("count rows: %v", err)
+	var applied int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&applied); err != nil {
+		t.Fatalf("count migrations: %v", err)
 	}
-	if rows != 1 {
-		t.Fatalf("schema_version rows = %d, want 1", rows)
+	if applied != len(testMigrations()) {
+		t.Fatalf("applied migrations = %d, want %d", applied, len(testMigrations()))
+	}
+}
+
+func TestMigrateRecordsEachModuleSeparately(t *testing.T) {
+	ctx := context.Background()
+
+	st, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	migrations := append(testMigrations(), Migration{
+		Module: "other",
+		Index:  1,
+		SQL:    `CREATE TABLE other (id TEXT PRIMARY KEY)`,
+	})
+	if err := st.Migrate(ctx, migrations); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	var modules int
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT COUNT(DISTINCT module) FROM schema_migrations`,
+	).Scan(&modules); err != nil {
+		t.Fatalf("count modules: %v", err)
+	}
+	if modules != 2 {
+		t.Fatalf("distinct modules = %d, want 2", modules)
+	}
+}
+
+func TestMigrateRollsBackFailedMigration(t *testing.T) {
+	ctx := context.Background()
+
+	st, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	broken := []Migration{{Module: "demo", Index: 1, SQL: `CREATE TABLE ( invalid sql`}}
+	if err := st.Migrate(ctx, broken); err == nil {
+		t.Fatal("expected migration to fail")
+	}
+
+	var recorded int
+	if err := st.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&recorded); err != nil {
+		t.Fatalf("count migrations: %v", err)
+	}
+	if recorded != 0 {
+		t.Fatalf("recorded migrations = %d, want 0", recorded)
 	}
 }
