@@ -31,13 +31,33 @@ limactl shell marstack-dev
 
 cd /Users/umarsabirin/Documents/Portfolio/marstack-cloud
 export GOFLAGS=-buildvcs=false
-go build -o bin/marstack-linux ./cmd/marstack
+make build
+sudo make install
 ```
 
-`GOFLAGS=-buildvcs=false` is needed because the mounted `.git` is owned by the host user, and Go
-refuses to stamp VCS information from a repository it considers unsafe.
+`make build` writes `bin/marstack`; `sudo make install` puts it on `PATH` at
+`/usr/local/bin/marstack`. Without the install step the binary exists but the shell will not find
+it, because `bin/` is not on `PATH`.
 
-The control plane may run on the host; the VM reaches it at `192.168.5.2`.
+`GOFLAGS=-buildvcs=false` is needed because the mounted `.git` is owned by the host user, and Go
+refuses to stamp VCS information from a repository it considers unsafe. Put it in `~/.bashrc` inside
+the VM to stop repeating it.
+
+Then run the control plane in one shell:
+
+```sh
+marstack server --data-dir ~/marstack-data
+```
+
+and talk to it from another:
+
+```sh
+export MARSTACK_ENDPOINT=http://127.0.0.1:7443
+marstack instance create --name api-1 --image alpine:3.20
+marstack instance list
+```
+
+The control plane may also run on the macOS host instead; the VM reaches it at `192.168.5.2`.
 
 ## Reset it
 

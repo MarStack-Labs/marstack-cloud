@@ -3,12 +3,20 @@ COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X github.com/marstack-labs/marstack-cloud/internal/version.Version=$(VERSION) \
            -X github.com/marstack-labs/marstack-cloud/internal/version.Commit=$(COMMIT)
 
-GOBIN ?= $(shell go env GOPATH)/bin
+GOBIN  ?= $(shell go env GOPATH)/bin
+PREFIX ?= /usr/local
 
-.PHONY: build test vet fmt staticcheck vuln gosec secrets security check tools hooks run clean
+.PHONY: build install uninstall test vet fmt staticcheck vuln gosec secrets security check tools hooks run clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/marstack ./cmd/marstack
+
+install:
+	install -d $(DESTDIR)$(PREFIX)/bin
+	install -m 0755 bin/marstack $(DESTDIR)$(PREFIX)/bin/marstack
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/marstack
 
 test:
 	go test -race ./...
