@@ -35,6 +35,25 @@ Enforced by `internal/architecture/rules_test.go`. Breaking one fails `make test
 When two modules genuinely need to talk, the caller declares the interface it needs and `app`
 injects the implementation. No shared package is created before there is a second consumer.
 
+`scheduler` is the worked example. It needs ready nodes from `node` and placement writes on
+`instance`, but importing either would break the rule. Instead it declares `NodeSource` and
+`InstanceSource` in its own package, in its own types, and `internal/app/adapters.go` converts:
+
+```
+scheduler  ──declares──▶  NodeSource, InstanceSource
+app        ──implements─▶  nodeSource{*node.Module}, instanceSource{*instance.Module}
+```
+
+The modules never learn that a scheduler exists, and the scheduler never learns which modules
+answer it. Both are testable with fakes, and the only place that knows the whole graph is the
+composition root.
+
+## Background workers
+
+Not every component is a module. `scheduler` has no routes and no migrations, so forcing it into
+the `Module` shape would be a lie. It is a plain worker with `Run(ctx)`, started by `app.Run`
+alongside the HTTP server and stopped by the same context.
+
 ## A module
 
 Each directory under `internal/platform/` is one module. It owns its data, its HTTP routes, and

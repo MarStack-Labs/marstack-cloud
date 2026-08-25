@@ -10,6 +10,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
@@ -21,9 +22,10 @@ type Module interface {
 }
 
 type Config struct {
-	Listen         string
-	DataDir        string
-	RequestTimeout time.Duration
+	Listen            string
+	DataDir           string
+	RequestTimeout    time.Duration
+	SchedulerInterval time.Duration
 }
 
 func (c Config) withDefaults() Config {
@@ -36,16 +38,20 @@ func (c Config) withDefaults() Config {
 	if c.RequestTimeout <= 0 {
 		c.RequestTimeout = 30 * time.Second
 	}
+	if c.SchedulerInterval <= 0 {
+		c.SchedulerInterval = scheduler.DefaultInterval
+	}
 	return c
 }
 
 type App struct {
-	cfg     Config
-	log     *slog.Logger
-	store   *store.Store
-	modules []Module
-	router  http.Handler
-	http    *http.Server
+	cfg       Config
+	log       *slog.Logger
+	store     *store.Store
+	modules   []Module
+	scheduler *scheduler.Scheduler
+	router    http.Handler
+	http      *http.Server
 }
 
 func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
@@ -56,12 +62,21 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
+	nodes := node.New(st, log)
+	instances := instance.New(st, log)
+
 	a := &App{cfg: cfg, log: log, store: st}
 	a.modules = []Module{
 		system.New(st, log),
-		node.New(st, log),
-		instance.New(st, log),
+		nodes,
+		instances,
 	}
+	a.scheduler = scheduler.New(
+		nodeSource{nodes: nodes},
+		instanceSource{instances: instances},
+		log,
+		cfg.SchedulerInterval,
+	)
 
 	if err := a.migrate(ctx); err != nil {
 		st.Close()
@@ -117,6 +132,8 @@ func (a *App) Handler() http.Handler {
 }
 
 func (a *App) Run(ctx context.Context) error {
+	go a.scheduler.Run(ctx)
+
 	errc := make(chan error, 1)
 	go func() {
 		a.log.Info("control plane listening", "addr", a.cfg.Listen, "modules", len(a.modules))

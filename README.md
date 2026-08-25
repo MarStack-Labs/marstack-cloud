@@ -68,6 +68,20 @@ bm-1   n-ybttrrpbkargc   ready    rack-a   arm64   4      5910Mi   0.0.1-dev
 A node is `ready` while its last heartbeat is recent and `unreachable` otherwise. Nothing in the
 control plane marks nodes down on a timer; the status is derived when it is read.
 
+With nodes registered, the scheduler fills in the `NODE` column, spreading instances across the
+least loaded ready nodes:
+
+```
+NAME      ID                ISOLATION   IMAGE         DESIRED   OBSERVED   NODE
+api-1     i-ps6r4jbnmnjfp   container   alpine:3.20   running   pending    n-t96s3m9vg9qdj
+api-2     i-xbt6s6pztt8n4   container   alpine:3.20   running   pending    n-t28xwvyj096g6
+db-1      i-56039am40f0nt   container   alpine:3.20   running   pending    n-t96s3m9vg9qdj
+cache-1   i-v3j0c58rhr16g   container   alpine:3.20   running   pending    n-t28xwvyj096g6
+```
+
+An instance created while no node is ready simply waits, and is placed on the next pass after a
+node registers.
+
 ## Development
 
 ```sh

@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -10,14 +11,33 @@ import (
 
 type Module struct {
 	log     *slog.Logger
+	svc     *service
 	handler *handler
 }
 
 func New(st *store.Store, log *slog.Logger) *Module {
+	svc := newService(newRepository(st), nil)
 	return &Module{
 		log:     log,
-		handler: &handler{svc: newService(newRepository(st), nil)},
+		svc:     svc,
+		handler: &handler{svc: svc},
 	}
+}
+
+func (m *Module) ReadyNodes(ctx context.Context) ([]Node, error) {
+	nodes, err := m.svc.list(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	now := m.svc.now()
+	ready := make([]Node, 0, len(nodes))
+	for _, n := range nodes {
+		if n.StatusAt(now) == StatusReady {
+			ready = append(ready, n)
+		}
+	}
+	return ready, nil
 }
 
 func (m *Module) Name() string {

@@ -1,6 +1,7 @@
 package instance
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -10,14 +11,29 @@ import (
 
 type Module struct {
 	log     *slog.Logger
+	svc     *service
 	handler *handler
 }
 
 func New(st *store.Store, log *slog.Logger) *Module {
+	svc := newService(newRepository(st), nil)
 	return &Module{
 		log:     log,
-		handler: &handler{svc: newService(newRepository(st), nil)},
+		svc:     svc,
+		handler: &handler{svc: svc},
 	}
+}
+
+func (m *Module) PendingPlacement(ctx context.Context) ([]Instance, error) {
+	return m.svc.pendingPlacement(ctx)
+}
+
+func (m *Module) AssignedCounts(ctx context.Context) (map[string]int, error) {
+	return m.svc.assignedCounts(ctx)
+}
+
+func (m *Module) Assign(ctx context.Context, instanceID, nodeID string) error {
+	return m.svc.assign(ctx, instanceID, nodeID)
 }
 
 func (m *Module) Name() string {

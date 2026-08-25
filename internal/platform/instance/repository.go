@@ -22,6 +22,8 @@ var errNameTaken = errors.New("instance name already exists")
 
 var errNotFound = errors.New("instance not found")
 
+var errAlreadyPlaced = errors.New("instance is already placed on a node")
+
 const columns = `id, name, isolation, image, vcpu, memory_mib, desired_state, observed_state, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
@@ -87,6 +89,79 @@ func (r *repository) list(ctx context.Context) ([]Instance, error) {
 		return nil, fmt.Errorf("iterate instances: %w", err)
 	}
 	return instances, nil
+}
+
+func (r *repository) listPendingPlacement(ctx context.Context) ([]Instance, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+columns+` FROM instances
+		 WHERE desired_state = ? AND (node_id IS NULL OR node_id = '')
+		 ORDER BY created_at, id`,
+		string(DesiredRunning),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list instances pending placement: %w", err)
+	}
+	defer rows.Close()
+
+	instances := make([]Instance, 0)
+	for rows.Next() {
+		in, err := scanInstance(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan instance: %w", err)
+		}
+		instances = append(instances, in)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate instances: %w", err)
+	}
+	return instances, nil
+}
+
+func (r *repository) assignedCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT node_id, COUNT(*) FROM instances
+		 WHERE node_id IS NOT NULL AND node_id != '' GROUP BY node_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("count instances per node: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int)
+	for rows.Next() {
+		var (
+			nodeID string
+			count  int
+		)
+		if err := rows.Scan(&nodeID, &count); err != nil {
+			return nil, fmt.Errorf("scan count: %w", err)
+		}
+		counts[nodeID] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate counts: %w", err)
+	}
+	return counts, nil
+}
+
+func (r *repository) assign(ctx context.Context, id, nodeID string, now time.Time) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE instances SET node_id = ?, updated_at = ?
+		 WHERE id = ? AND (node_id IS NULL OR node_id = '')`,
+		nodeID, now.Format(time.RFC3339Nano), id,
+	)
+	if err != nil {
+		return fmt.Errorf("assign instance: %w", err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("assign instance: %w", err)
+	}
+	if affected == 0 {
+		return errAlreadyPlaced
+	}
+	return nil
 }
 
 func (r *repository) setDesired(ctx context.Context, id string, desired DesiredState, now time.Time) error {

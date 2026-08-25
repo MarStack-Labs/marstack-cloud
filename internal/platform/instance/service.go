@@ -78,6 +78,26 @@ func (s *service) delete(ctx context.Context, id string) error {
 	return translate(s.repo.delete(ctx, id))
 }
 
+func (s *service) pendingPlacement(ctx context.Context) ([]Instance, error) {
+	instances, err := s.repo.listPendingPlacement(ctx)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return instances, nil
+}
+
+func (s *service) assignedCounts(ctx context.Context) (map[string]int, error) {
+	counts, err := s.repo.assignedCounts(ctx)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return counts, nil
+}
+
+func (s *service) assign(ctx context.Context, id, nodeID string) error {
+	return translate(s.repo.assign(ctx, id, nodeID, s.now()))
+}
+
 func normalize(params CreateParams) (CreateParams, error) {
 	if err := validate.Name("name", params.Name); err != nil {
 		return params, err
@@ -118,6 +138,8 @@ func translate(err error) error {
 		return fault.NotFound("instance_not_found", "no instance with that id exists")
 	case errors.Is(err, errNameTaken):
 		return fault.Conflict("instance_name_taken", "an instance with that name already exists")
+	case errors.Is(err, errAlreadyPlaced):
+		return fault.Conflict("instance_already_placed", "the instance is already placed on a node")
 	default:
 		return fault.Internal(err)
 	}
