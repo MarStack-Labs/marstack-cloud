@@ -30,7 +30,7 @@ func newTestModuleWithAssign(t *testing.T) (http.Handler, *Module) {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	m := New(st, logging.New("error", io.Discard))
+	m := New(st, logging.New("error", io.Discard), nil)
 	if err := st.Migrate(ctx, m.Migrations()); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

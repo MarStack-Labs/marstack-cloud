@@ -15,8 +15,13 @@ type Module struct {
 	handler *handler
 }
 
-func New(st *store.Store, log *slog.Logger) *Module {
+type NetworkResolver interface {
+	DefaultNetworkID(ctx context.Context) (string, error)
+}
+
+func New(st *store.Store, log *slog.Logger, networks NetworkResolver) *Module {
 	svc := newService(newRepository(st), nil)
+	svc.networks = networks
 	return &Module{
 		log:     log,
 		svc:     svc,
@@ -78,6 +83,11 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "instance",
 			Index:  5,
 			SQL:    `ALTER TABLE instances ADD COLUMN command TEXT NOT NULL DEFAULT '[]'`,
+		},
+		{
+			Module: "instance",
+			Index:  6,
+			SQL:    `ALTER TABLE instances ADD COLUMN network_id TEXT NOT NULL DEFAULT ''`,
 		},
 	}
 }

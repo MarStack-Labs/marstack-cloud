@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 )
@@ -37,7 +38,11 @@ func (s instanceSource) PendingPlacement(ctx context.Context) ([]scheduler.Pendi
 
 	pending := make([]scheduler.Pending, 0, len(waiting))
 	for _, in := range waiting {
-		pending = append(pending, scheduler.Pending{ID: in.ID, Name: in.Name})
+		pending = append(pending, scheduler.Pending{
+			ID:        in.ID,
+			Name:      in.Name,
+			NetworkID: in.NetworkID,
+		})
 	}
 	return pending, nil
 }
@@ -48,4 +53,12 @@ func (s instanceSource) AssignedCounts(ctx context.Context) (map[string]int, err
 
 func (s instanceSource) Assign(ctx context.Context, instanceID, nodeID string) error {
 	return s.instances.Assign(ctx, instanceID, nodeID)
+}
+
+type addressSource struct {
+	networks *network.Module
+}
+
+func (s addressSource) Allocate(ctx context.Context, instanceID, networkID, nodeID string) error {
+	return s.networks.Allocate(ctx, instanceID, networkID, nodeID)
 }

@@ -16,8 +16,9 @@ type Candidate struct {
 }
 
 type Pending struct {
-	ID   string
-	Name string
+	ID        string
+	Name      string
+	NetworkID string
 }
 
 type NodeSource interface {
@@ -30,18 +31,35 @@ type InstanceSource interface {
 	Assign(ctx context.Context, instanceID, nodeID string) error
 }
 
+type AddressSource interface {
+	Allocate(ctx context.Context, instanceID, networkID, nodeID string) error
+}
+
 type Scheduler struct {
 	nodes     NodeSource
 	instances InstanceSource
+	addresses AddressSource
 	log       *slog.Logger
 	interval  time.Duration
 }
 
-func New(nodes NodeSource, instances InstanceSource, log *slog.Logger, interval time.Duration) *Scheduler {
+func New(
+	nodes NodeSource,
+	instances InstanceSource,
+	addresses AddressSource,
+	log *slog.Logger,
+	interval time.Duration,
+) *Scheduler {
 	if interval <= 0 {
 		interval = DefaultInterval
 	}
-	return &Scheduler{nodes: nodes, instances: instances, log: log, interval: interval}
+	return &Scheduler{
+		nodes:     nodes,
+		instances: instances,
+		addresses: addresses,
+		log:       log,
+		interval:  interval,
+	}
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
@@ -94,6 +112,14 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		}
 		counts[target.ID]++
 		s.log.Info("instance placed", "instance", p.ID, "name", p.Name, "node", target.Name)
+
+		if s.addresses == nil || p.NetworkID == "" {
+			continue
+		}
+		if err := s.addresses.Allocate(ctx, p.ID, p.NetworkID, target.ID); err != nil {
+			s.log.Warn("address allocation failed",
+				"instance", p.ID, "network", p.NetworkID, "node", target.ID, "error", err)
+		}
 	}
 
 	return nil

@@ -14,8 +14,9 @@ import (
 type clock func() time.Time
 
 type service struct {
-	repo *repository
-	now  clock
+	repo     *repository
+	now      clock
+	networks NetworkResolver
 }
 
 func newService(repo *repository, now clock) *service {
@@ -31,6 +32,15 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		return Instance{}, err
 	}
 
+	networkID := normalized.NetworkID
+	if networkID == "" && s.networks != nil {
+		resolved, err := s.networks.DefaultNetworkID(ctx)
+		if err != nil {
+			return Instance{}, err
+		}
+		networkID = resolved
+	}
+
 	now := s.now()
 	in := Instance{
 		ID:        ids.New("i"),
@@ -38,6 +48,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		Isolation: Isolation(normalized.Isolation),
 		Image:     normalized.Image,
 		Command:   normalized.Command,
+		NetworkID: networkID,
 		VCPU:      normalized.VCPU,
 		MemoryMiB: normalized.MemoryMiB,
 		Desired:   DesiredRunning,

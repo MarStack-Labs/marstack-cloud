@@ -61,6 +61,7 @@ type Instance struct {
 	Isolation       Isolation
 	Image           string
 	Command         []string
+	NetworkID       string
 	VCPU            int
 	MemoryMiB       int
 	Desired         DesiredState
@@ -76,6 +77,7 @@ type CreateParams struct {
 	Isolation string
 	Image     string
 	Command   []string
+	NetworkID string
 	VCPU      int
 	MemoryMiB int
 }

@@ -12,6 +12,7 @@ type createRequest struct {
 	Isolation string   `json:"isolation"`
 	Image     string   `json:"image"`
 	Command   []string `json:"command,omitempty"`
+	NetworkID string   `json:"network_id,omitempty"`
 	VCPU      int      `json:"vcpu,omitempty"`
 	MemoryMiB int      `json:"memory_mib,omitempty"`
 }
@@ -27,6 +28,7 @@ type response struct {
 	Isolation       string   `json:"isolation"`
 	Image           string   `json:"image"`
 	Command         []string `json:"command,omitempty"`
+	NetworkID       string   `json:"network_id,omitempty"`
 	VCPU            int      `json:"vcpu"`
 	MemoryMiB       int      `json:"memory_mib"`
 	Desired         string   `json:"desired_state"`
@@ -48,6 +50,7 @@ func toResponse(in Instance) response {
 		Isolation:       string(in.Isolation),
 		Image:           in.Image,
 		Command:         in.Command,
+		NetworkID:       in.NetworkID,
 		VCPU:            in.VCPU,
 		MemoryMiB:       in.MemoryMiB,
 		Desired:         string(in.Desired),
@@ -74,6 +77,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		Isolation: req.Isolation,
 		Image:     req.Image,
 		Command:   req.Command,
+		NetworkID: req.NetworkID,
 		VCPU:      req.VCPU,
 		MemoryMiB: req.MemoryMiB,
 	})

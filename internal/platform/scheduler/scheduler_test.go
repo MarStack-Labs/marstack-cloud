@@ -53,13 +53,26 @@ func (f *fakeInstances) Assign(_ context.Context, instanceID, nodeID string) err
 	return nil
 }
 
+type fakeAddresses struct {
+	allocated []string
+	err       error
+}
+
+func (f *fakeAddresses) Allocate(_ context.Context, instanceID, _, _ string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.allocated = append(f.allocated, instanceID)
+	return nil
+}
+
 func newTestScheduler(nodes NodeSource, instances InstanceSource) *Scheduler {
-	return New(nodes, instances, logging.New("error", io.Discard), time.Hour)
+	return New(nodes, instances, &fakeAddresses{}, logging.New("error", io.Discard), time.Hour)
 }
 
 func TestPlacesPendingInstanceOnReadyNode(t *testing.T) {
 	nodes := &fakeNodes{ready: []Candidate{{ID: "n-1", Name: "bm-1"}}}
-	instances := &fakeInstances{pending: []Pending{{ID: "i-1", Name: "api-1"}}}
+	instances := &fakeInstances{pending: []Pending{{ID: "i-1", Name: "api-1", NetworkID: "nw-1"}}}
 
 	if err := newTestScheduler(nodes, instances).Tick(context.Background()); err != nil {
 		t.Fatalf("tick: %v", err)
@@ -153,7 +166,7 @@ func TestRunStopsWithContext(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		New(nodes, instances, logging.New("error", io.Discard), 10*time.Millisecond).Run(ctx)
+		New(nodes, instances, &fakeAddresses{}, logging.New("error", io.Discard), 10*time.Millisecond).Run(ctx)
 		close(done)
 	}()
 
@@ -161,5 +174,35 @@ func TestRunStopsWithContext(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after the context was cancelled")
+	}
+}
+
+func TestAddressIsAllocatedAfterPlacement(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{{ID: "n-1", Name: "bm-1"}}}
+	instances := &fakeInstances{pending: []Pending{{ID: "i-1", NetworkID: "nw-1"}}}
+	addresses := &fakeAddresses{}
+
+	s := New(nodes, instances, addresses, logging.New("error", io.Discard), time.Hour)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if len(addresses.allocated) != 1 || addresses.allocated[0] != "i-1" {
+		t.Fatalf("allocated = %v, want [i-1]", addresses.allocated)
+	}
+}
+
+func TestPlacementSurvivesAddressAllocationFailure(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{{ID: "n-1", Name: "bm-1"}}}
+	instances := &fakeInstances{pending: []Pending{{ID: "i-1", NetworkID: "nw-1"}}}
+	addresses := &fakeAddresses{err: errors.New("network exhausted")}
+
+	s := New(nodes, instances, addresses, logging.New("error", io.Discard), time.Hour)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick returned %v, want the placement to stand", err)
+	}
+
+	if len(instances.assignments) != 1 {
+		t.Fatal("the instance lost its placement because addressing failed")
 	}
 }

@@ -86,3 +86,12 @@ make check      # vet + test + security scans
   must stay outside anything that can panic.
 - `internal/architecture/rules_test.go` is the architecture. If a boundary needs to change, change
   the rule deliberately in the same commit — do not work around it with an import alias.
+- `staticcheck.conf` disables `S1016`, which suggests converting a wire struct straight into a
+  domain struct. Wire types and domain types are kept separate on purpose so the HTTP shape can
+  change without touching the service; taking that suggestion would silently couple them, and a
+  wire-only field would then fail to compile. `ST1000` and `ST102x` are off because this repo does
+  not write doc comments.
+- Runtime packages are split by build tag. Portable constants live in the untagged file; anything
+  using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
+  platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead
+  code, and the tests then only run on one platform.

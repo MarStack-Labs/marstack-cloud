@@ -9,6 +9,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
@@ -49,6 +50,7 @@ type App struct {
 	log       *slog.Logger
 	store     *store.Store
 	modules   []Module
+	networks  *network.Module
 	scheduler *scheduler.Scheduler
 	router    http.Handler
 	http      *http.Server
@@ -63,22 +65,30 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	}
 
 	nodes := node.New(st, log)
-	instances := instance.New(st, log)
+	networks := network.New(st, log)
+	instances := instance.New(st, log, networks)
 
-	a := &App{cfg: cfg, log: log, store: st}
+	a := &App{cfg: cfg, log: log, store: st, networks: networks}
 	a.modules = []Module{
 		system.New(st, log),
 		nodes,
+		networks,
 		instances,
 	}
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},
 		instanceSource{instances: instances},
+		addressSource{networks: networks},
 		log,
 		cfg.SchedulerInterval,
 	)
 
 	if err := a.migrate(ctx); err != nil {
+		st.Close()
+		return nil, err
+	}
+
+	if _, err := a.networks.EnsureDefault(ctx); err != nil {
 		st.Close()
 		return nil, err
 	}
