@@ -168,3 +168,28 @@ func TestStagedReportsWhatTheAgentDownloaded(t *testing.T) {
 		t.Fatalf("staged = %+v", staged[0])
 	}
 }
+
+func TestStagedCountsAFileAnOperatorPutThere(t *testing.T) {
+	c, dir := newCatalog(t)
+	c.Replace([]Image{{ID: "img-u", Name: "ubuntu-24.04", Kind: KindDisk}})
+
+	if err := os.WriteFile(filepath.Join(dir, "ubuntu-24.04.qcow2"), []byte("disk"), 0o644); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+
+	staged, err := c.Staged()
+	if err != nil {
+		t.Fatalf("staged: %v", err)
+	}
+	if len(staged) != 1 || staged[0].Origin != "img-u" {
+		t.Fatalf("staged = %+v, want the image reported as available on this node", staged)
+	}
+
+	c.Replace(nil)
+	if err := c.Prune(nil); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "ubuntu-24.04.qcow2")); err != nil {
+		t.Fatal("reporting a file as available made it deletable, which breaks an air gapped node")
+	}
+}

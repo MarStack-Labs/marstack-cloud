@@ -206,6 +206,14 @@ func (f *Fetcher) Staged() ([]Staged, error) {
 	return staged, nil
 }
 
+func (f *Fetcher) Measure(name string) (int64, bool) {
+	info, err := os.Stat(f.Path(name))
+	if err != nil || info.Size() == 0 {
+		return 0, false
+	}
+	return info.Size(), true
+}
+
 func (f *Fetcher) Discard(name string) error {
 	root, err := os.OpenRoot(f.dir)
 	if err != nil {

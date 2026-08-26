@@ -84,7 +84,30 @@ func (c *Catalog) Stage(ctx context.Context, reference, kind string) (string, er
 }
 
 func (c *Catalog) Staged() ([]artifact.Staged, error) {
-	return c.fetcher.Staged()
+	staged, err := c.fetcher.Staged()
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[string]bool, len(staged))
+	for _, file := range staged {
+		seen[file.Name] = true
+	}
+
+	c.mu.RLock()
+	images := append([]Image(nil), c.images...)
+	c.mu.RUnlock()
+
+	for _, in := range images {
+		name := FileName(in)
+		if seen[name] {
+			continue
+		}
+		if size, present := c.fetcher.Measure(name); present {
+			staged = append(staged, artifact.Staged{Name: name, Origin: in.ID, Bytes: size})
+		}
+	}
+	return staged, nil
 }
 
 func (c *Catalog) Prune(inUse []string) error {
