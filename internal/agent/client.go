@@ -137,6 +137,19 @@ type dnsRecordView struct {
 	IP   string `json:"ip"`
 }
 
+type imageView struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Arch     string `json:"arch"`
+	Source   string `json:"source"`
+	Checksum string `json:"checksum,omitempty"`
+}
+
+type imagesBody struct {
+	Images []imageView `json:"images"`
+}
+
 type dnsRecordsBody struct {
 	Records []dnsRecordView `json:"records"`
 }
@@ -145,6 +158,12 @@ func (c *client) dnsRecords(ctx context.Context) ([]dnsRecordView, error) {
 	var out dnsRecordsBody
 	err := c.do(ctx, http.MethodGet, "/v1/dns/records", nil, &out)
 	return out.Records, err
+}
+
+func (c *client) images(ctx context.Context) ([]imageView, error) {
+	var out imagesBody
+	err := c.do(ctx, http.MethodGet, "/v1/images", nil, &out)
+	return out.Images, err
 }
 
 func (c *client) reportStatus(

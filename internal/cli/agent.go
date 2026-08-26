@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/agent"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/catalog"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/container"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/microvm"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
@@ -46,6 +48,7 @@ func newAgentCmd(g *globals) *cobra.Command {
 			}
 
 			log := logging.New(logLevel, os.Stderr)
+			images := catalog.New(filepath.Join(runtimeRoot, "images"), log)
 
 			return agent.New(agent.Config{
 				Endpoint: g.endpoint,
@@ -57,12 +60,13 @@ func newAgentCmd(g *globals) *cobra.Command {
 			}, agent.Deps{
 				Runtimes: map[string]workload.Runtime{
 					"container": container.New(runtimeRoot, log),
-					"vm":        qemu.New(runtimeRoot, log),
+					"vm":        qemu.New(runtimeRoot, log, images),
 					"microvm":   microvm.New(runtimeRoot, log, microvm.CloudHypervisor()),
 					"sandbox":   microvm.New(runtimeRoot, log, microvm.Firecracker()),
 				},
 				Datapath: netdev.Datapath{},
 				Resolver: resolver.New(log),
+				Catalog:  images,
 			}, log).Run(ctx)
 		},
 	}

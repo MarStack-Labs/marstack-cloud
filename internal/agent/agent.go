@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/catalog"
 	"github.com/marstack-labs/marstack-cloud/internal/version"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
@@ -44,6 +45,7 @@ type Deps struct {
 	Runtimes map[string]workload.Runtime
 	Datapath workload.Datapath
 	Resolver workload.Resolver
+	Catalog  *catalog.Catalog
 }
 
 type Agent struct {
@@ -54,6 +56,7 @@ type Agent struct {
 	runtimes map[string]workload.Runtime
 	datapath workload.Datapath
 	resolver workload.Resolver
+	catalog  *catalog.Catalog
 	now      func() time.Time
 
 	nodeMu sync.RWMutex
@@ -73,6 +76,7 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 		runtimes: deps.Runtimes,
 		datapath: deps.Datapath,
 		resolver: deps.Resolver,
+		catalog:  deps.Catalog,
 		now:      time.Now,
 		restarts: map[string]*restartState{},
 	}

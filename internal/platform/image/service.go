@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	checksumPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	checksumPattern = regexp.MustCompile(`^(sha256:[0-9a-f]{64}|sha512:[0-9a-f]{128})$`)
 	namePattern     = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]{0,61}[a-z0-9])?$`)
 )
 
@@ -55,7 +55,8 @@ func (s *service) create(ctx context.Context, params CreateParams) (Image, error
 	checksum := strings.ToLower(strings.TrimSpace(params.Checksum))
 	if checksum != "" && !checksumPattern.MatchString(checksum) {
 		return Image{}, fault.Invalid("invalid_checksum",
-			"the checksum must look like sha256:<64 hex characters>")
+			"the checksum must look like sha256:<64 hex characters> or "+
+				"sha512:<128 hex characters>, matching what the publisher signs")
 	}
 
 	in := Image{

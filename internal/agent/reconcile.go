@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/catalog"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
@@ -31,6 +32,8 @@ func (a *Agent) reconcile(ctx context.Context) {
 	if len(a.runtimes) == 0 {
 		return
 	}
+
+	a.refreshCatalog(ctx)
 
 	state, err := a.readDesired(ctx)
 	if err != nil {
@@ -290,6 +293,31 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolat
 		return
 	}
 	a.log.Debug("anti-spoof rules applied", "interfaces", len(filters))
+}
+
+func (a *Agent) refreshCatalog(ctx context.Context) {
+	if a.catalog == nil {
+		return
+	}
+
+	images, err := a.client.images(ctx)
+	if err != nil {
+		a.log.Warn("could not read the image catalog, keeping the last one", "error", err)
+		return
+	}
+
+	known := make([]catalog.Image, 0, len(images))
+	for _, in := range images {
+		known = append(known, catalog.Image{
+			ID:       in.ID,
+			Name:     in.Name,
+			Kind:     in.Kind,
+			Arch:     in.Arch,
+			Source:   in.Source,
+			Checksum: in.Checksum,
+		})
+	}
+	a.catalog.Replace(known)
 }
 
 func (a *Agent) reconcileOne(

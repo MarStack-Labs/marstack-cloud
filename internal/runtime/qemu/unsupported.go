@@ -12,9 +12,13 @@ import (
 
 var errUnsupported = errors.New("the vm runtime needs Linux with KVM")
 
+type Images interface {
+	Stage(ctx context.Context, reference, kind string) (string, error)
+}
+
 type Runtime struct{}
 
-func New(_ string, _ *slog.Logger) *Runtime {
+func New(_ string, _ *slog.Logger, _ Images) *Runtime {
 	return &Runtime{}
 }
 

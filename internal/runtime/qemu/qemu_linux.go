@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/catalog"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/console"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
@@ -26,18 +27,23 @@ const (
 	pollEvery = 250 * time.Millisecond
 )
 
+type Images interface {
+	Stage(ctx context.Context, reference, kind string) (string, error)
+}
+
 type Runtime struct {
-	root string
-	log  *slog.Logger
+	root   string
+	log    *slog.Logger
+	images Images
 
 	consoles *console.Keeper
 }
 
-func New(root string, log *slog.Logger) *Runtime {
+func New(root string, log *slog.Logger, images Images) *Runtime {
 	if root == "" {
 		root = DefaultRoot
 	}
-	return &Runtime{root: root, log: log, consoles: console.NewKeeper(log)}
+	return &Runtime{root: root, log: log, images: images, consoles: console.NewKeeper(log)}
 }
 
 func (r *Runtime) Name() string {
@@ -106,7 +112,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return nil
 	}
 
-	base, err := r.baseImage(spec.Image)
+	base, err := r.stagedDisk(ctx, spec.Image)
 	if err != nil {
 		return err
 	}
@@ -216,15 +222,14 @@ func (r *Runtime) prepareDisk(spec workload.Spec, base string) error {
 	return nil
 }
 
-func (r *Runtime) baseImage(reference string) (string, error) {
-	name := strings.NewReplacer("/", "_", ":", "_", " ", "_").Replace(reference)
-	path := filepath.Join(r.root, "images", name+".qcow2")
+func (r *Runtime) stagedDisk(ctx context.Context, reference string) (string, error) {
+	if r.images == nil {
+		return "", errors.New("this node has no image catalog, so isolation vm cannot boot")
+	}
 
-	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf(
-			"isolation vm boots a disk image staged on the node, and %s is not there: expected %s. "+
-				"An OCI reference such as alpine:3.20 only works for container, microvm and sandbox",
-			reference, path)
+	path, err := r.images.Stage(ctx, reference, catalog.KindDisk)
+	if err != nil {
+		return "", err
 	}
 	return path, nil
 }
