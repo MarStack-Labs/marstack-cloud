@@ -22,51 +22,76 @@ node or across many baremetal machines, through the same code and the same API.
 |---|---|---|
 | `container` | own runtime (namespaces, cgroup v2, overlayfs) | workloads that do not need their own kernel |
 | `vm` | QEMU | a whole machine: any OS, graphical console, passthrough |
-| `microvm` | QEMU (v1) → Cloud Hypervisor (v2) | fast boot while keeping a private kernel |
-| `sandbox` | Firecracker (v3) | ephemeral work, restored from a snapshot |
+| `microvm` | Cloud Hypervisor | fast boot while keeping a private kernel |
+| `sandbox` | Firecracker | ephemeral work, restored from a snapshot |
 
 VMM names never appear in the API or the CLI.
 
-## Staging node images
+## Images
 
-Do this once per node, before creating anything that is not a container.
+Containers, microvms and sandboxes pull an OCI image from a registry when they
+start. A vm does not: it boots a disk image, and a microvm boots a kernel, and
+both are files that have to be on the node. Those are registered in the catalog
+and downloaded by the node that needs one.
 
 ```sh
-make stage-images
+marstack image create --name ubuntu-24.04 --kind disk \
+  --source https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img \
+  --checksum sha256:<published digest>
+
+marstack image create --name alpine-virt --kind iso \
+  --source https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/aarch64/alpine-virt-3.20.3-aarch64.iso
+
+marstack image list
 ```
 
-Containers, microvms and sandboxes pull an OCI image from a registry at start.
-A vm does not: it boots a qcow2 disk that has to be on the node already, and a
-microvm boots an uncompressed kernel that has to be there too.
+```
+NAME           ID                  KIND   ARCH    SIZE   NODES   SOURCE
+alpine-virt    img-qmzgg4fy5bv58   iso    arm64   69Mi   1       https://dl-cdn.alpinelinux.org/...
+ubuntu-24.04   img-r9wc2qkcwg8fy   disk   arm64   590Mi  2       https://cloud-images.ubuntu.com/...
+```
 
-| Isolation | What the image field means | Where it comes from |
+| Kind | What it is | Used by |
 |---|---|---|
-| `container` | OCI reference | pulled at start |
-| `microvm` | OCI reference, unpacked into an ext4 root | pulled at start, plus `images/kernel.Image` |
-| `sandbox` | OCI reference, unpacked into an ext4 root | pulled at start, plus `images/kernel.Image` |
-| `vm` | file name of a staged disk | `images/<name>.qcow2`, staged by hand |
+| `disk` | bootable cloud image, qcow2 or raw | `--image` on isolation `vm` |
+| `iso` | optical media, attached and booted first | `--iso` on isolation `vm` |
+| `kernel` | uncompressed kernel, no bootloader | `--kernel` on `microvm` and `sandbox` |
 
-So `--isolation vm --image alpine:3.20` cannot work. It resolves to
-`/var/lib/marstack/images/alpine_3.20.qcow2`, which nobody staged - `/`, `:`
-and spaces become `_`. Use the name of a disk that is there:
+`SIZE` and `NODES` come from the nodes, not from the registration: nothing knows
+how large an image is until a node has downloaded it. Checksums are optional but
+verified when given, and both `sha256:` and `sha512:` are accepted because
+publishers disagree about which to sign.
 
-```sh
-sudo ls /var/lib/marstack/images
-marstack instance create --name db-1 --isolation vm --image ubuntu-24.04
-```
-
-To stage a different distribution, drop the qcow2 in yourself:
+Nothing is downloaded speculatively. A node fetches an image the moment a
+workload placed on it needs one, into `/var/lib/marstack/images`, and records
+where it came from. When an image leaves the catalog and no instance on the node
+references it, the node deletes the file. A file staged by hand has no such
+record and is never touched, so an air gapped node still works:
 
 ```sh
 sudo curl -fL -o /var/lib/marstack/images/debian-12.qcow2 \
   https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-arm64.qcow2
 ```
 
-`make stage-images` is deliberately dumb: it downloads the Ubuntu cloud image
-for the node architecture, extracts the running kernel to `images/kernel.Image`
-for the microvm runtimes, verifies both are the format they claim to be, and
-does nothing if they are already there. The agent never downloads a disk image
-on its own - what a node boots stays an operator decision.
+For a node with no catalog yet, `make stage-images` downloads the Ubuntu cloud
+image and extracts the running kernel to `images/kernel.Image`, which is what
+Cloud Hypervisor and Firecracker boot - `/boot/vmlinuz` on arm64 is a gzip
+wrapper around the Image and neither VMM will read it.
+
+### Installing an operating system yourself
+
+An iso plus a blank disk is an installer:
+
+```sh
+marstack instance create --name build-1 --isolation vm \
+  --iso alpine-virt --disk-gib 20 --memory-mib 2048
+
+sudo marstack instance console <id>      # on the node holding it
+```
+
+The iso is attached with `bootindex=0`, so it boots before the disk. Give the vm
+an `--image` instead and it overlays that disk rather than starting empty; give
+it both and the iso boots first, which is how a rescue disk works.
 
 ## Running it
 
@@ -356,15 +381,18 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 ## Roadmap
 
 ```
-1  store + api + instance object
-2  agent + reconcile loop, isolation: container
-3  netdev + nft + dns          → containers can talk
-4  image store
-5  vmm/qemu                    → isolation: vm
-6  node join + routing         → multi node
-7  isolation: microvm
-8  disk + snapshot
-9  cloud hypervisor, then sandbox + firecracker
+ 1  store + api + instance object                     done
+ 2  agent + reconcile loop, isolation: container      done
+ 3  netdev + nft + dns          → containers talk     done
+ 4  oci image store                                   done
+ 5  vmm/qemu                    → isolation: vm       done
+ 6  node join + routing         → multi node          done
+ 7  isolation: microvm and sandbox                    done
+ 8  serial console                                    done
+ 9  image catalog: disk, iso, kernel                  done
+10  volumes + snapshot
+11  api authentication
+12  fencing a partitioned node
 ```
 
 ## License
