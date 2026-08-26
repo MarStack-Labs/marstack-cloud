@@ -69,6 +69,62 @@ func (r *repository) list(ctx context.Context) ([]Image, error) {
 	return images, rows.Err()
 }
 
+func (r *repository) replaceNodeImages(ctx context.Context, nodeID string, staged []Staged, at time.Time) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM node_images WHERE node_id = ?`, nodeID); err != nil {
+		return fmt.Errorf("clear the node images: %w", err)
+	}
+
+	for _, file := range staged {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO node_images (node_id, image_id, size_bytes, reported_at) VALUES (?, ?, ?, ?)`,
+			nodeID, file.ImageID, file.SizeBytes, at.Format(time.RFC3339Nano),
+		); err != nil {
+			return fmt.Errorf("record a node image: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *repository) nodesByImage(ctx context.Context) (map[string][]string, map[string]int64, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT image_id, node_id, size_bytes FROM node_images ORDER BY node_id`)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list node images: %w", err)
+	}
+	defer rows.Close()
+
+	byImage := map[string][]string{}
+	sizes := map[string]int64{}
+	for rows.Next() {
+		var imageID, nodeID string
+		var size int64
+		if err := rows.Scan(&imageID, &nodeID, &size); err != nil {
+			return nil, nil, fmt.Errorf("scan a node image: %w", err)
+		}
+		byImage[imageID] = append(byImage[imageID], nodeID)
+		if size > sizes[imageID] {
+			sizes[imageID] = size
+		}
+	}
+	return byImage, sizes, rows.Err()
+}
+
+func (r *repository) sizeOf(ctx context.Context, imageID string) (int64, error) {
+	var size int64
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(MAX(size_bytes), 0) FROM node_images WHERE image_id = ?`, imageID).Scan(&size)
+	if err != nil {
+		return 0, fmt.Errorf("read the image size: %w", err)
+	}
+	return size, nil
+}
+
 func (r *repository) delete(ctx context.Context, id string) error {
 	result, err := r.db.ExecContext(ctx, `DELETE FROM images WHERE id = ?`, id)
 	if err != nil {

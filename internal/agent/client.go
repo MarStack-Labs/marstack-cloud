@@ -169,6 +169,20 @@ func (c *client) images(ctx context.Context) ([]imageView, error) {
 	return out.Images, err
 }
 
+type stagedImageBody struct {
+	ImageID   string `json:"image_id"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+type reportImagesBody struct {
+	Images []stagedImageBody `json:"images"`
+}
+
+func (c *client) reportImages(ctx context.Context, nodeID string, staged []stagedImageBody) error {
+	return c.do(ctx, http.MethodPut, "/v1/nodes/"+nodeID+"/images",
+		reportImagesBody{Images: staged}, nil)
+}
+
 func (c *client) reportStatus(
 	ctx context.Context, nodeID, instanceID, observed, message string, restarts int,
 ) error {

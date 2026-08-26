@@ -7,21 +7,22 @@ import (
 )
 
 type imageView struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
-	Arch      string `json:"arch"`
-	Source    string `json:"source"`
-	Checksum  string `json:"checksum,omitempty"`
-	SizeBytes int64  `json:"size_bytes,omitempty"`
-	CreatedAt string `json:"created_at"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Arch      string   `json:"arch"`
+	Source    string   `json:"source"`
+	Checksum  string   `json:"checksum,omitempty"`
+	SizeBytes int64    `json:"size_bytes,omitempty"`
+	Nodes     []string `json:"nodes,omitempty"`
+	CreatedAt string   `json:"created_at"`
 }
 
 type imageListView struct {
 	Images []imageView `json:"images"`
 }
 
-var imageHeaders = []string{"NAME", "ID", "KIND", "ARCH", "SIZE", "SOURCE"}
+var imageHeaders = []string{"NAME", "ID", "KIND", "ARCH", "SIZE", "NODES", "SOURCE"}
 
 func imageRow(in imageView) []string {
 	size := "-"
@@ -30,11 +31,16 @@ func imageRow(in imageView) []string {
 	}
 
 	source := in.Source
-	if len(source) > 60 {
-		source = source[:57] + "..."
+	if len(source) > 44 {
+		source = source[:41] + "..."
 	}
 
-	return []string{in.Name, in.ID, in.Kind, in.Arch, size, source}
+	nodes := "-"
+	if len(in.Nodes) > 0 {
+		nodes = strconv.Itoa(len(in.Nodes))
+	}
+
+	return []string{in.Name, in.ID, in.Kind, in.Arch, size, nodes, source}
 }
 
 func newImageCmd(g *globals) *cobra.Command {

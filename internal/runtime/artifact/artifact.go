@@ -20,7 +20,16 @@ const (
 	fetchTimeout = 30 * time.Minute
 	filePerm     = 0o644
 	dirPerm      = 0o750
+
+	originSuffix = ".origin"
+	partSuffix   = ".part"
 )
+
+type Staged struct {
+	Name   string
+	Origin string
+	Bytes  int64
+}
 
 type Fetcher struct {
 	dir    string
@@ -73,7 +82,7 @@ func (f *Fetcher) Fetch(ctx context.Context, name, source, checksum string) (str
 
 	f.log.Info("staging an image", "name", name, "source", source)
 
-	temp := name + ".part"
+	temp := name + partSuffix
 	written, digest, err := f.download(ctx, root, temp, source, checksum)
 	if err != nil {
 		root.Remove(temp)
@@ -139,4 +148,90 @@ func hasherFor(checksum string) (hash.Hash, string) {
 		return sha512.New(), "sha512"
 	}
 	return sha256.New(), "sha256"
+}
+
+func (f *Fetcher) MarkOrigin(name, origin string) error {
+	root, err := os.OpenRoot(f.dir)
+	if err != nil {
+		return fmt.Errorf("open the image directory: %w", err)
+	}
+	defer root.Close()
+
+	file, err := root.Create(name + originSuffix)
+	if err != nil {
+		return fmt.Errorf("record where %s came from: %w", name, err)
+	}
+	defer file.Close()
+
+	if _, err := file.WriteString(origin + "\n"); err != nil {
+		return fmt.Errorf("record where %s came from: %w", name, err)
+	}
+	return nil
+}
+
+func (f *Fetcher) Staged() ([]Staged, error) {
+	entries, err := os.ReadDir(f.dir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list staged images: %w", err)
+	}
+
+	root, err := os.OpenRoot(f.dir)
+	if err != nil {
+		return nil, fmt.Errorf("open the image directory: %w", err)
+	}
+	defer root.Close()
+
+	staged := make([]Staged, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, originSuffix) {
+			continue
+		}
+
+		artefact := strings.TrimSuffix(name, originSuffix)
+		origin, readErr := readTrimmed(root, name)
+		if readErr != nil {
+			continue
+		}
+
+		info, statErr := root.Stat(artefact)
+		if statErr != nil {
+			continue
+		}
+		staged = append(staged, Staged{Name: artefact, Origin: origin, Bytes: info.Size()})
+	}
+	return staged, nil
+}
+
+func (f *Fetcher) Discard(name string) error {
+	root, err := os.OpenRoot(f.dir)
+	if err != nil {
+		return fmt.Errorf("open the image directory: %w", err)
+	}
+	defer root.Close()
+
+	if err := root.Remove(name); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove %s: %w", name, err)
+	}
+	if err := root.Remove(name + originSuffix); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove the origin of %s: %w", name, err)
+	}
+	return nil
+}
+
+func readTrimmed(root *os.Root, name string) (string, error) {
+	file, err := root.Open(name)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(file, 256))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(raw)), nil
 }

@@ -193,3 +193,70 @@ func TestAChecksumIsKeptLowercase(t *testing.T) {
 			created.Checksum)
 	}
 }
+
+func TestNodesReportWhatTheyHaveStaged(t *testing.T) {
+	h, _ := newTestModule(t)
+
+	rec := request(t, h, http.MethodPost, "/v1/images", ubuntu)
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	body := `{"images":[{"image_id":"` + created.ID + `","size_bytes":618659840}]}`
+	if rec := request(t, h, http.MethodPut, "/v1/nodes/n-1/images", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := request(t, h, http.MethodPut, "/v1/nodes/n-2/images", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	var list listResponse
+	if err := json.Unmarshal(request(t, h, http.MethodGet, "/v1/images", "").Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list.Images) != 1 {
+		t.Fatalf("images = %d", len(list.Images))
+	}
+	if len(list.Images[0].Nodes) != 2 {
+		t.Fatalf("nodes = %v, want both nodes that reported it", list.Images[0].Nodes)
+	}
+
+	if rec := request(t, h, http.MethodPut, "/v1/nodes/n-1/images", `{"images":[]}`); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	if err := json.Unmarshal(request(t, h, http.MethodGet, "/v1/images", "").Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list.Images[0].Nodes) != 1 || list.Images[0].Nodes[0] != "n-2" {
+		t.Fatalf("nodes = %v, want a node that dropped the image to disappear from the list",
+			list.Images[0].Nodes)
+	}
+}
+
+func TestAnImageSizeComesFromTheNodesThatHaveIt(t *testing.T) {
+	h, _ := newTestModule(t)
+
+	rec := request(t, h, http.MethodPost, "/v1/images", ubuntu)
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.SizeBytes != 0 {
+		t.Fatalf("size = %d, want it unknown until a node has downloaded it", created.SizeBytes)
+	}
+
+	body := `{"images":[{"image_id":"` + created.ID + `","size_bytes":4096}]}`
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/images", body)
+
+	var one response
+	if err := json.Unmarshal(
+		request(t, h, http.MethodGet, "/v1/images/"+created.Name, "").Body.Bytes(), &one,
+	); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if one.SizeBytes != 4096 {
+		t.Fatalf("size = %d, want the size a node measured", one.SizeBytes)
+	}
+}

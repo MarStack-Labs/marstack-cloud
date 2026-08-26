@@ -83,6 +83,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	}
 
 	a.collectGarbage(ctx, state.Instances, state.Networks)
+	a.tidyImages(ctx, state.Instances, report)
 	a.serveDNS(ctx, state.Networks, state.Records)
 
 	interfaces := a.interfacesByInstance(state.Networks)
@@ -293,6 +294,40 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolat
 		return
 	}
 	a.log.Debug("anti-spoof rules applied", "interfaces", len(filters))
+}
+
+func (a *Agent) tidyImages(ctx context.Context, assigned []instanceView, report bool) {
+	if a.catalog == nil {
+		return
+	}
+
+	inUse := make([]string, 0, len(assigned)*3)
+	for _, in := range assigned {
+		inUse = append(inUse, in.Image, in.ISO, in.Kernel)
+	}
+
+	if err := a.catalog.Prune(inUse); err != nil {
+		a.log.Warn("could not tidy the staged images", "error", err)
+	}
+
+	if !report {
+		return
+	}
+
+	staged, err := a.catalog.Staged()
+	if err != nil {
+		a.log.Warn("could not list the staged images", "error", err)
+		return
+	}
+
+	files := make([]stagedImageBody, 0, len(staged))
+	for _, file := range staged {
+		files = append(files, stagedImageBody{ImageID: file.Origin, SizeBytes: file.Bytes})
+	}
+
+	if err := a.client.reportImages(ctx, a.currentNodeID(), files); err != nil {
+		a.log.Warn("could not report the staged images", "error", err)
+	}
 }
 
 func (a *Agent) refreshCatalog(ctx context.Context) {

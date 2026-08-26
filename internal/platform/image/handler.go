@@ -15,15 +15,25 @@ type createRequest struct {
 	Checksum string `json:"checksum,omitempty"`
 }
 
-type response struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Kind      string `json:"kind"`
-	Arch      string `json:"arch"`
-	Source    string `json:"source"`
-	Checksum  string `json:"checksum,omitempty"`
+type reportRequest struct {
+	Images []reportedImage `json:"images"`
+}
+
+type reportedImage struct {
+	ImageID   string `json:"image_id"`
 	SizeBytes int64  `json:"size_bytes,omitempty"`
-	CreatedAt string `json:"created_at"`
+}
+
+type response struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Arch      string   `json:"arch"`
+	Source    string   `json:"source"`
+	Checksum  string   `json:"checksum,omitempty"`
+	SizeBytes int64    `json:"size_bytes,omitempty"`
+	Nodes     []string `json:"nodes"`
+	CreatedAt string   `json:"created_at"`
 }
 
 type listResponse struct {
@@ -31,6 +41,16 @@ type listResponse struct {
 }
 
 func toResponse(in Image) response {
+	return toPlacementResponse(Placement{Image: in})
+}
+
+func toPlacementResponse(placed Placement) response {
+	in := placed.Image
+	nodes := placed.Nodes
+	if nodes == nil {
+		nodes = []string{}
+	}
+
 	return response{
 		ID:        in.ID,
 		Name:      in.Name,
@@ -39,6 +59,7 @@ func toResponse(in Image) response {
 		Source:    in.Source,
 		Checksum:  in.Checksum,
 		SizeBytes: in.SizeBytes,
+		Nodes:     nodes,
 		CreatedAt: in.CreatedAt.Format(time.RFC3339Nano),
 	}
 }
@@ -75,8 +96,8 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	body := listResponse{Images: make([]response, 0, len(images))}
-	for _, in := range images {
-		body.Images = append(body.Images, toResponse(in))
+	for _, placed := range images {
+		body.Images = append(body.Images, toPlacementResponse(placed))
 	}
 
 	httpx.Write(w, http.StatusOK, body)
@@ -88,7 +109,32 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.Write(w, http.StatusOK, toResponse(in))
+
+	sized, err := h.svc.withSize(r.Context(), in)
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(sized))
+	return nil
+}
+
+func (h *handler) report(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[reportRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	staged := make([]Staged, 0, len(req.Images))
+	for _, file := range req.Images {
+		staged = append(staged, Staged{ImageID: file.ImageID, SizeBytes: file.SizeBytes})
+	}
+
+	if err := h.svc.report(r.Context(), r.PathValue("nodeID"), staged); err != nil {
+		return err
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 

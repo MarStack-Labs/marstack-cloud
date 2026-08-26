@@ -108,6 +108,15 @@ func checkSource(raw string) (string, error) {
 	return parsed.String(), nil
 }
 
+func (s *service) withSize(ctx context.Context, in Image) (Image, error) {
+	size, err := s.repo.sizeOf(ctx, in.ID)
+	if err != nil {
+		return Image{}, translate(err)
+	}
+	in.SizeBytes = size
+	return in, nil
+}
+
 func (s *service) resolve(ctx context.Context, nameOrID string) (Image, error) {
 	in, err := s.repo.byName(ctx, nameOrID)
 	if err == nil {
@@ -124,12 +133,44 @@ func (s *service) resolve(ctx context.Context, nameOrID string) (Image, error) {
 	return in, nil
 }
 
-func (s *service) list(ctx context.Context) ([]Image, error) {
+func (s *service) list(ctx context.Context) ([]Placement, error) {
 	images, err := s.repo.list(ctx)
 	if err != nil {
 		return nil, translate(err)
 	}
-	return images, nil
+
+	byImage, sizes, err := s.repo.nodesByImage(ctx)
+	if err != nil {
+		return nil, translate(err)
+	}
+
+	placed := make([]Placement, 0, len(images))
+	for _, in := range images {
+		in.SizeBytes = sizes[in.ID]
+		placed = append(placed, Placement{Image: in, Nodes: byImage[in.ID]})
+	}
+	return placed, nil
+}
+
+func (s *service) report(ctx context.Context, nodeID string, staged []Staged) error {
+	if nodeID == "" {
+		return fault.Invalid("invalid_node", "the node id must not be empty")
+	}
+
+	known := map[string]bool{}
+	kept := make([]Staged, 0, len(staged))
+	for _, file := range staged {
+		if file.ImageID == "" || known[file.ImageID] {
+			continue
+		}
+		known[file.ImageID] = true
+		kept = append(kept, file)
+	}
+
+	if err := s.repo.replaceNodeImages(ctx, nodeID, kept, s.now()); err != nil {
+		return translate(err)
+	}
+	return nil
 }
 
 func (s *service) remove(ctx context.Context, id string) error {

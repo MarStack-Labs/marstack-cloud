@@ -82,3 +82,89 @@ func TestStageFindsAnImageByID(t *testing.T) {
 		t.Fatalf("stage by id: %v", err)
 	}
 }
+
+func TestPruneKeepsWhatAnOperatorStaged(t *testing.T) {
+	c, dir := newCatalog(t)
+
+	byHand := filepath.Join(dir, "ubuntu-24.04.qcow2")
+	if err := os.WriteFile(byHand, []byte("disk"), 0o644); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+
+	if err := c.Prune(nil); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if _, err := os.Stat(byHand); err != nil {
+		t.Fatal("a file staged by hand was deleted: it has no origin, so nothing proves we own it")
+	}
+}
+
+func TestPruneRemovesWhatLeftTheCatalog(t *testing.T) {
+	c, dir := newCatalog(t)
+
+	staged := filepath.Join(dir, "gone.qcow2")
+	if err := os.WriteFile(staged, []byte("disk"), 0o644); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if err := os.WriteFile(staged+".origin", []byte("img-gone\n"), 0o600); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+
+	c.Replace([]Image{{ID: "img-other", Name: "other", Kind: KindDisk}})
+
+	if err := c.Prune(nil); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if _, err := os.Stat(staged); err == nil {
+		t.Fatal("an image the catalog no longer knows kept its disk space")
+	}
+	if _, err := os.Stat(staged + ".origin"); err == nil {
+		t.Fatal("the origin marker outlived its image")
+	}
+}
+
+func TestPruneKeepsAnImageStillInUse(t *testing.T) {
+	c, dir := newCatalog(t)
+
+	staged := filepath.Join(dir, "running.qcow2")
+	if err := os.WriteFile(staged, []byte("disk"), 0o644); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if err := os.WriteFile(staged+".origin", []byte("img-running\n"), 0o600); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+
+	c.Replace(nil)
+
+	if err := c.Prune([]string{"running"}); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if _, err := os.Stat(staged); err != nil {
+		t.Fatal("the backing file of a running vm was deleted, which breaks the guest")
+	}
+}
+
+func TestStagedReportsWhatTheAgentDownloaded(t *testing.T) {
+	c, dir := newCatalog(t)
+
+	if err := os.WriteFile(filepath.Join(dir, "a.qcow2"), []byte("1234"), 0o644); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.qcow2.origin"), []byte("img-a"), 0o600); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.qcow2"), []byte("by hand"), 0o644); err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+
+	staged, err := c.Staged()
+	if err != nil {
+		t.Fatalf("staged: %v", err)
+	}
+	if len(staged) != 1 {
+		t.Fatalf("staged = %+v, want only the file with an origin", staged)
+	}
+	if staged[0].Origin != "img-a" || staged[0].Bytes != 4 {
+		t.Fatalf("staged = %+v", staged[0])
+	}
+}

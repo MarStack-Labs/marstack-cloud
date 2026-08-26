@@ -22,6 +22,16 @@ type Image struct {
 	CreatedAt time.Time
 }
 
+type Staged struct {
+	ImageID   string
+	SizeBytes int64
+}
+
+type Placement struct {
+	Image Image
+	Nodes []string
+}
+
 type CreateParams struct {
 	Name     string
 	Kind     string

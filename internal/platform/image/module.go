@@ -49,6 +49,17 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  2,
 			SQL:    `CREATE UNIQUE INDEX images_name_unique ON images (name)`,
 		},
+		{
+			Module: "image",
+			Index:  3,
+			SQL: `CREATE TABLE node_images (
+				node_id     TEXT NOT NULL,
+				image_id    TEXT NOT NULL,
+				size_bytes  INTEGER NOT NULL DEFAULT 0,
+				reported_at TEXT NOT NULL,
+				PRIMARY KEY (node_id, image_id)
+			)`,
+		},
 	}
 }
 
@@ -57,12 +68,13 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/images", httpx.Wrap(m.log, m.handler.list))
 	mux.Handle("GET /v1/images/{id}", httpx.Wrap(m.log, m.handler.get))
 	mux.Handle("DELETE /v1/images/{id}", httpx.Wrap(m.log, m.handler.delete))
+	mux.Handle("PUT /v1/nodes/{nodeID}/images", httpx.Wrap(m.log, m.handler.report))
 }
 
 func (m *Module) Resolve(ctx context.Context, nameOrID string) (Image, error) {
 	return m.svc.resolve(ctx, nameOrID)
 }
 
-func (m *Module) List(ctx context.Context) ([]Image, error) {
+func (m *Module) List(ctx context.Context) ([]Placement, error) {
 	return m.svc.list(ctx)
 }
