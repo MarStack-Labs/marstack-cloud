@@ -179,6 +179,7 @@ type controlPlane struct {
 	networks  []networkView
 	nodes     []nodeView
 	records   []dnsRecordView
+	volumes   []volumeView
 	reports   []report
 }
 
@@ -200,6 +201,11 @@ func (c *controlPlane) handler() http.Handler {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(instanceListBody{Instances: c.instances})
+	})
+	mux.HandleFunc("GET /v1/nodes/{id}/volumes", func(w http.ResponseWriter, _ *http.Request) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		json.NewEncoder(w).Encode(volumesBody{Volumes: c.volumes})
 	})
 	mux.HandleFunc("GET /v1/dns/records", func(w http.ResponseWriter, _ *http.Request) {
 		c.mu.Lock()
@@ -787,5 +793,43 @@ func TestReconcileRefusesAnIsolationTheNodeCannotRun(t *testing.T) {
 	}
 	if !strings.Contains(report.Message, "microvm") {
 		t.Fatalf("message = %q, want it to name the isolation the node cannot run", report.Message)
+	}
+}
+
+func TestAttachedVolumesReachTheRuntime(t *testing.T) {
+	in := runningInstance()
+
+	cp := &controlPlane{
+		instances: []instanceView{in},
+		networks:  []networkView{defaultNetworkView(in.ID, "10.20.0.65")},
+		volumes: []volumeView{
+			{ID: "vol-1", Name: "data-1", SizeGiB: 20, InstanceID: in.ID},
+			{ID: "vol-2", Name: "spare", SizeGiB: 5},
+		},
+	}
+
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtimes: runtimesFor(rt), Datapath: &fakeDatapath{}},
+		logging.New("error", io.Discard))
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+
+	if len(rt.started) != 1 {
+		t.Fatalf("starts = %d", len(rt.started))
+	}
+
+	disks := rt.started[0].Volumes
+	if len(disks) != 1 {
+		t.Fatalf("volumes = %+v, want only the one attached to this instance", disks)
+	}
+	if disks[0].ID != "vol-1" || disks[0].SizeGiB != 20 {
+		t.Fatalf("volume = %+v", disks[0])
 	}
 }

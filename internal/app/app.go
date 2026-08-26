@@ -15,6 +15,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -71,6 +72,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	instances := instance.New(st, log, networks)
 
 	a := &App{cfg: cfg, log: log, store: st, networks: networks}
+	volumes := volume.New(st, volumeInstances{instances: instances}, log)
+
 	a.modules = []Module{
 		system.New(st, log),
 		nodes,
@@ -78,7 +81,9 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		instances,
 		dns.New(log, dnsInstances{instances: instances}, networks),
 		image.New(st, log),
+		volumes,
 	}
+	instances.UseVolumes(volumes)
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},
 		instanceSource{instances: instances},

@@ -160,7 +160,12 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	}
 	defer launch.Close()
 
-	args := r.arguments(spec, firmware, vars, seed, media, tap)
+	volumes, err := r.prepareVolumes(spec)
+	if err != nil {
+		return err
+	}
+
+	args := r.arguments(spec, firmware, vars, seed, media, tap, volumes)
 	cmd := exec.Command(qemuBinary(), args...)
 	cmd.Stdout = launch
 	cmd.Stderr = launch
@@ -185,7 +190,44 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	return nil
 }
 
-func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, media, tap string) []string {
+func (r *Runtime) volumeDir() string {
+	return filepath.Join(r.root, "volumes")
+}
+
+func (r *Runtime) prepareVolumes(spec workload.Spec) ([]string, error) {
+	if len(spec.Volumes) == 0 {
+		return nil, nil
+	}
+
+	if err := os.MkdirAll(r.volumeDir(), 0o750); err != nil {
+		return nil, fmt.Errorf("create the volume directory: %w", err)
+	}
+
+	paths := make([]string, 0, len(spec.Volumes))
+	for _, disk := range spec.Volumes {
+		if strings.ContainsAny(disk.ID, "/.") {
+			return nil, fmt.Errorf("refusing a volume with id %q", disk.ID)
+		}
+
+		path := filepath.Join(r.volumeDir(), disk.ID+".qcow2")
+		if _, err := os.Stat(path); err != nil {
+			create := exec.Command("qemu-img", "create", "-f", "qcow2", path,
+				strconv.Itoa(disk.SizeGiB)+"G")
+			if out, err := create.CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("create volume %s: %w: %s",
+					disk.Name, err, strings.TrimSpace(string(out)))
+			}
+			r.log.Info("volume created",
+				"instance", spec.InstanceID, "volume", disk.Name, "size_gib", disk.SizeGiB)
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
+}
+
+func (r *Runtime) arguments(
+	spec workload.Spec, firmware, vars, seed, media, tap string, volumes []string,
+) []string {
 	mac := "52:54:00:12:34:56"
 	if spec.Network != nil && spec.Network.MAC != "" {
 		mac = spec.Network.MAC
@@ -201,11 +243,19 @@ func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, media, tap
 		"-monitor", "none",
 		"-drive", "if=pflash,format=raw,unit=0,readonly=on,file=" + firmware,
 		"-drive", "if=pflash,format=raw,unit=1,file=" + vars,
-		"-drive", "if=virtio,format=qcow2,file=" + r.diskFile(spec.InstanceID),
-		"-drive", "if=virtio,format=raw,media=cdrom,readonly=on,file=" + seed,
 		"-serial", "unix:" + r.serialSocket(spec.InstanceID) + ",server=on,wait=off",
 		"-pidfile", r.pidFile(spec.InstanceID),
 		"-daemonize",
+		"-drive", "id=root,if=none,format=qcow2,file=" + r.diskFile(spec.InstanceID),
+		"-device", "virtio-blk-pci,drive=root,bootindex=1",
+	}
+
+	for index, path := range volumes {
+		id := "vol" + strconv.Itoa(index)
+		args = append(args,
+			"-drive", "id="+id+",if=none,format=qcow2,file="+path,
+			"-device", "virtio-blk-pci,drive="+id+",serial="+spec.Volumes[index].Name,
+		)
 	}
 
 	if media != "" {
@@ -214,6 +264,11 @@ func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, media, tap
 			"-device", "virtio-blk-pci,drive=installer,bootindex=0",
 		)
 	}
+
+	args = append(args,
+		"-drive", "id=seed,if=none,format=raw,readonly=on,file="+seed,
+		"-device", "virtio-blk-pci,drive=seed",
+	)
 
 	if tap != "" {
 		args = append(args,

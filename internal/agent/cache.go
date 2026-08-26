@@ -18,6 +18,7 @@ type cachedState struct {
 	Networks  []networkView   `json:"networks"`
 	Records   []dnsRecordView `json:"records"`
 	Nodes     []nodeView      `json:"nodes"`
+	Volumes   []volumeView    `json:"volumes"`
 }
 
 func (a *Agent) cachePath() string {

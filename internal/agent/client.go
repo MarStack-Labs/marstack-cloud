@@ -149,6 +149,17 @@ type imageView struct {
 	Checksum string `json:"checksum,omitempty"`
 }
 
+type volumeView struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	SizeGiB    int    `json:"size_gib"`
+	InstanceID string `json:"instance_id,omitempty"`
+}
+
+type volumesBody struct {
+	Volumes []volumeView `json:"volumes"`
+}
+
 type imagesBody struct {
 	Images []imageView `json:"images"`
 }
@@ -161,6 +172,12 @@ func (c *client) dnsRecords(ctx context.Context) ([]dnsRecordView, error) {
 	var out dnsRecordsBody
 	err := c.do(ctx, http.MethodGet, "/v1/dns/records", nil, &out)
 	return out.Records, err
+}
+
+func (c *client) volumes(ctx context.Context, nodeID string) ([]volumeView, error) {
+	var out volumesBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/volumes", nil, &out)
+	return out.Volumes, err
 }
 
 func (c *client) images(ctx context.Context) ([]imageView, error) {

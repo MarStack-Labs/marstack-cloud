@@ -40,6 +40,7 @@ func newRootCmd() *cobra.Command {
 		newInstanceCmd(g),
 		newNetworkCmd(g),
 		newImageCmd(g),
+		newVolumeCmd(g),
 		newNodeCmd(g),
 	)
 	return root

@@ -69,11 +69,17 @@ func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
 		return cachedState{}, fmt.Errorf("nodes: %w", err)
 	}
 
+	volumes, err := a.client.volumes(ctx, nodeID)
+	if err != nil {
+		return cachedState{}, fmt.Errorf("volumes: %w", err)
+	}
+
 	return cachedState{
 		Instances: assigned,
 		Networks:  networks,
 		Records:   records,
 		Nodes:     nodes,
+		Volumes:   volumes,
 	}, nil
 }
 
@@ -83,15 +89,17 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	}
 
 	a.collectGarbage(ctx, state.Instances, state.Networks)
+	a.tidyVolumes(state.Volumes)
 	a.tidyImages(ctx, state.Instances, report)
 	a.serveDNS(ctx, state.Networks, state.Records)
 
 	interfaces := a.interfacesByInstance(state.Networks)
+	disks := disksByInstance(state.Volumes)
 	a.applyRoutes(ctx, state.Networks, state.Nodes)
 	a.applyFilters(ctx, state.Networks, isolationsOf(state.Instances))
 
 	for _, in := range state.Instances {
-		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID])
+		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID], disks[in.ID])
 		restarts := a.restartAttempts(in.ID)
 
 		if !report {
@@ -296,6 +304,23 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolat
 	a.log.Debug("anti-spoof rules applied", "interfaces", len(filters))
 }
 
+func (a *Agent) tidyVolumes(volumes []volumeView) {
+	keep := make([]string, 0, len(volumes))
+	for _, v := range volumes {
+		keep = append(keep, v.ID)
+	}
+
+	for isolation, runtime := range a.runtimes {
+		keeper, able := runtime.(workload.VolumeKeeper)
+		if !able {
+			continue
+		}
+		if err := keeper.PruneVolumes(keep); err != nil {
+			a.log.Warn("could not tidy the volumes", "isolation", isolation, "error", err)
+		}
+	}
+}
+
 func (a *Agent) tidyImages(ctx context.Context, assigned []instanceView, report bool) {
 	if a.catalog == nil {
 		return
@@ -355,10 +380,26 @@ func (a *Agent) refreshCatalog(ctx context.Context) {
 	a.catalog.Replace(known)
 }
 
+func disksByInstance(volumes []volumeView) map[string][]workload.Disk {
+	byInstance := map[string][]workload.Disk{}
+	for _, v := range volumes {
+		if v.InstanceID == "" {
+			continue
+		}
+		byInstance[v.InstanceID] = append(byInstance[v.InstanceID], workload.Disk{
+			ID:      v.ID,
+			Name:    v.Name,
+			SizeGiB: v.SizeGiB,
+		})
+	}
+	return byInstance
+}
+
 func (a *Agent) reconcileOne(
 	ctx context.Context,
 	in instanceView,
 	iface *workload.NetworkConfig,
+	disks []workload.Disk,
 ) (string, string) {
 	runtime, known := a.runtimeFor(in.Isolation)
 	if !known {
@@ -373,6 +414,7 @@ func (a *Agent) reconcileOne(
 		ISO:        in.ISO,
 		Kernel:     in.Kernel,
 		DiskGiB:    in.DiskGiB,
+		Volumes:    disks,
 		Command:    in.Command,
 		VCPU:       in.VCPU,
 		MemoryMiB:  in.MemoryMiB,

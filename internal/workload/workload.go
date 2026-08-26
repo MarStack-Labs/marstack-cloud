@@ -22,6 +22,12 @@ type NetworkConfig struct {
 	SearchDomain string
 }
 
+type Disk struct {
+	ID      string
+	Name    string
+	SizeGiB int
+}
+
 type Spec struct {
 	InstanceID string
 	Name       string
@@ -30,6 +36,7 @@ type Spec struct {
 	ISO        string
 	Kernel     string
 	DiskGiB    int
+	Volumes    []Disk
 	Command    []string
 	VCPU       int
 	MemoryMiB  int
@@ -69,6 +76,10 @@ type Datapath interface {
 type Resolver interface {
 	Listen(ctx context.Context, address string) error
 	Update(records map[string]string)
+}
+
+type VolumeKeeper interface {
+	PruneVolumes(keep []string) error
 }
 
 type Runtime interface {

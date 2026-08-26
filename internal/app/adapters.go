@@ -9,6 +9,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
 )
 
 type nodeSource struct {
@@ -98,6 +99,18 @@ type addressSource struct {
 
 func (s addressSource) Allocate(ctx context.Context, instanceID, networkID, nodeID string) error {
 	return s.networks.Allocate(ctx, instanceID, networkID, nodeID)
+}
+
+type volumeInstances struct {
+	instances *instance.Module
+}
+
+func (s volumeInstances) Placement(ctx context.Context, instanceID string) (volume.Placement, error) {
+	in, err := s.instances.Get(ctx, instanceID)
+	if err != nil {
+		return volume.Placement{}, err
+	}
+	return volume.Placement{NodeID: in.NodeID, Isolation: string(in.Isolation)}, nil
 }
 
 type dnsInstances struct {

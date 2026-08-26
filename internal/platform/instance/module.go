@@ -20,6 +20,10 @@ type Networks interface {
 	ReleaseAddress(ctx context.Context, instanceID string) error
 }
 
+type Volumes interface {
+	ReleaseInstance(ctx context.Context, instanceID string) error
+}
+
 func New(st *store.Store, log *slog.Logger, networks Networks) *Module {
 	svc := newService(newRepository(st), nil)
 	svc.networks = networks
@@ -28,6 +32,14 @@ func New(st *store.Store, log *slog.Logger, networks Networks) *Module {
 		svc:     svc,
 		handler: &handler{svc: svc},
 	}
+}
+
+func (m *Module) UseVolumes(volumes Volumes) {
+	m.svc.volumes = volumes
+}
+
+func (m *Module) Get(ctx context.Context, id string) (Instance, error) {
+	return m.svc.get(ctx, id)
 }
 
 func (m *Module) All(ctx context.Context) ([]Instance, error) {
