@@ -43,20 +43,6 @@ URL="https://cloud-images.ubuntu.com/releases/$RELEASE/release/ubuntu-$RELEASE-s
 
 mkdir -p "$IMAGES"
 
-if [ -s "$DISK" ]; then
-	echo "vm disk already staged: $DISK"
-else
-	echo "downloading $URL"
-	if [ -t 2 ]; then
-		curl -fL --progress-bar -o "$DISK.part" "$URL" || die "download failed"
-	else
-		curl -fL --silent --show-error -o "$DISK.part" "$URL" || die "download failed"
-	fi
-	mv "$DISK.part" "$DISK"
-	echo "staged $DISK"
-fi
-
-file "$DISK" | grep -q QCOW || die "$DISK is not a qcow2 image"
 
 if [ -s "$KERNEL" ]; then
 	echo "microvm kernel already staged: $KERNEL"
@@ -72,6 +58,21 @@ fi
 
 file "$KERNEL" | grep -q "kernel .* boot executable Image" ||
 	die "$KERNEL is not an uncompressed kernel image, which is what a microvm boots"
+
+if [ -s "$DISK" ]; then
+	echo "vm disk already staged: $DISK"
+else
+	echo "downloading $URL"
+	if [ -t 2 ]; then
+		curl -fL --progress-bar -o "$DISK.part" "$URL" || die "download failed"
+	else
+		curl -fL --silent --show-error -o "$DISK.part" "$URL" || die "download failed"
+	fi
+	mv "$DISK.part" "$DISK"
+	echo "staged $DISK"
+fi
+
+file "$DISK" | grep -q QCOW || die "$DISK is not a qcow2 image"
 
 chmod 0644 "$DISK" "$KERNEL"
 
