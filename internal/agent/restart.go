@@ -15,6 +15,7 @@ type restartState struct {
 	nextAttempt  time.Time
 	startedAt    time.Time
 	haltedByUser bool
+	startFailure string
 }
 
 func (a *Agent) restartStateOf(instanceID string) *restartState {
@@ -59,6 +60,24 @@ func (a *Agent) noteStarted(instanceID string) {
 
 	state.startedAt = a.now()
 	state.haltedByUser = false
+	state.startFailure = ""
+}
+
+func (a *Agent) noteStartFailure(instanceID, reason string) {
+	state := a.restartStateOf(instanceID)
+
+	a.restartsMu.Lock()
+	defer a.restartsMu.Unlock()
+
+	state.startFailure = reason
+}
+
+func (a *Agent) lastStartFailure(instanceID string) string {
+	state := a.restartStateOf(instanceID)
+
+	a.restartsMu.Lock()
+	defer a.restartsMu.Unlock()
+	return state.startFailure
 }
 
 func (a *Agent) noteRestart(instanceID string) int {

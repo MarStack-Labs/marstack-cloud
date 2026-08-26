@@ -134,11 +134,16 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return nil
 	}
 
+	base, err := r.baseImage(spec.Image)
+	if err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll(r.instanceDir(spec.InstanceID), 0o750); err != nil {
 		return fmt.Errorf("create instance directory: %w", err)
 	}
 
-	if err := r.prepareDisk(spec); err != nil {
+	if err := r.prepareDisk(spec, base); err != nil {
 		return err
 	}
 
@@ -221,15 +226,10 @@ func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, tap string
 	return args
 }
 
-func (r *Runtime) prepareDisk(spec workload.Spec) error {
+func (r *Runtime) prepareDisk(spec workload.Spec, base string) error {
 	disk := r.diskFile(spec.InstanceID)
 	if _, err := os.Stat(disk); err == nil {
 		return nil
-	}
-
-	base, err := r.baseImage(spec.Image)
-	if err != nil {
-		return err
 	}
 
 	create := exec.Command("qemu-img", "create",
@@ -249,7 +249,10 @@ func (r *Runtime) baseImage(reference string) (string, error) {
 	path := filepath.Join(r.root, "images", name+".qcow2")
 
 	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("disk image %s is not present on this node: expected %s", reference, path)
+		return "", fmt.Errorf(
+			"isolation vm boots a disk image staged on the node, and %s is not there: expected %s. "+
+				"An OCI reference such as alpine:3.20 only works for container, microvm and sandbox",
+			reference, path)
 	}
 	return path, nil
 }

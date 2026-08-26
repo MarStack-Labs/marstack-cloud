@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http/httptest"
 	"strconv"
@@ -164,6 +165,37 @@ func TestRestartsAreSpacedByBackoff(t *testing.T) {
 
 	if len(rt.started) != 2 {
 		t.Fatalf("starts = %d, want the restart once the backoff elapsed", len(rt.started))
+	}
+}
+
+func TestAStartFailureKeepsExplainingItself(t *testing.T) {
+	a, cp, rt, tick := newRestartHarness(t, exitedInstance(restartAlways, "running"), 1)
+
+	reason := "disk image alpine:3.20 is not present on this node"
+	rt.mu.Lock()
+	rt.startErr = errors.New(reason)
+	rt.mu.Unlock()
+
+	a.reconcile(context.Background())
+
+	if report := cp.lastReport(t); !strings.Contains(report.Message, reason) {
+		t.Fatalf("first message = %q, want the reason the start failed", report.Message)
+	}
+
+	rt.mu.Lock()
+	rt.state = workload.State{Phase: workload.PhaseExited, Message: "the vm is not running", ExitCode: 1}
+	rt.mu.Unlock()
+
+	tick.advance(2 * time.Second)
+	a.reconcile(context.Background())
+
+	report := cp.lastReport(t)
+	if !strings.Contains(report.Message, reason) {
+		t.Fatalf("later message = %q, want the reason to survive instead of being replaced "+
+			"by the generic exit message", report.Message)
+	}
+	if report.State != observedFailed {
+		t.Fatalf("reported %q, want %q", report.State, observedFailed)
 	}
 }
 

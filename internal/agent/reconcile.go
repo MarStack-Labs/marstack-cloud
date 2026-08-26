@@ -361,16 +361,21 @@ func (a *Agent) handleExit(
 		return a.start(ctx, runtime, spec, "")
 	}
 
+	message := state.Message
+	if failure := a.lastStartFailure(spec.InstanceID); failure != "" {
+		message = failure
+	}
+
 	if !shouldRestart(policy, state.ExitCode) {
 		if state.ExitCode == 0 {
-			return observedStopped, state.Message
+			return observedStopped, message
 		}
-		return observedFailed, state.Message
+		return observedFailed, message
 	}
 
 	if allowed, wait := a.restartAllowed(spec.InstanceID); !allowed {
 		return observedFailed, fmt.Sprintf("%s, restarting in %s (attempt %d)",
-			state.Message, wait.Round(time.Second), a.restartAttempts(spec.InstanceID)+1)
+			message, wait.Round(time.Second), a.restartAttempts(spec.InstanceID)+1)
 	}
 
 	attempt := a.noteRestart(spec.InstanceID)
@@ -385,7 +390,7 @@ func (a *Agent) handleExit(
 		return observedFailed, "could not clear the exited workload: " + err.Error()
 	}
 
-	return a.start(ctx, runtime, spec, fmt.Sprintf("restarted after %s", state.Message))
+	return a.start(ctx, runtime, spec, fmt.Sprintf("restarted after %s", message))
 }
 
 func (a *Agent) start(
@@ -396,6 +401,7 @@ func (a *Agent) start(
 ) (string, string) {
 	if err := runtime.Start(ctx, spec); err != nil {
 		a.log.Warn("could not start workload", "instance", spec.InstanceID, "error", err)
+		a.noteStartFailure(spec.InstanceID, err.Error())
 		return observedFailed, err.Error()
 	}
 
