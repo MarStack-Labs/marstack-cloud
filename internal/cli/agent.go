@@ -28,6 +28,7 @@ func newAgentCmd(g *globals) *cobra.Command {
 		stateDir    string
 		runtimeRoot string
 		interval    time.Duration
+		fenceAfter  time.Duration
 		logLevel    string
 	)
 
@@ -51,13 +52,14 @@ func newAgentCmd(g *globals) *cobra.Command {
 			images := catalog.New(filepath.Join(runtimeRoot, "images"), log)
 
 			return agent.New(agent.Config{
-				Endpoint: g.endpoint,
-				Token:    g.secret(),
-				Name:     name,
-				Zone:     zone,
-				Address:  address,
-				StateDir: stateDir,
-				Interval: interval,
+				Endpoint:   g.endpoint,
+				Token:      g.secret(),
+				Name:       name,
+				Zone:       zone,
+				Address:    address,
+				StateDir:   stateDir,
+				Interval:   interval,
+				FenceAfter: fenceAfter,
 			}, agent.Deps{
 				Runtimes: map[string]workload.Runtime{
 					"container": container.New(runtimeRoot, log),
@@ -81,6 +83,9 @@ func newAgentCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&runtimeRoot, "runtime-root", container.DefaultRoot,
 		"directory holding images and instance state on this node")
 	cmd.Flags().DurationVar(&interval, "interval", agent.DefaultInterval, "heartbeat and reconcile interval")
+	cmd.Flags().DurationVar(&fenceAfter, "fence-after", agent.DefaultFenceAfter,
+		"stop movable workloads after losing the control plane for this long, "+
+			"so the scheduler never hands running work to another node")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
 
 	return cmd

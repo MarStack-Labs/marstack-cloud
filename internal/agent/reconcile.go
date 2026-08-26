@@ -38,9 +38,14 @@ func (a *Agent) reconcile(ctx context.Context) {
 	state, err := a.readDesired(ctx)
 	if err != nil {
 		a.log.Warn("could not read the desired state", "error", err)
+
+		if silence, cut := a.fenced(); cut {
+			a.fence(ctx, silence)
+		}
 		return
 	}
 
+	a.noteContact()
 	a.saveState(state)
 	a.applyDesired(ctx, state, true)
 }
@@ -682,6 +687,9 @@ func (a *Agent) start(
 	spec workload.Spec,
 	note string,
 ) (string, string) {
+	if silence, found := a.takeFenced(spec.InstanceID); found {
+		note = "restarted after this node was fenced for " + silence.Round(time.Second).String()
+	}
 	if err := runtime.Start(ctx, spec); err != nil {
 		a.log.Warn("could not start workload", "instance", spec.InstanceID, "error", err)
 		a.noteStartFailure(spec.InstanceID, err.Error())

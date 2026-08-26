@@ -77,6 +77,11 @@ func (a *Agent) loadState() (cachedState, error) {
 }
 
 func (a *Agent) reconcileFromCache(ctx context.Context) {
+	silence, cut := a.fenced()
+	if cut {
+		a.fence(ctx, silence)
+	}
+
 	state, err := a.loadState()
 	if err != nil {
 		a.log.Warn("no usable cached desired state, waiting for the control plane", "error", err)
@@ -90,5 +95,23 @@ func (a *Agent) reconcileFromCache(ctx context.Context) {
 	)
 
 	a.setNodeID(state.NodeID)
+
+	if cut {
+		state.Instances = unmovable(state.Instances)
+		a.log.Warn("only workloads the scheduler never moves are started from cache",
+			"instances", len(state.Instances))
+	}
+
 	a.applyDesired(ctx, state, false)
+}
+
+func unmovable(assigned []instanceView) []instanceView {
+	kept := make([]instanceView, 0, len(assigned))
+	for _, in := range assigned {
+		if in.Isolation == fenceIsolation {
+			continue
+		}
+		kept = append(kept, in)
+	}
+	return kept
 }

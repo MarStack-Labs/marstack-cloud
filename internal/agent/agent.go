@@ -24,6 +24,7 @@ const (
 type Config struct {
 	Endpoint          string
 	Token             string
+	FenceAfter        time.Duration
 	Name              string
 	Zone              string
 	Address           string
@@ -38,6 +39,9 @@ func (c Config) withDefaults() Config {
 	}
 	if c.HeartbeatInterval <= 0 {
 		c.HeartbeatInterval = DefaultHeartbeatInterval
+	}
+	if c.FenceAfter <= 0 {
+		c.FenceAfter = DefaultFenceAfter
 	}
 	return c
 }
@@ -68,22 +72,29 @@ type Agent struct {
 
 	marksMu sync.Mutex
 	marks   map[string]sampleMark
+
+	contactMu   sync.Mutex
+	lastContact time.Time
+
+	fencedMu  sync.Mutex
+	fencedFor map[string]time.Duration
 }
 
 func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 	cfg = cfg.withDefaults()
 	return &Agent{
-		cfg:      cfg,
-		client:   newClient(cfg.Endpoint, cfg.Token),
-		log:      log,
-		host:     inspectHost(),
-		runtimes: deps.Runtimes,
-		datapath: deps.Datapath,
-		resolver: deps.Resolver,
-		catalog:  deps.Catalog,
-		now:      time.Now,
-		restarts: map[string]*restartState{},
-		marks:    map[string]sampleMark{},
+		cfg:       cfg,
+		client:    newClient(cfg.Endpoint, cfg.Token),
+		log:       log,
+		host:      inspectHost(),
+		runtimes:  deps.Runtimes,
+		datapath:  deps.Datapath,
+		resolver:  deps.Resolver,
+		catalog:   deps.Catalog,
+		now:       time.Now,
+		restarts:  map[string]*restartState{},
+		marks:     map[string]sampleMark{},
+		fencedFor: map[string]time.Duration{},
 	}
 }
 
@@ -156,6 +167,7 @@ func (a *Agent) beat(ctx context.Context) {
 		a.log.Warn("heartbeat failed", "error", err)
 		return
 	}
+	a.noteContact()
 	a.log.Debug("heartbeat sent", "node_id", nodeID)
 }
 
@@ -202,6 +214,7 @@ func (a *Agent) register(ctx context.Context) error {
 		return err
 	}
 
+	a.noteContact()
 	a.setNodeID(view.ID)
 	a.log.Info("node registered", "node_id", view.ID, "name", view.Name, "zone", view.Zone)
 	return nil

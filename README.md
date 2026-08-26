@@ -350,6 +350,32 @@ A replay never reports anything: there is nothing listening, and a node must not
 guesses about what the control plane thinks. An agent with no cache starts nothing rather than
 inventing workloads.
 
+The replay is deliberately partial. A `vm`, `microvm` or `sandbox` comes back, because the scheduler
+never moves one and nobody else can be running it. A `container` does not: the scheduler re-places a
+stranded container after two minutes, so a node that has been out of contact cannot know whether its
+containers now belong to somebody else.
+
+### Fencing a partitioned node
+
+A node that cannot reach the control plane for a minute stops its own movable workloads:
+
+```
+ERROR fencing this node: the control plane has been unreachable long enough that it may hand
+      this work to somebody else                    reason="silent for 1m20s" fence_after=1m0s
+WARN  stopping a movable workload before it can run twice   instance=i-re23nf81qt5fp isolation=container
+```
+
+There is no IPMI here and no shared disk to poison, so the only honest fence is the node fencing
+itself. That makes the deadline the whole design: the agent stops at 60 seconds and the scheduler
+only re-places after 120, and a test asserts that ordering with a margin, because a partitioned node
+still running work the control plane has already given away is the failure this exists to prevent.
+
+An agent that has never reached the control plane since starting counts as silent. It cannot tell a
+one second outage from a week, so it stops movable work rather than assuming the shorter one.
+
+Fencing stops what the scheduler may move and leaves the rest running. Fencing a `vm` would cause an
+outage without preventing anything, since no other node will ever be told to run it.
+
 ### Garbage collection
 
 Reconcile runs in both directions. Anything on the node that the control plane no longer knows about
@@ -430,7 +456,10 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 10  volumes                                           done
 11  api authentication                                done
 12  volume snapshots                                  done
-13  fencing a partitioned node
+13  fencing a partitioned node                        done
+14  published ports + firewall                        done
+15  usage metrics + load aware placement              done
+16  audit trail                                       done
 ```
 
 ## License

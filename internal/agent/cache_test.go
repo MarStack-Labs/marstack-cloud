@@ -24,8 +24,10 @@ func newCachingAgent(t *testing.T, endpoint, stateDir string, rt workload.Runtim
 		StateDir:          stateDir,
 		Interval:          time.Hour,
 		HeartbeatInterval: time.Hour,
-	}, Deps{Runtimes: runtimesFor(rt), Datapath: &fakeDatapath{}},
-		logging.New("error", io.Discard))
+	}, Deps{
+		Runtimes: map[string]workload.Runtime{"container": rt, "vm": rt},
+		Datapath: &fakeDatapath{},
+	}, logging.New("error", io.Discard))
 }
 
 func TestReconcileWritesTheDesiredStateToDisk(t *testing.T) {
@@ -68,11 +70,14 @@ func TestReconcileWritesTheDesiredStateToDisk(t *testing.T) {
 	}
 }
 
-func TestAgentStartsWorkloadsFromCacheWhenTheControlPlaneIsDown(t *testing.T) {
+func TestUnmovableWorkloadsStillComeBackFromCache(t *testing.T) {
 	dir := t.TempDir()
 
+	pinned := runningInstance()
+	pinned.Isolation = "vm"
+
 	cp := &controlPlane{
-		instances: []instanceView{runningInstance()},
+		instances: []instanceView{pinned},
 		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
 	}
 
@@ -97,7 +102,8 @@ func TestAgentStartsWorkloadsFromCacheWhenTheControlPlaneIsDown(t *testing.T) {
 	a.reconcileFromCache(context.Background())
 
 	if len(rebooted.started) != 1 {
-		t.Fatalf("starts = %d, want the workload started from cache", len(rebooted.started))
+		t.Fatalf("starts = %d, want a vm started from cache: the scheduler never moves one, so "+
+			"there is nobody else who could be running it", len(rebooted.started))
 	}
 	if got := rebooted.started[0]; got.Network == nil || got.Network.IP != "10.20.0.65" {
 		t.Fatalf("spec = %+v, want the cached address applied", got)
@@ -151,5 +157,39 @@ func TestNoCacheMeansNothingIsStarted(t *testing.T) {
 
 	if len(rt.started) != 0 {
 		t.Fatalf("starts = %d, want none: an agent with no cache must not invent workloads", len(rt.started))
+	}
+}
+
+func TestMovableWorkloadsWaitForTheControlPlaneAfterAReboot(t *testing.T) {
+	dir := t.TempDir()
+
+	cp := &controlPlane{
+		instances: []instanceView{runningInstance()},
+		networks:  []networkView{defaultNetworkView("i-1", "10.20.0.65")},
+	}
+
+	live := httptest.NewServer(cp.handler())
+	primed := newCachingAgent(t, live.URL, dir,
+		&fakeRuntime{state: workload.State{Phase: workload.PhaseRunning}})
+
+	if err := primed.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	primed.reconcile(context.Background())
+	live.Close()
+
+	unreachable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer unreachable.Close()
+
+	rebooted := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+	a := newCachingAgent(t, unreachable.URL, dir, rebooted)
+
+	a.reconcileFromCache(context.Background())
+
+	if len(rebooted.started) != 0 {
+		t.Fatalf("starts = %+v, want a container left alone: this node cannot tell whether the "+
+			"scheduler already handed it to somebody else", rebooted.started)
 	}
 }

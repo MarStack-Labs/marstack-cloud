@@ -1043,3 +1043,86 @@ func TestAnInstanceWithoutAFirewallIsNotGuarded(t *testing.T) {
 		t.Fatalf("guards = %+v, want none: an instance with no firewall stays reachable", guards)
 	}
 }
+
+func TestAPartitionedNodeStopsWorkTheSchedulerMayMove(t *testing.T) {
+	movable := runningInstance()
+	pinned := runningInstance()
+	pinned.ID = "i-vm"
+	pinned.Name = "db-1"
+	pinned.Isolation = "vm"
+
+	cp := &controlPlane{
+		instances: []instanceView{movable, pinned},
+		networks:  []networkView{defaultNetworkView(movable.ID, "10.20.0.65")},
+	}
+
+	container := &fakeRuntime{
+		state:   workload.State{Phase: workload.PhaseRunning},
+		present: []string{movable.ID},
+	}
+	vm := &fakeRuntime{
+		state:   workload.State{Phase: workload.PhaseRunning},
+		present: []string{pinned.ID},
+	}
+
+	srv := httptest.NewServer(cp.handler())
+
+	tick := &clock{at: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)}
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour, FenceAfter: time.Minute},
+		Deps{
+			Runtimes: map[string]workload.Runtime{"container": container, "vm": vm},
+			Datapath: &fakeDatapath{},
+		}, logging.New("error", io.Discard))
+	a.now = tick.now
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+	srv.Close()
+
+	tick.advance(30 * time.Second)
+	a.reconcile(context.Background())
+
+	if len(container.stopped) != 0 {
+		t.Fatal("work was stopped while the outage was still shorter than the fence deadline: " +
+			"a brief control plane blip must not take a node down")
+	}
+
+	tick.advance(2 * time.Minute)
+	a.reconcile(context.Background())
+
+	if len(container.stopped) != 1 {
+		t.Fatalf("stops = %d, want the movable workload stopped before it can run twice",
+			len(container.stopped))
+	}
+	if len(vm.stopped) != 0 {
+		t.Fatal("a vm was stopped: the scheduler never moves one, so fencing it only causes " +
+			"an outage nobody asked for")
+	}
+}
+
+func TestANodeThatNeverReachedTheControlPlaneStillFences(t *testing.T) {
+	container := &fakeRuntime{
+		state:   workload.State{Phase: workload.PhaseRunning},
+		present: []string{"i-1"},
+	}
+
+	tick := &clock{at: time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)}
+	a := New(Config{
+		Endpoint: "http://127.0.0.1:1", Name: "bm-1", Interval: time.Hour,
+		FenceAfter: time.Minute, StateDir: t.TempDir(),
+	}, Deps{
+		Runtimes: map[string]workload.Runtime{"container": container},
+		Datapath: &fakeDatapath{},
+	}, logging.New("error", io.Discard))
+	a.now = tick.now
+
+	tick.advance(2 * time.Minute)
+	a.reconcileFromCache(context.Background())
+
+	if len(container.stopped) != 1 {
+		t.Fatalf("stops = %d, want a node that booted during a partition to fence itself: it "+
+			"cannot know whether its work was handed to somebody else", len(container.stopped))
+	}
+}
