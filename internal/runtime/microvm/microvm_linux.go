@@ -41,7 +41,7 @@ type Runtime struct {
 
 	mu       sync.Mutex
 	running  map[string]*tracked
-	consoles map[string]*console.Hub
+	consoles *console.Keeper
 }
 
 func New(root string, log *slog.Logger, vmm VMM) *Runtime {
@@ -54,7 +54,7 @@ func New(root string, log *slog.Logger, vmm VMM) *Runtime {
 		vmm:      vmm,
 		images:   image.New(filepath.Join(root, "cache"), log),
 		running:  map[string]*tracked{},
-		consoles: map[string]*console.Hub{},
+		consoles: console.NewKeeper(log),
 	}
 }
 
@@ -86,38 +86,11 @@ func (r *Runtime) serialSocket(instanceID string) string {
 	return filepath.Join(r.instanceDir(instanceID), console.UpstreamName)
 }
 
-func (r *Runtime) openConsole(instanceID string) {
+func (r *Runtime) ensureConsole(instanceID string) {
 	if !r.vmm.HasSerialSocket() {
 		return
 	}
-
-	r.mu.Lock()
-	_, known := r.consoles[instanceID]
-	r.mu.Unlock()
-	if known {
-		return
-	}
-
-	hub, err := console.Attach(r.instanceDir(instanceID), r.log)
-	if err != nil {
-		r.log.Warn("cannot attach to the microvm console", "instance", instanceID, "error", err)
-		return
-	}
-
-	r.mu.Lock()
-	r.consoles[instanceID] = hub
-	r.mu.Unlock()
-}
-
-func (r *Runtime) closeConsole(instanceID string) {
-	r.mu.Lock()
-	hub, known := r.consoles[instanceID]
-	delete(r.consoles, instanceID)
-	r.mu.Unlock()
-
-	if known {
-		hub.Close()
-	}
+	r.consoles.Ensure(r.instanceDir(instanceID), instanceID)
 }
 
 func (r *Runtime) launchLog(instanceID string) string {
@@ -162,7 +135,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	}
 
 	if state, err := r.Status(ctx, spec.InstanceID); err == nil && state.Phase == workload.PhaseRunning {
-		r.openConsole(spec.InstanceID)
+		r.ensureConsole(spec.InstanceID)
 		return nil
 	}
 
@@ -241,7 +214,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 
 	go r.reap(spec.InstanceID, entry)
 
-	r.openConsole(spec.InstanceID)
+	r.ensureConsole(spec.InstanceID)
 
 	r.log.Info("microvm started",
 		"instance", spec.InstanceID,
@@ -321,6 +294,7 @@ func (r *Runtime) Status(_ context.Context, instanceID string) (workload.State, 
 
 	if entry, known := r.snapshot(instanceID); known {
 		if !entry.exited {
+			r.ensureConsole(instanceID)
 			return workload.State{Phase: workload.PhaseRunning}, nil
 		}
 		message := fmt.Sprintf("the microvm exited with code %d", entry.exitCode)
@@ -335,6 +309,7 @@ func (r *Runtime) Status(_ context.Context, instanceID string) (workload.State, 
 	}
 
 	if _, alive := r.livePID(instanceID); alive {
+		r.ensureConsole(instanceID)
 		return workload.State{
 			Phase:   workload.PhaseRunning,
 			Message: "adopted after an agent restart",
@@ -365,7 +340,7 @@ func (r *Runtime) livePID(instanceID string) (int, bool) {
 }
 
 func (r *Runtime) Stop(_ context.Context, instanceID string) error {
-	defer r.closeConsole(instanceID)
+	defer r.consoles.Release(instanceID)
 
 	pid, alive := r.livePID(instanceID)
 	if !alive {

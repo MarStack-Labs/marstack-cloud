@@ -165,3 +165,56 @@ func TestFindReportsMissingConsole(t *testing.T) {
 		t.Fatalf("found %q", found)
 	}
 }
+
+func TestKeeperAttachesOnce(t *testing.T) {
+	dir := t.TempDir()
+	keeper := NewKeeper(slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	keeper.Ensure(dir, "i-1")
+	keeper.Ensure(dir, "i-1")
+	keeper.Ensure(dir, "i-1")
+
+	guest := fakeVMM(t, dir)
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && keeper.count() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := keeper.count(); got != 1 {
+		t.Fatalf("hubs = %d, want exactly one no matter how often Ensure is called", got)
+	}
+
+	keeper.Ensure(dir, "i-1")
+	if got := keeper.count(); got != 1 {
+		t.Fatalf("hubs = %d after a later Ensure, want the existing hub kept", got)
+	}
+
+	if _, err := guest.Write([]byte("hello")); err != nil {
+		t.Fatalf("guest write: %v", err)
+	}
+	waitFor(t, filepath.Join(dir, LogName), "hello")
+
+	keeper.Release("i-1")
+	if got := keeper.count(); got != 0 {
+		t.Fatalf("hubs = %d after Release, want 0", got)
+	}
+}
+
+func TestKeeperWarnsOnce(t *testing.T) {
+	saved := dialWindow
+	dialWindow = 50 * time.Millisecond
+	t.Cleanup(func() { dialWindow = saved })
+
+	dir := t.TempDir()
+	recorded := &strings.Builder{}
+	keeper := NewKeeper(slog.New(slog.NewTextHandler(recorded, nil)))
+
+	for range 3 {
+		keeper.attach(dir, "i-2")
+	}
+
+	if got := strings.Count(recorded.String(), "cannot attach"); got != 1 {
+		t.Fatalf("warnings = %d, want one: a console that stays broken must not "+
+			"reprint on every reconcile tick", got)
+	}
+}

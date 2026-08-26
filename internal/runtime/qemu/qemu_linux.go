@@ -13,7 +13,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -31,15 +30,14 @@ type Runtime struct {
 	root string
 	log  *slog.Logger
 
-	mu       sync.Mutex
-	consoles map[string]*console.Hub
+	consoles *console.Keeper
 }
 
 func New(root string, log *slog.Logger) *Runtime {
 	if root == "" {
 		root = DefaultRoot
 	}
-	return &Runtime{root: root, log: log, consoles: map[string]*console.Hub{}}
+	return &Runtime{root: root, log: log, consoles: console.NewKeeper(log)}
 }
 
 func (r *Runtime) Name() string {
@@ -62,34 +60,8 @@ func (r *Runtime) serialSocket(instanceID string) string {
 	return filepath.Join(r.instanceDir(instanceID), console.UpstreamName)
 }
 
-func (r *Runtime) openConsole(instanceID string) {
-	r.mu.Lock()
-	_, known := r.consoles[instanceID]
-	r.mu.Unlock()
-	if known {
-		return
-	}
-
-	hub, err := console.Attach(r.instanceDir(instanceID), r.log)
-	if err != nil {
-		r.log.Warn("cannot attach to the vm console", "instance", instanceID, "error", err)
-		return
-	}
-
-	r.mu.Lock()
-	r.consoles[instanceID] = hub
-	r.mu.Unlock()
-}
-
-func (r *Runtime) closeConsole(instanceID string) {
-	r.mu.Lock()
-	hub, known := r.consoles[instanceID]
-	delete(r.consoles, instanceID)
-	r.mu.Unlock()
-
-	if known {
-		hub.Close()
-	}
+func (r *Runtime) ensureConsole(instanceID string) {
+	r.consoles.Ensure(r.instanceDir(instanceID), instanceID)
 }
 
 func (r *Runtime) launchLog(instanceID string) string {
@@ -130,7 +102,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	}
 
 	if state, err := r.Status(ctx, spec.InstanceID); err == nil && state.Phase == workload.PhaseRunning {
-		r.openConsole(spec.InstanceID)
+		r.ensureConsole(spec.InstanceID)
 		return nil
 	}
 
@@ -183,7 +155,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
-	r.openConsole(spec.InstanceID)
+	r.ensureConsole(spec.InstanceID)
 
 	r.log.Info("vm started",
 		"instance", spec.InstanceID,
@@ -329,6 +301,7 @@ func (r *Runtime) Status(_ context.Context, instanceID string) (workload.State, 
 	}
 
 	if _, alive := r.livePID(instanceID); alive {
+		r.ensureConsole(instanceID)
 		return workload.State{Phase: workload.PhaseRunning}, nil
 	}
 
@@ -353,7 +326,7 @@ func (r *Runtime) tailOf(path string) string {
 }
 
 func (r *Runtime) Stop(_ context.Context, instanceID string) error {
-	defer r.closeConsole(instanceID)
+	defer r.consoles.Release(instanceID)
 
 	pid, alive := r.livePID(instanceID)
 	if !alive {

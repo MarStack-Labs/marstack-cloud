@@ -21,10 +21,11 @@ const (
 	LogName      = "console.log"
 	LoginName    = "console-login"
 
-	dialWindow = 5 * time.Second
 	dialEvery  = 50 * time.Millisecond
 	bufferSize = 4096
 )
+
+var dialWindow = 5 * time.Second
 
 var ErrNoConsole = errors.New("no console on this node for that instance")
 
