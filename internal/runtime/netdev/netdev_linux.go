@@ -20,6 +20,7 @@ const (
 	bridgePrefix = "msbr-"
 	nftTable     = "marstack"
 	nftNAT       = "marstack_nat"
+	nftGuard     = "marstack_fw"
 	guestIface   = "eth0"
 	maxIfName    = 15
 )
@@ -173,6 +174,80 @@ func renderForwards(forwards []workload.Publish) string {
 	ruleset.WriteString("  }\n}\n")
 
 	return ruleset.String()
+}
+
+func (Datapath) ApplyGuards(_ context.Context, guards []workload.Guard) error {
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(renderGuards(guards))
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("apply firewall rules: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func renderGuards(guards []workload.Guard) string {
+	var ruleset strings.Builder
+
+	ruleset.WriteString("table inet " + nftGuard + " { }\n")
+	ruleset.WriteString("delete table inet " + nftGuard + "\n")
+	ruleset.WriteString("table inet " + nftGuard + " {\n")
+
+	for _, hook := range []string{"forward", "output"} {
+		ruleset.WriteString("  chain " + hook + " {\n")
+		ruleset.WriteString("    type filter hook " + hook + " priority filter; policy accept;\n")
+		ruleset.WriteString("    ct state established,related accept\n")
+		for _, guard := range guards {
+			if guard.IP == "" {
+				continue
+			}
+			for _, rule := range guard.Rules {
+				ruleset.WriteString("    ip daddr " + guard.IP + " " + guardMatch(rule) + " accept\n")
+			}
+			ruleset.WriteString("    ip daddr " + guard.IP + " drop\n")
+		}
+		ruleset.WriteString("  }\n")
+	}
+	ruleset.WriteString("}\n")
+
+	ruleset.WriteString("table bridge " + nftGuard + " { }\n")
+	ruleset.WriteString("delete table bridge " + nftGuard + "\n")
+	ruleset.WriteString("table bridge " + nftGuard + " {\n")
+	ruleset.WriteString("  chain prerouting {\n")
+	ruleset.WriteString("    type filter hook prerouting priority -290; policy accept;\n")
+	for _, guard := range guards {
+		if guard.IP == "" {
+			continue
+		}
+		for _, rule := range guard.Rules {
+			ruleset.WriteString("    ip daddr " + guard.IP + " " + guardMatch(rule) + " accept\n")
+		}
+		ruleset.WriteString("    ip daddr " + guard.IP +
+			" tcp flags & (syn | ack) == syn drop\n")
+		ruleset.WriteString("    ip daddr " + guard.IP + " icmp type echo-request drop\n")
+	}
+	ruleset.WriteString("  }\n}\n")
+
+	return ruleset.String()
+}
+
+func guardMatch(rule workload.GuardRule) string {
+	source := ""
+	if rule.Source != "" && rule.Source != "0.0.0.0/0" {
+		source = "ip saddr " + rule.Source + " "
+	}
+
+	switch rule.Protocol {
+	case "any":
+		return strings.TrimSpace(source)
+	case "icmp":
+		return source + "ip protocol icmp"
+	default:
+		if rule.FromPort == rule.ToPort {
+			return fmt.Sprintf("%s%s dport %d", source, rule.Protocol, rule.FromPort)
+		}
+		return fmt.Sprintf("%s%s dport %d-%d", source, rule.Protocol, rule.FromPort, rule.ToPort)
+	}
 }
 
 func (Datapath) ApplyFilters(_ context.Context, filters []workload.Filter) error {

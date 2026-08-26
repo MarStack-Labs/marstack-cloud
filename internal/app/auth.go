@@ -32,6 +32,7 @@ var nodePaths = []string{
 	"PUT /v1/nodes/{id}/images",
 	"GET /v1/dns/records",
 	"GET /v1/images",
+	"GET /v1/firewalls",
 }
 
 func authenticate(verify verifier, log *slog.Logger) httpx.Middleware {

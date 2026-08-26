@@ -76,6 +76,7 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		ISO           string   `json:"iso,omitempty"`
 		Kernel        string   `json:"kernel,omitempty"`
 		DiskGiB       int      `json:"disk_gib,omitempty"`
+		FirewallID    string   `json:"firewall_id,omitempty"`
 		Command       []string `json:"command,omitempty"`
 		RestartPolicy string   `json:"restart_policy,omitempty"`
 		VCPU          int      `json:"vcpu,omitempty"`
@@ -111,6 +112,8 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		"registered kernel image a microvm or sandbox boots, instead of the one staged on the node")
 	cmd.Flags().IntVar(&req.DiskGiB, "disk-gib", 0,
 		"size of a vm disk created without a base image, in GiB")
+	cmd.Flags().StringVar(&req.FirewallID, "firewall", "",
+		"firewall id whose rules decide what may reach this instance")
 	cmd.Flags().StringVar(&req.RestartPolicy, "restart", "",
 		"restart policy: always, on-failure, never")
 	cmd.Flags().IntVar(&req.VCPU, "vcpu", 0, "virtual CPUs, defaults to the platform default")

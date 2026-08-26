@@ -47,6 +47,10 @@ func (Datapath) ApplyForwards(context.Context, []workload.Publish) error {
 	return errUnsupported
 }
 
+func (Datapath) ApplyGuards(context.Context, []workload.Guard) error {
+	return errUnsupported
+}
+
 func (Datapath) ApplyFilters(context.Context, []workload.Filter) error {
 	return errUnsupported
 }

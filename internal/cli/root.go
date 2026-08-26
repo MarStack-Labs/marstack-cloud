@@ -86,6 +86,7 @@ func newRootCmd() *cobra.Command {
 		newImageCmd(g),
 		newVolumeCmd(g),
 		newForwardCmd(g),
+		newFirewallCmd(g),
 		newTokenCmd(g),
 		newNodeCmd(g),
 	)

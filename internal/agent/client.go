@@ -35,6 +35,7 @@ type instanceView struct {
 	Image           string   `json:"image"`
 	ISO             string   `json:"iso,omitempty"`
 	Kernel          string   `json:"kernel,omitempty"`
+	FirewallID      string   `json:"firewall_id,omitempty"`
 	DiskGiB         int      `json:"disk_gib,omitempty"`
 	Command         []string `json:"command,omitempty"`
 	VCPU            int      `json:"vcpu"`
@@ -194,6 +195,23 @@ type forwardView struct {
 	Address    string `json:"address"`
 }
 
+type firewallRuleView struct {
+	Protocol string `json:"protocol,omitempty"`
+	FromPort int    `json:"from_port,omitempty"`
+	ToPort   int    `json:"to_port,omitempty"`
+	Source   string `json:"source,omitempty"`
+}
+
+type firewallView struct {
+	ID    string             `json:"id"`
+	Name  string             `json:"name"`
+	Rules []firewallRuleView `json:"rules"`
+}
+
+type firewallsBody struct {
+	Firewalls []firewallView `json:"firewalls"`
+}
+
 type forwardsBody struct {
 	Forwards []forwardView `json:"forwards"`
 }
@@ -227,6 +245,12 @@ func (c *client) forwards(ctx context.Context, nodeID string) ([]forwardView, er
 	var out forwardsBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/forwards", nil, &out)
 	return out.Forwards, err
+}
+
+func (c *client) firewalls(ctx context.Context) ([]firewallView, error) {
+	var out firewallsBody
+	err := c.do(ctx, http.MethodGet, "/v1/firewalls", nil, &out)
+	return out.Firewalls, err
 }
 
 func (c *client) images(ctx context.Context) ([]imageView, error) {

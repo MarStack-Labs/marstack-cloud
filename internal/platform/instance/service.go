@@ -14,11 +14,12 @@ import (
 type clock func() time.Time
 
 type service struct {
-	repo     *repository
-	now      clock
-	networks Networks
-	volumes  Volumes
-	forwards Forwards
+	repo      *repository
+	now       clock
+	networks  Networks
+	volumes   Volumes
+	forwards  Forwards
+	firewalls Firewalls
 }
 
 func newService(repo *repository, now clock) *service {
@@ -43,6 +44,17 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		networkID = resolved
 	}
 
+	if normalized.FirewallID != "" && s.firewalls != nil {
+		known, err := s.firewalls.Exists(ctx, normalized.FirewallID)
+		if err != nil {
+			return Instance{}, err
+		}
+		if !known {
+			return Instance{}, fault.Invalid("unknown_firewall",
+				"no firewall with that id exists, and a typo here would silently mean no rules")
+		}
+	}
+
 	now := s.now()
 	in := Instance{
 		ID:            ids.New("i"),
@@ -52,6 +64,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		ISO:           normalized.ISO,
 		Kernel:        normalized.Kernel,
 		DiskGiB:       normalized.DiskGiB,
+		FirewallID:    normalized.FirewallID,
 		Command:       normalized.Command,
 		NetworkID:     networkID,
 		RestartPolicy: RestartPolicy(normalized.RestartPolicy),

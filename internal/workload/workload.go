@@ -92,9 +92,24 @@ type Publish struct {
 	Address    string
 }
 
+type GuardRule struct {
+	Protocol string
+	FromPort int
+	ToPort   int
+	Source   string
+}
+
+type Guard struct {
+	InstanceID string
+	Isolation  string
+	IP         string
+	Rules      []GuardRule
+}
+
 type Datapath interface {
 	ApplyRoutes(ctx context.Context, routes []Route) error
 	ApplyForwards(ctx context.Context, forwards []Publish) error
+	ApplyGuards(ctx context.Context, guards []Guard) error
 	ApplyFilters(ctx context.Context, filters []Filter) error
 	Prune(ctx context.Context, keep Keep) error
 }

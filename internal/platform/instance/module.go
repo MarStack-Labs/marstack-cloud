@@ -28,6 +28,10 @@ type Forwards interface {
 	ReleaseInstance(ctx context.Context, instanceID string) error
 }
 
+type Firewalls interface {
+	Exists(ctx context.Context, id string) (bool, error)
+}
+
 func New(st *store.Store, log *slog.Logger, networks Networks) *Module {
 	svc := newService(newRepository(st), nil)
 	svc.networks = networks
@@ -44,6 +48,10 @@ func (m *Module) UseVolumes(volumes Volumes) {
 
 func (m *Module) UseForwards(forwards Forwards) {
 	m.svc.forwards = forwards
+}
+
+func (m *Module) UseFirewalls(firewalls Firewalls) {
+	m.svc.firewalls = firewalls
 }
 
 func (m *Module) Get(ctx context.Context, id string) (Instance, error) {
@@ -146,6 +154,11 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "instance",
 			Index:  11,
 			SQL:    `ALTER TABLE instances ADD COLUMN disk_gib INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			Module: "instance",
+			Index:  12,
+			SQL:    `ALTER TABLE instances ADD COLUMN firewall_id TEXT NOT NULL DEFAULT ''`,
 		},
 	}
 }

@@ -83,6 +83,7 @@ type Instance struct {
 	ISO             string
 	Kernel          string
 	DiskGiB         int
+	FirewallID      string
 	Command         []string
 	NetworkID       string
 	VCPU            int
@@ -104,6 +105,7 @@ type CreateParams struct {
 	ISO           string
 	Kernel        string
 	DiskGiB       int
+	FirewallID    string
 	Command       []string
 	NetworkID     string
 	RestartPolicy string

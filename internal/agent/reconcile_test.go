@@ -114,6 +114,7 @@ type fakeDatapath struct {
 	routes   []workload.Route
 	filters  []workload.Filter
 	forwards []workload.Publish
+	guards   []workload.Guard
 	pruned   []workload.Keep
 	pruneErr error
 }
@@ -123,6 +124,19 @@ func (f *fakeDatapath) ApplyForwards(_ context.Context, forwards []workload.Publ
 	defer f.mu.Unlock()
 	f.forwards = forwards
 	return nil
+}
+
+func (f *fakeDatapath) ApplyGuards(_ context.Context, guards []workload.Guard) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.guards = guards
+	return nil
+}
+
+func (f *fakeDatapath) snapshotGuards() []workload.Guard {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]workload.Guard(nil), f.guards...)
 }
 
 func (f *fakeDatapath) snapshotForwards() []workload.Publish {
@@ -195,6 +209,7 @@ type controlPlane struct {
 	records   []dnsRecordView
 	volumes   []volumeView
 	forwards  []forwardView
+	firewalls []firewallView
 	reports   []report
 }
 
@@ -216,6 +231,11 @@ func (c *controlPlane) handler() http.Handler {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(instanceListBody{Instances: c.instances})
+	})
+	mux.HandleFunc("GET /v1/firewalls", func(w http.ResponseWriter, _ *http.Request) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		json.NewEncoder(w).Encode(firewallsBody{Firewalls: c.firewalls})
 	})
 	mux.HandleFunc("GET /v1/nodes/{id}/forwards", func(w http.ResponseWriter, _ *http.Request) {
 		c.mu.Lock()
@@ -951,5 +971,75 @@ func TestPublishedPortsReachTheDatapath(t *testing.T) {
 	if published[0].NodePort != 8080 || published[0].Address != "10.20.0.65" ||
 		published[0].TargetPort != 80 {
 		t.Fatalf("forward = %+v", published[0])
+	}
+}
+
+func TestFirewallRulesReachTheDatapathWithTheInstanceAddress(t *testing.T) {
+	in := runningInstance()
+	in.FirewallID = "fw-1"
+
+	other := runningInstance()
+	other.ID = "i-2"
+	other.Name = "api-2"
+
+	cp := &controlPlane{
+		instances: []instanceView{in, other},
+		networks:  []networkView{defaultNetworkView(in.ID, "10.20.0.65")},
+		firewalls: []firewallView{{
+			ID: "fw-1", Name: "web",
+			Rules: []firewallRuleView{{Protocol: "tcp", FromPort: 80, ToPort: 80, Source: "0.0.0.0/0"}},
+		}},
+	}
+
+	dp := &fakeDatapath{}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtimes: runtimesFor(rt), Datapath: dp}, logging.New("error", io.Discard))
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+
+	guards := dp.snapshotGuards()
+	if len(guards) != 1 {
+		t.Fatalf("guards = %+v, want only the instance that names a firewall", guards)
+	}
+	if guards[0].IP != "10.20.0.65" {
+		t.Fatalf("guard = %+v, want the address the rules apply to", guards[0])
+	}
+	if len(guards[0].Rules) != 1 || guards[0].Rules[0].FromPort != 80 {
+		t.Fatalf("rules = %+v", guards[0].Rules)
+	}
+}
+
+func TestAnInstanceWithoutAFirewallIsNotGuarded(t *testing.T) {
+	in := runningInstance()
+
+	cp := &controlPlane{
+		instances: []instanceView{in},
+		networks:  []networkView{defaultNetworkView(in.ID, "10.20.0.65")},
+	}
+
+	dp := &fakeDatapath{}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtimes: runtimesFor(rt), Datapath: dp}, logging.New("error", io.Discard))
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+
+	if guards := dp.snapshotGuards(); len(guards) != 0 {
+		t.Fatalf("guards = %+v, want none: an instance with no firewall stays reachable", guards)
 	}
 }

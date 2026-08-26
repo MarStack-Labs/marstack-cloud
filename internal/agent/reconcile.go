@@ -79,6 +79,11 @@ func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
 		return cachedState{}, fmt.Errorf("forwards: %w", err)
 	}
 
+	firewalls, err := a.client.firewalls(ctx)
+	if err != nil {
+		return cachedState{}, fmt.Errorf("firewalls: %w", err)
+	}
+
 	return cachedState{
 		Instances: assigned,
 		Networks:  networks,
@@ -86,6 +91,7 @@ func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
 		Nodes:     nodes,
 		Volumes:   volumes,
 		Forwards:  forwards,
+		Firewalls: firewalls,
 	}, nil
 }
 
@@ -105,6 +111,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	a.applyRoutes(ctx, state.Networks, state.Nodes)
 	a.applyFilters(ctx, state.Networks, isolationsOf(state.Instances))
 	a.applyForwards(ctx, state.Forwards)
+	a.applyGuards(ctx, state.Instances, state.Networks, state.Firewalls)
 
 	for _, in := range state.Instances {
 		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID], disks[in.ID])
@@ -310,6 +317,60 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolat
 		return
 	}
 	a.log.Debug("anti-spoof rules applied", "interfaces", len(filters))
+}
+
+func (a *Agent) applyGuards(
+	ctx context.Context, assigned []instanceView, networks []networkView, firewalls []firewallView,
+) {
+	if a.datapath == nil {
+		return
+	}
+
+	rules := make(map[string][]workload.GuardRule, len(firewalls))
+	for _, f := range firewalls {
+		set := make([]workload.GuardRule, 0, len(f.Rules))
+		for _, rule := range f.Rules {
+			set = append(set, workload.GuardRule{
+				Protocol: rule.Protocol,
+				FromPort: rule.FromPort,
+				ToPort:   rule.ToPort,
+				Source:   rule.Source,
+			})
+		}
+		rules[f.ID] = set
+	}
+
+	addresses := map[string]string{}
+	for _, network := range networks {
+		for _, nic := range network.NICs {
+			addresses[nic.InstanceID] = nic.IP
+		}
+	}
+
+	guards := make([]workload.Guard, 0, len(assigned))
+	for _, in := range assigned {
+		if in.FirewallID == "" {
+			continue
+		}
+
+		set, known := rules[in.FirewallID]
+		if !known {
+			a.log.Warn("an instance names a firewall this node cannot see",
+				"instance", in.ID, "firewall", in.FirewallID)
+			continue
+		}
+
+		guards = append(guards, workload.Guard{
+			InstanceID: in.ID,
+			Isolation:  in.Isolation,
+			IP:         addresses[in.ID],
+			Rules:      set,
+		})
+	}
+
+	if err := a.datapath.ApplyGuards(ctx, guards); err != nil {
+		a.log.Warn("could not apply the firewall rules", "error", err)
+	}
 }
 
 func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView) {

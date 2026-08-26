@@ -14,6 +14,7 @@ type createRequest struct {
 	ISO           string   `json:"iso,omitempty"`
 	Kernel        string   `json:"kernel,omitempty"`
 	DiskGiB       int      `json:"disk_gib,omitempty"`
+	FirewallID    string   `json:"firewall_id,omitempty"`
 	Command       []string `json:"command,omitempty"`
 	NetworkID     string   `json:"network_id,omitempty"`
 	RestartPolicy string   `json:"restart_policy,omitempty"`
@@ -35,6 +36,7 @@ type response struct {
 	ISO             string   `json:"iso,omitempty"`
 	Kernel          string   `json:"kernel,omitempty"`
 	DiskGiB         int      `json:"disk_gib,omitempty"`
+	FirewallID      string   `json:"firewall_id,omitempty"`
 	Command         []string `json:"command,omitempty"`
 	NetworkID       string   `json:"network_id,omitempty"`
 	RestartPolicy   string   `json:"restart_policy"`
@@ -62,6 +64,7 @@ func toResponse(in Instance) response {
 		ISO:             in.ISO,
 		Kernel:          in.Kernel,
 		DiskGiB:         in.DiskGiB,
+		FirewallID:      in.FirewallID,
 		Command:         in.Command,
 		NetworkID:       in.NetworkID,
 		RestartPolicy:   string(in.RestartPolicy),
@@ -94,6 +97,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		ISO:           req.ISO,
 		Kernel:        req.Kernel,
 		DiskGiB:       req.DiskGiB,
+		FirewallID:    req.FirewallID,
 		Command:       req.Command,
 		NetworkID:     req.NetworkID,
 		RestartPolicy: req.RestartPolicy,
