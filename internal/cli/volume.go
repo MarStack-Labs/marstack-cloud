@@ -47,6 +47,7 @@ func newVolumeCmd(g *globals) *cobra.Command {
 		newVolumeAttachCmd(g),
 		newVolumeDetachCmd(g),
 		newVolumeDeleteCmd(g),
+		newVolumeSnapshotCmd(g),
 	)
 	return cmd
 }
@@ -164,4 +165,138 @@ func renderVolume(cmd *cobra.Command, g *globals, v volumeView) error {
 		headers: volumeHeaders,
 		rows:    [][]string{volumeRow(v)},
 	})
+}
+
+type snapshotView struct {
+	ID        string `json:"id"`
+	VolumeID  string `json:"volume_id"`
+	Name      string `json:"name"`
+	State     string `json:"state"`
+	Message   string `json:"message,omitempty"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+type snapshotListView struct {
+	Snapshots []snapshotView `json:"snapshots"`
+}
+
+var snapshotHeaders = []string{"NAME", "ID", "VOLUME", "STATE", "MESSAGE"}
+
+func snapshotRow(s snapshotView) []string {
+	message := s.Message
+	if message == "" {
+		message = "-"
+	}
+	if len(message) > 50 {
+		message = message[:47] + "..."
+	}
+	return []string{s.Name, s.ID, s.VolumeID, s.State, message}
+}
+
+func newVolumeSnapshotCmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "snapshot",
+		Short:   "Take, list, restore and remove volume snapshots",
+		Aliases: []string{"snapshots"},
+	}
+	cmd.AddCommand(
+		newSnapshotCreateCmd(g),
+		newSnapshotListCmd(g),
+		newSnapshotRestoreCmd(g),
+		newSnapshotDeleteCmd(g),
+	)
+	return cmd
+}
+
+func newSnapshotCreateCmd(g *globals) *cobra.Command {
+	var name string
+
+	cmd := &cobra.Command{
+		Use:   "create <volume>",
+		Short: "Take a snapshot of a volume whose instance is stopped",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body := struct {
+				Name string `json:"name"`
+			}{Name: name}
+
+			var created snapshotView
+			if err := g.client().do(
+				cmd.Context(), "POST", "/v1/volumes/"+args[0]+"/snapshots", body, &created,
+			); err != nil {
+				return err
+			}
+			cmd.PrintErrln("the node takes it on its next pass")
+			return render(cmd.OutOrStdout(), g.output, created, table{
+				headers: snapshotHeaders,
+				rows:    [][]string{snapshotRow(created)},
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "snapshot name, unique within the volume")
+	must(cmd.MarkFlagRequired("name"))
+
+	return cmd
+}
+
+func newSnapshotListCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list [volume]",
+		Short: "List snapshots, of one volume or of all of them",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := "/v1/snapshots"
+			if len(args) == 1 {
+				path = "/v1/volumes/" + args[0] + "/snapshots"
+			}
+
+			var list snapshotListView
+			if err := g.client().do(cmd.Context(), "GET", path, nil, &list); err != nil {
+				return err
+			}
+
+			rows := make([][]string, 0, len(list.Snapshots))
+			for _, s := range list.Snapshots {
+				rows = append(rows, snapshotRow(s))
+			}
+			return render(cmd.OutOrStdout(), g.output, list, table{headers: snapshotHeaders, rows: rows})
+		},
+	}
+}
+
+func newSnapshotRestoreCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "restore <snapshot id>",
+		Short: "Roll a volume back to a snapshot, discarding what came after",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var restored volumeView
+			if err := g.client().do(
+				cmd.Context(), "POST", "/v1/snapshots/"+args[0]+"/restore", nil, &restored,
+			); err != nil {
+				return err
+			}
+			cmd.PrintErrln("the node rolls the disk back on its next pass")
+			return renderVolume(cmd, g, restored)
+		},
+	}
+}
+
+func newSnapshotDeleteCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <snapshot id>",
+		Short: "Remove a snapshot",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.client().do(
+				cmd.Context(), "DELETE", "/v1/snapshots/"+args[0], nil, nil,
+			); err != nil {
+				return err
+			}
+			cmd.Printf("deleted %s\n", args[0])
+			return nil
+		},
+	}
 }

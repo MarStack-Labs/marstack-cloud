@@ -17,7 +17,9 @@ var (
 	errTaken     = errors.New("volume already attached")
 )
 
-const columns = `id, name, size_gib, node_id, instance_id, created_at, updated_at`
+const columns = `id, name, size_gib, node_id, instance_id, restore_from, created_at, updated_at`
+
+const snapshotColumns = `id, volume_id, name, state, message, size_bytes, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -29,8 +31,8 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, v Volume) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO volumes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.Name, v.SizeGiB, v.NodeID, v.InstanceID,
+		`INSERT INTO volumes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.Name, v.SizeGiB, v.NodeID, v.InstanceID, v.RestoreFrom,
 		v.CreatedAt.Format(time.RFC3339Nano), v.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -118,8 +120,125 @@ func (r *repository) detachInstance(ctx context.Context, instanceID string, at t
 	return nil
 }
 
+func (r *repository) insertSnapshot(ctx context.Context, snap Snapshot) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO snapshots (`+snapshotColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		snap.ID, snap.VolumeID, snap.Name, snap.State, snap.Message, snap.SizeBytes,
+		snap.CreatedAt.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return errNameTaken
+		}
+		return fmt.Errorf("insert snapshot: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) snapshot(ctx context.Context, id string) (Snapshot, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+snapshotColumns+` FROM snapshots WHERE id = ?`, id)
+
+	snap, err := scanSnapshot(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Snapshot{}, errNotFound
+	}
+	return snap, err
+}
+
+func (r *repository) snapshots(ctx context.Context, volumeID string) ([]Snapshot, error) {
+	query := `SELECT ` + snapshotColumns + ` FROM snapshots ORDER BY volume_id, name`
+	args := []any{}
+	if volumeID != "" {
+		query = `SELECT ` + snapshotColumns + ` FROM snapshots WHERE volume_id = ? ORDER BY name`
+		args = append(args, volumeID)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list snapshots: %w", err)
+	}
+	defer rows.Close()
+
+	snapshots := make([]Snapshot, 0, 8)
+	for rows.Next() {
+		snap, scanErr := scanSnapshot(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		snapshots = append(snapshots, snap)
+	}
+	return snapshots, rows.Err()
+}
+
+func (r *repository) markSnapshot(ctx context.Context, id, state, message string, size int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE snapshots SET state = ?, message = ?, size_bytes = ? WHERE id = ?`,
+		state, message, size, id)
+	if err != nil {
+		return fmt.Errorf("mark snapshot: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) deleteSnapshot(ctx context.Context, id string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM snapshots WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete snapshot: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete snapshot: %w", err)
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func (r *repository) setRestore(ctx context.Context, id, name string, at time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE volumes SET restore_from = ?, updated_at = ? WHERE id = ?`,
+		name, at.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("record the restore: %w", err)
+	}
+	return nil
+}
+
+func scanSnapshot(row scanner) (Snapshot, error) {
+	var snap Snapshot
+	var created string
+
+	if err := row.Scan(&snap.ID, &snap.VolumeID, &snap.Name, &snap.State, &snap.Message,
+		&snap.SizeBytes, &created); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Snapshot{}, err
+		}
+		return Snapshot{}, fmt.Errorf("scan snapshot: %w", err)
+	}
+
+	at, err := time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	snap.CreatedAt = at
+	return snap, nil
+}
+
 func (r *repository) delete(ctx context.Context, id string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM volumes WHERE id = ?`, id)
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM snapshots WHERE volume_id = ?`, id); err != nil {
+		return fmt.Errorf("delete the snapshots of a volume: %w", err)
+	}
+
+	result, err := tx.ExecContext(ctx, `DELETE FROM volumes WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("delete volume: %w", err)
 	}
@@ -131,7 +250,7 @@ func (r *repository) delete(ctx context.Context, id string) error {
 	if affected == 0 {
 		return errNotFound
 	}
-	return nil
+	return tx.Commit()
 }
 
 type scanner interface {
@@ -150,7 +269,7 @@ func scan(row scanner) (Volume, error) {
 	var v Volume
 	var created, updated string
 
-	if err := row.Scan(&v.ID, &v.Name, &v.SizeGiB, &v.NodeID, &v.InstanceID,
+	if err := row.Scan(&v.ID, &v.Name, &v.SizeGiB, &v.NodeID, &v.InstanceID, &v.RestoreFrom,
 		&created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Volume{}, err

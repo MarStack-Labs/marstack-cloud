@@ -429,7 +429,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
  9  image catalog: disk, iso, kernel                  done
 10  volumes                                           done
 11  api authentication                                done
-12  snapshots
+12  volume snapshots                                  done
 13  fencing a partitioned node
 ```
 

@@ -267,3 +267,185 @@ func TestBadVolumesAreRejected(t *testing.T) {
 		})
 	}
 }
+
+func runningVM(nodeID string) fakeInstances {
+	placements := placedVM(nodeID)
+	for id, placed := range placements.placements {
+		placed.Running = true
+		placements.placements[id] = placed
+	}
+	return placements
+}
+
+func snapshotOf(t *testing.T, h http.Handler, volumeID, name string) snapshotResponse {
+	t.Helper()
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes/"+volumeID+"/snapshots",
+		`{"name":"`+name+`"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("snapshot: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created snapshotResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return created
+}
+
+func TestASnapshotStartsPendingUntilANodeTakesIt(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data-1","size_gib":20}`)
+	request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach", `{"instance_id":"i-1"}`)
+
+	snap := snapshotOf(t, h, created.ID, "before-upgrade")
+	if snap.State != SnapshotPending {
+		t.Fatalf("state = %q, want %q", snap.State, SnapshotPending)
+	}
+
+	body := `{"volumes":[{"volume_id":"` + created.ID +
+		`","snapshots":[{"name":"before-upgrade","size_bytes":4096}]}]}`
+	if rec := request(t, h, http.MethodPut, "/v1/nodes/n-1/volumes", body); rec.Code != http.StatusNoContent {
+		t.Fatalf("report: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var list snapshotListResponse
+	if err := json.Unmarshal(
+		request(t, h, http.MethodGet, "/v1/volumes/data-1/snapshots", "").Body.Bytes(), &list,
+	); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list.Snapshots) != 1 || list.Snapshots[0].State != SnapshotReady {
+		t.Fatalf("snapshots = %+v, want the reported one marked ready", list.Snapshots)
+	}
+	if list.Snapshots[0].SizeBytes != 4096 {
+		t.Fatalf("size = %d, want what the node measured", list.Snapshots[0].SizeBytes)
+	}
+}
+
+func TestSnapshotsNeedTheGuestStopped(t *testing.T) {
+	h, _ := newTestModule(t, runningVM("n-1"))
+	created := create(t, h, `{"name":"data-1","size_gib":20}`)
+	request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach", `{"instance_id":"i-1"}`)
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/snapshots",
+		`{"name":"live"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: qemu has the image open and it is changing underneath",
+			rec.Code, http.StatusConflict)
+	}
+}
+
+func TestAnUntouchedVolumeHasNothingToSnapshot(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data-1","size_gib":20}`)
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/snapshots", `{"name":"empty"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: no node holds the volume, so no file exists",
+			rec.Code, http.StatusConflict)
+	}
+}
+
+func TestRestoreWaitsForAReadySnapshot(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data-1","size_gib":20}`)
+	request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach", `{"instance_id":"i-1"}`)
+
+	snap := snapshotOf(t, h, created.ID, "before-upgrade")
+
+	if rec := request(t, h, http.MethodPost, "/v1/snapshots/"+snap.ID+"/restore", ""); rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d while the snapshot is still pending",
+			rec.Code, http.StatusConflict)
+	}
+
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/volumes",
+		`{"volumes":[{"volume_id":"`+created.ID+`","snapshots":[{"name":"before-upgrade"}]}]}`)
+
+	rec := request(t, h, http.MethodPost, "/v1/snapshots/"+snap.ID+"/restore", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restore: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var asked response
+	if err := json.Unmarshal(rec.Body.Bytes(), &asked); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if asked.RestoreFrom != "before-upgrade" {
+		t.Fatalf("restore_from = %q, want the node to be told what to roll back to", asked.RestoreFrom)
+	}
+
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/volumes",
+		`{"volumes":[{"volume_id":"`+created.ID+`","snapshots":[{"name":"before-upgrade"}],`+
+			`"restored":"before-upgrade"}]}`)
+
+	var after response
+	if err := json.Unmarshal(
+		request(t, h, http.MethodGet, "/v1/volumes/data-1", "").Body.Bytes(), &after,
+	); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if after.RestoreFrom != "" {
+		t.Fatalf("restore_from = %q, want it cleared once the node did it", after.RestoreFrom)
+	}
+}
+
+func TestAFailedSnapshotSaysWhy(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data-1","size_gib":20}`)
+	request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach", `{"instance_id":"i-1"}`)
+	snapshotOf(t, h, created.ID, "doomed")
+
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/volumes",
+		`{"volumes":[{"volume_id":"`+created.ID+`","snapshots":[],"error":"no space left on device"}]}`)
+
+	var list snapshotListResponse
+	if err := json.Unmarshal(
+		request(t, h, http.MethodGet, "/v1/snapshots", "").Body.Bytes(), &list,
+	); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list.Snapshots) != 1 {
+		t.Fatalf("snapshots = %d", len(list.Snapshots))
+	}
+	if list.Snapshots[0].State != SnapshotFailed {
+		t.Fatalf("state = %q, want %q", list.Snapshots[0].State, SnapshotFailed)
+	}
+	if list.Snapshots[0].Message == "" {
+		t.Fatal("a failed snapshot with no reason is a snapshot nobody can fix")
+	}
+}
+
+func TestDeletingAVolumeTakesItsSnapshots(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data-1","size_gib":20}`)
+	request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach", `{"instance_id":"i-1"}`)
+	snapshotOf(t, h, created.ID, "keeper")
+
+	request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/detach", "")
+	if rec := request(t, h, http.MethodDelete, "/v1/volumes/data-1", ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var list snapshotListResponse
+	if err := json.Unmarshal(
+		request(t, h, http.MethodGet, "/v1/snapshots", "").Body.Bytes(), &list,
+	); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(list.Snapshots) != 0 {
+		t.Fatalf("snapshots = %+v, want none left pointing at a volume that is gone", list.Snapshots)
+	}
+}
+
+func TestTwoSnapshotsCannotShareAName(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data-1","size_gib":20}`)
+	request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach", `{"instance_id":"i-1"}`)
+	snapshotOf(t, h, created.ID, "twice")
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/snapshots", `{"name":"twice"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+}

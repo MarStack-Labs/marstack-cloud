@@ -155,6 +155,150 @@ func (s *service) releaseInstance(ctx context.Context, instanceID string) error 
 	return nil
 }
 
+func (s *service) quiet(ctx context.Context, v Volume, action string) error {
+	if v.NodeID == "" {
+		return fault.Conflict("volume_empty",
+			"the volume has never been attached, so there is nothing on disk to "+action)
+	}
+	if v.InstanceID == "" {
+		return nil
+	}
+	if s.instances == nil {
+		return nil
+	}
+
+	placed, err := s.instances.Placement(ctx, v.InstanceID)
+	if err != nil {
+		return err
+	}
+	if placed.Running {
+		return fault.Conflict("instance_running",
+			"stop "+v.InstanceID+" first: writing to a disk while qemu has it open would "+
+				action+" an image that is changing underneath")
+	}
+	return nil
+}
+
+func (s *service) snapshot(ctx context.Context, nameOrID, name string) (Snapshot, error) {
+	v, err := s.resolve(ctx, nameOrID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if err := validate.Name("name", name); err != nil {
+		return Snapshot{}, err
+	}
+	if err := s.quiet(ctx, v, "snapshot"); err != nil {
+		return Snapshot{}, err
+	}
+
+	snap := Snapshot{
+		ID:        ids.New("snap"),
+		VolumeID:  v.ID,
+		Name:      name,
+		State:     SnapshotPending,
+		CreatedAt: s.now(),
+	}
+
+	if err := s.repo.insertSnapshot(ctx, snap); err != nil {
+		if errors.Is(err, errNameTaken) {
+			return Snapshot{}, fault.Conflict("snapshot_name_taken",
+				"the volume already has a snapshot with that name")
+		}
+		return Snapshot{}, translate(err)
+	}
+	return snap, nil
+}
+
+func (s *service) snapshots(ctx context.Context, volumeID string) ([]Snapshot, error) {
+	snapshots, err := s.repo.snapshots(ctx, volumeID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return snapshots, nil
+}
+
+func (s *service) removeSnapshot(ctx context.Context, id string) error {
+	if _, err := s.repo.snapshot(ctx, id); err != nil {
+		return translate(err)
+	}
+	if err := s.repo.deleteSnapshot(ctx, id); err != nil {
+		return translate(err)
+	}
+	return nil
+}
+
+func (s *service) restore(ctx context.Context, snapshotID string) (Volume, error) {
+	snap, err := s.repo.snapshot(ctx, snapshotID)
+	if err != nil {
+		return Volume{}, translate(err)
+	}
+	if snap.State != SnapshotReady {
+		return Volume{}, fault.Conflict("snapshot_not_ready",
+			"the snapshot is "+snap.State+" and cannot be restored yet")
+	}
+
+	v, err := s.repo.byID(ctx, snap.VolumeID)
+	if err != nil {
+		return Volume{}, translate(err)
+	}
+	if err := s.quiet(ctx, v, "restore"); err != nil {
+		return Volume{}, err
+	}
+
+	if err := s.repo.setRestore(ctx, v.ID, snap.Name, s.now()); err != nil {
+		return Volume{}, translate(err)
+	}
+
+	v.RestoreFrom = snap.Name
+	return v, nil
+}
+
+func (s *service) report(ctx context.Context, nodeID string, reports []NodeReport) error {
+	for _, reported := range reports {
+		v, err := s.repo.byID(ctx, reported.VolumeID)
+		if err != nil {
+			continue
+		}
+		if v.NodeID != nodeID {
+			continue
+		}
+
+		present := map[string]int64{}
+		for _, file := range reported.Snapshots {
+			present[file.Name] = file.SizeBytes
+		}
+
+		known, err := s.repo.snapshots(ctx, v.ID)
+		if err != nil {
+			return translate(err)
+		}
+
+		for _, snap := range known {
+			size, exists := present[snap.Name]
+			switch {
+			case exists && snap.State != SnapshotReady:
+				err = s.repo.markSnapshot(ctx, snap.ID, SnapshotReady, "", size)
+			case exists:
+				err = s.repo.markSnapshot(ctx, snap.ID, SnapshotReady, "", size)
+			case reported.Error != "":
+				err = s.repo.markSnapshot(ctx, snap.ID, SnapshotFailed, reported.Error, 0)
+			default:
+				continue
+			}
+			if err != nil {
+				return translate(err)
+			}
+		}
+
+		if reported.Restored != "" && reported.Restored == v.RestoreFrom {
+			if err := s.repo.setRestore(ctx, v.ID, "", s.now()); err != nil {
+				return translate(err)
+			}
+		}
+	}
+	return nil
+}
+
 func (s *service) remove(ctx context.Context, nameOrID string) error {
 	v, err := s.resolve(ctx, nameOrID)
 	if err != nil {

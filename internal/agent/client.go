@@ -152,10 +152,33 @@ type imageView struct {
 }
 
 type volumeView struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	SizeGiB    int    `json:"size_gib"`
-	InstanceID string `json:"instance_id,omitempty"`
+	ID          string         `json:"id"`
+	Name        string         `json:"name"`
+	SizeGiB     int            `json:"size_gib"`
+	InstanceID  string         `json:"instance_id,omitempty"`
+	RestoreFrom string         `json:"restore_from,omitempty"`
+	Snapshots   []snapshotView `json:"snapshots,omitempty"`
+}
+
+type snapshotView struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+type reportedSnapshotBody struct {
+	Name      string `json:"name"`
+	SizeBytes int64  `json:"size_bytes,omitempty"`
+}
+
+type reportedVolumeBody struct {
+	VolumeID  string                 `json:"volume_id"`
+	Snapshots []reportedSnapshotBody `json:"snapshots"`
+	Restored  string                 `json:"restored,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+}
+
+type reportVolumesBody struct {
+	Volumes []reportedVolumeBody `json:"volumes"`
 }
 
 type volumesBody struct {
@@ -180,6 +203,11 @@ func (c *client) volumes(ctx context.Context, nodeID string) ([]volumeView, erro
 	var out volumesBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/volumes", nil, &out)
 	return out.Volumes, err
+}
+
+func (c *client) reportVolumes(ctx context.Context, nodeID string, reports []reportedVolumeBody) error {
+	return c.do(ctx, http.MethodPut, "/v1/nodes/"+nodeID+"/volumes",
+		reportVolumesBody{Volumes: reports}, nil)
 }
 
 func (c *client) images(ctx context.Context) ([]imageView, error) {

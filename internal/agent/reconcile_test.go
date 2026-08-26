@@ -833,3 +833,67 @@ func TestAttachedVolumesReachTheRuntime(t *testing.T) {
 		t.Fatalf("volume = %+v", disks[0])
 	}
 }
+
+func TestSnapshotsAreLeftAloneWhileTheGuestRuns(t *testing.T) {
+	in := runningInstance()
+
+	cp := &controlPlane{
+		instances: []instanceView{in},
+		networks:  []networkView{defaultNetworkView(in.ID, "10.20.0.65")},
+		volumes: []volumeView{{
+			ID: "vol-1", Name: "data-1", SizeGiB: 20, InstanceID: in.ID,
+			Snapshots: []snapshotView{{Name: "before", State: "pending"}},
+		}},
+	}
+
+	rt := &snapshotRuntime{fakeRuntime: fakeRuntime{
+		state: workload.State{Phase: workload.PhaseRunning},
+	}}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtimes: map[string]workload.Runtime{"container": rt}, Datapath: &fakeDatapath{}},
+		logging.New("error", io.Discard))
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+
+	if rt.plans != 0 {
+		t.Fatalf("the node touched a disk qemu has open: %d plans", rt.plans)
+	}
+
+	rt.mu.Lock()
+	rt.state = workload.State{Phase: workload.PhaseExited, ExitCode: 0}
+	rt.mu.Unlock()
+
+	a.reconcile(context.Background())
+
+	if rt.plans == 0 {
+		t.Fatal("the node never applied the snapshot once the guest had stopped")
+	}
+}
+
+type snapshotRuntime struct {
+	fakeRuntime
+	plans int
+}
+
+func (r *snapshotRuntime) PruneVolumes([]string) error { return nil }
+
+func (r *snapshotRuntime) SyncSnapshots(plans []workload.SnapshotPlan) []workload.SnapshotState {
+	r.plans += len(plans)
+
+	states := make([]workload.SnapshotState, 0, len(plans))
+	for _, plan := range plans {
+		files := make([]workload.SnapshotFile, 0, len(plan.Wanted))
+		for _, name := range plan.Wanted {
+			files = append(files, workload.SnapshotFile{Name: name, Bytes: 4096})
+		}
+		states = append(states, workload.SnapshotState{VolumeID: plan.VolumeID, Present: files})
+	}
+	return states
+}

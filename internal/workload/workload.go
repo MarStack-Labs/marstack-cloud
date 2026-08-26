@@ -28,6 +28,24 @@ type Disk struct {
 	SizeGiB int
 }
 
+type SnapshotPlan struct {
+	VolumeID  string
+	Wanted    []string
+	RestoreTo string
+}
+
+type SnapshotState struct {
+	VolumeID string
+	Present  []SnapshotFile
+	Restored string
+	Error    string
+}
+
+type SnapshotFile struct {
+	Name  string
+	Bytes int64
+}
+
 type Spec struct {
 	InstanceID string
 	Name       string
@@ -80,6 +98,7 @@ type Resolver interface {
 
 type VolumeKeeper interface {
 	PruneVolumes(keep []string) error
+	SyncSnapshots(plans []SnapshotPlan) []SnapshotState
 }
 
 type Runtime interface {

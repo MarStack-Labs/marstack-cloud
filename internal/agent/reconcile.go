@@ -90,6 +90,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 
 	a.collectGarbage(ctx, state.Instances, state.Networks)
 	a.tidyVolumes(state.Volumes)
+	a.applySnapshots(ctx, state.Volumes, state.Instances, report)
 	a.tidyImages(ctx, state.Instances, report)
 	a.serveDNS(ctx, state.Networks, state.Records)
 
@@ -318,6 +319,87 @@ func (a *Agent) tidyVolumes(volumes []volumeView) {
 		if err := keeper.PruneVolumes(keep); err != nil {
 			a.log.Warn("could not tidy the volumes", "isolation", isolation, "error", err)
 		}
+	}
+}
+
+func (a *Agent) volumeIsBusy(ctx context.Context, v volumeView, assigned []instanceView) bool {
+	if v.InstanceID == "" {
+		return false
+	}
+
+	for _, in := range assigned {
+		if in.ID != v.InstanceID {
+			continue
+		}
+
+		runtime, known := a.runtimeFor(in.Isolation)
+		if !known {
+			return true
+		}
+
+		state, err := runtime.Status(ctx, in.ID)
+		if err != nil {
+			return true
+		}
+		return state.Phase == workload.PhaseRunning
+	}
+	return true
+}
+
+func (a *Agent) applySnapshots(
+	ctx context.Context, volumes []volumeView, assigned []instanceView, report bool,
+) {
+	if len(volumes) == 0 {
+		return
+	}
+
+	plans := make([]workload.SnapshotPlan, 0, len(volumes))
+	for _, v := range volumes {
+		if a.volumeIsBusy(ctx, v, assigned) {
+			continue
+		}
+
+		wanted := make([]string, 0, len(v.Snapshots))
+		for _, snap := range v.Snapshots {
+			wanted = append(wanted, snap.Name)
+		}
+		plans = append(plans, workload.SnapshotPlan{
+			VolumeID:  v.ID,
+			Wanted:    wanted,
+			RestoreTo: v.RestoreFrom,
+		})
+	}
+
+	if len(plans) == 0 {
+		return
+	}
+
+	reports := make([]reportedVolumeBody, 0, len(plans))
+	for _, runtime := range a.runtimes {
+		keeper, able := runtime.(workload.VolumeKeeper)
+		if !able {
+			continue
+		}
+
+		for _, state := range keeper.SyncSnapshots(plans) {
+			files := make([]reportedSnapshotBody, 0, len(state.Present))
+			for _, file := range state.Present {
+				files = append(files, reportedSnapshotBody{Name: file.Name, SizeBytes: file.Bytes})
+			}
+			reports = append(reports, reportedVolumeBody{
+				VolumeID:  state.VolumeID,
+				Snapshots: files,
+				Restored:  state.Restored,
+				Error:     state.Error,
+			})
+		}
+	}
+
+	if !report || len(reports) == 0 {
+		return
+	}
+	if err := a.client.reportVolumes(ctx, a.currentNodeID(), reports); err != nil {
+		a.log.Warn("could not report the volume snapshots", "error", err)
 	}
 }
 

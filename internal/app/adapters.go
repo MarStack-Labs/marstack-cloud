@@ -110,7 +110,11 @@ func (s volumeInstances) Placement(ctx context.Context, instanceID string) (volu
 	if err != nil {
 		return volume.Placement{}, err
 	}
-	return volume.Placement{NodeID: in.NodeID, Isolation: string(in.Isolation)}, nil
+	return volume.Placement{
+		NodeID:    in.NodeID,
+		Isolation: string(in.Isolation),
+		Running:   in.Desired == instance.DesiredRunning,
+	}, nil
 }
 
 type dnsInstances struct {

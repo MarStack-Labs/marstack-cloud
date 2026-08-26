@@ -53,6 +53,29 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  3,
 			SQL:    `CREATE INDEX volumes_node_id ON volumes (node_id)`,
 		},
+		{
+			Module: "volume",
+			Index:  4,
+			SQL:    `ALTER TABLE volumes ADD COLUMN restore_from TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "volume",
+			Index:  5,
+			SQL: `CREATE TABLE snapshots (
+				id         TEXT PRIMARY KEY,
+				volume_id  TEXT NOT NULL,
+				name       TEXT NOT NULL,
+				state      TEXT NOT NULL,
+				message    TEXT NOT NULL DEFAULT '',
+				size_bytes INTEGER NOT NULL DEFAULT 0,
+				created_at TEXT NOT NULL
+			)`,
+		},
+		{
+			Module: "volume",
+			Index:  6,
+			SQL:    `CREATE UNIQUE INDEX snapshots_name_unique ON snapshots (volume_id, name)`,
+		},
 	}
 }
 
@@ -64,7 +87,14 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/volumes/{id}/attach", httpx.Wrap(m.log, m.handler.attach))
 	mux.Handle("POST /v1/volumes/{id}/detach", httpx.Wrap(m.log, m.handler.detach))
 
+	mux.Handle("POST /v1/volumes/{id}/snapshots", httpx.Wrap(m.log, m.handler.snapshot))
+	mux.Handle("GET /v1/volumes/{id}/snapshots", httpx.Wrap(m.log, m.handler.listSnapshots))
+	mux.Handle("GET /v1/snapshots", httpx.Wrap(m.log, m.handler.listSnapshots))
+	mux.Handle("DELETE /v1/snapshots/{id}", httpx.Wrap(m.log, m.handler.deleteSnapshot))
+	mux.Handle("POST /v1/snapshots/{id}/restore", httpx.Wrap(m.log, m.handler.restore))
+
 	mux.Handle("GET /v1/nodes/{nodeID}/volumes", httpx.Wrap(m.log, m.handler.listForNode))
+	mux.Handle("PUT /v1/nodes/{nodeID}/volumes", httpx.Wrap(m.log, m.handler.report))
 }
 
 func (m *Module) ReleaseInstance(ctx context.Context, instanceID string) error {

@@ -8,16 +8,43 @@ const (
 
 	StateFree     = "free"
 	StateAttached = "attached"
+
+	SnapshotPending = "pending"
+	SnapshotReady   = "ready"
+	SnapshotFailed  = "failed"
 )
 
 type Volume struct {
-	ID         string
-	Name       string
-	SizeGiB    int
-	NodeID     string
-	InstanceID string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID          string
+	Name        string
+	SizeGiB     int
+	NodeID      string
+	InstanceID  string
+	RestoreFrom string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+type Snapshot struct {
+	ID        string
+	VolumeID  string
+	Name      string
+	State     string
+	Message   string
+	SizeBytes int64
+	CreatedAt time.Time
+}
+
+type ReportedSnapshot struct {
+	Name      string
+	SizeBytes int64
+}
+
+type NodeReport struct {
+	VolumeID  string
+	Snapshots []ReportedSnapshot
+	Restored  string
+	Error     string
 }
 
 func (v Volume) State() string {
@@ -35,4 +62,5 @@ type CreateParams struct {
 type Placement struct {
 	NodeID    string
 	Isolation string
+	Running   bool
 }
