@@ -39,6 +39,7 @@ func newRootCmd() *cobra.Command {
 		newAgentCmd(g),
 		newInstanceCmd(g),
 		newNetworkCmd(g),
+		newImageCmd(g),
 		newNodeCmd(g),
 	)
 	return root
