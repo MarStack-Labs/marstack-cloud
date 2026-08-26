@@ -284,3 +284,93 @@ func TestAddressesDoNotCollideAcrossNodes(t *testing.T) {
 		t.Fatalf("both instances got %s across different nodes", first.IP)
 	}
 }
+
+func TestOverlappingRangesAreRejected(t *testing.T) {
+	h, _ := newTestModule(t)
+
+	if rec := request(t, h, http.MethodPost, "/v1/networks",
+		`{"name":"prod","cidr":"10.40.0.0/16"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("first create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	cases := map[string]string{
+		"identical":  `{"name":"a","cidr":"10.40.0.0/16"}`,
+		"inside":     `{"name":"b","cidr":"10.40.5.0/24"}`,
+		"containing": `{"name":"c","cidr":"10.40.0.0/12"}`,
+	}
+
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			rec := request(t, h, http.MethodPost, "/v1/networks", body)
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want %d: two networks sharing a range give a node two "+
+					"bridges with the same gateway address (body: %s)",
+					rec.Code, http.StatusConflict, rec.Body.String())
+			}
+		})
+	}
+
+	if rec := request(t, h, http.MethodPost, "/v1/networks",
+		`{"name":"elsewhere","cidr":"10.50.0.0/16"}`); rec.Code != http.StatusCreated {
+		t.Fatalf("a non overlapping range was rejected: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestCreateWithoutACIDRCannotShadowTheDefault(t *testing.T) {
+	h, m := newTestModule(t)
+
+	if _, err := m.EnsureDefault(context.Background()); err != nil {
+		t.Fatalf("ensure default: %v", err)
+	}
+
+	rec := request(t, h, http.MethodPost, "/v1/networks", `{"name":"staging"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: an omitted cidr falls back to the default range, so "+
+			"this silently created a second network on top of the first (body: %s)",
+			rec.Code, http.StatusConflict, rec.Body.String())
+	}
+}
+
+func TestDeleteRefusesANetworkStillInUse(t *testing.T) {
+	h, m := newTestModule(t)
+
+	rec := request(t, h, http.MethodPost, "/v1/networks", `{"name":"prod","cidr":"10.60.0.0/16"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d", rec.Code)
+	}
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if err := m.Allocate(context.Background(), "i-1", created.ID, "n-1"); err != nil {
+		t.Fatalf("allocate: %v", err)
+	}
+
+	if rec := request(t, h, http.MethodDelete, "/v1/networks/"+created.ID, ""); rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: deleting a network under a running instance strands it",
+			rec.Code, http.StatusConflict)
+	}
+
+	if err := m.ReleaseAddress(context.Background(), "i-1"); err != nil {
+		t.Fatalf("release: %v", err)
+	}
+
+	if rec := request(t, h, http.MethodDelete, "/v1/networks/"+created.ID, ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+	if rec := request(t, h, http.MethodGet, "/v1/networks/"+created.ID, ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want the network gone", rec.Code)
+	}
+}
+
+func TestDeleteReportsAnUnknownNetwork(t *testing.T) {
+	h, _ := newTestModule(t)
+
+	if rec := request(t, h, http.MethodDelete, "/v1/networks/nw-nope", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}

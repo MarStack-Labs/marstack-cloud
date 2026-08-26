@@ -167,6 +167,32 @@ func (r *repository) insertSlice(ctx context.Context, s Slice) error {
 	return nil
 }
 
+func (r *repository) countNICs(ctx context.Context, networkID string) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM nics WHERE network_id = ?`, networkID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count nics: %w", err)
+	}
+	return count, nil
+}
+
+func (r *repository) deleteNetwork(ctx context.Context, id string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM node_slices WHERE network_id = ?`, id); err != nil {
+		return fmt.Errorf("delete node slices: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM networks WHERE id = ?`, id); err != nil {
+		return fmt.Errorf("delete network: %w", err)
+	}
+	return tx.Commit()
+}
+
 func (r *repository) nic(ctx context.Context, instanceID string) (NIC, error) {
 	row := r.db.QueryRowContext(ctx,
 		`SELECT instance_id, network_id, node_id, ip, mac, created_at FROM nics WHERE instance_id = ?`,

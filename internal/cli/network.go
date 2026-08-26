@@ -27,7 +27,7 @@ func newNetworkCmd(g *globals) *cobra.Command {
 		Short:   "Manage networks",
 		Aliases: []string{"networks"},
 	}
-	cmd.AddCommand(newNetworkCreateCmd(g), newNetworkListCmd(g))
+	cmd.AddCommand(newNetworkCreateCmd(g), newNetworkListCmd(g), newNetworkDeleteCmd(g))
 	return cmd
 }
 
@@ -76,6 +76,23 @@ func newNetworkListCmd(g *globals) *cobra.Command {
 				rows = append(rows, networkRow(n))
 			}
 			return render(cmd.OutOrStdout(), g.output, list, table{headers: networkHeaders, rows: rows})
+		},
+	}
+}
+
+func newNetworkDeleteCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "delete <id>",
+		Short: "Delete a network that has no addresses handed out",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := newClient(g.endpoint).do(
+				cmd.Context(), "DELETE", "/v1/networks/"+args[0], nil, nil,
+			); err != nil {
+				return err
+			}
+			cmd.Printf("deleted %s\n", args[0])
+			return nil
 		},
 	}
 }

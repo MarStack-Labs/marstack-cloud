@@ -41,6 +41,22 @@ func (s *service) create(ctx context.Context, params CreateParams) (Network, err
 			"the network must be larger than a single node slice")
 	}
 
+	existing, err := s.repo.listNetworks(ctx)
+	if err != nil {
+		return Network{}, translate(err)
+	}
+	for _, other := range existing {
+		taken, parseErr := parsePrefix(other.CIDR)
+		if parseErr != nil {
+			continue
+		}
+		if taken.Overlaps(prefix) {
+			return Network{}, fault.Conflict("network_overlaps",
+				"the range overlaps network "+other.Name+" ("+other.CIDR+"), and every node "+
+					"routes to a peer slice by its prefix, so two networks cannot share one")
+		}
+	}
+
 	id := ids.New("nw")
 	n := Network{
 		ID:        id,
@@ -55,6 +71,26 @@ func (s *service) create(ctx context.Context, params CreateParams) (Network, err
 		return Network{}, translate(err)
 	}
 	return n, nil
+}
+
+func (s *service) remove(ctx context.Context, id string) error {
+	if _, err := s.repo.network(ctx, id); err != nil {
+		return translate(err)
+	}
+
+	attached, err := s.repo.countNICs(ctx, id)
+	if err != nil {
+		return translate(err)
+	}
+	if attached > 0 {
+		return fault.Conflict("network_in_use",
+			"the network still has addresses handed out to instances")
+	}
+
+	if err := s.repo.deleteNetwork(ctx, id); err != nil {
+		return translate(err)
+	}
+	return nil
 }
 
 func (s *service) ensureDefault(ctx context.Context) (Network, error) {

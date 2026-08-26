@@ -139,3 +139,11 @@ func (h *handler) nodeView(w http.ResponseWriter, r *http.Request) error {
 	httpx.Write(w, http.StatusOK, body)
 	return nil
 }
+
+func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
+	if err := h.svc.remove(r.Context(), r.PathValue("id")); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}

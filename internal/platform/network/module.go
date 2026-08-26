@@ -92,6 +92,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  7,
 			SQL:    `CREATE INDEX nics_node_id ON nics (node_id)`,
 		},
+		{
+			Module: "network",
+			Index:  8,
+			SQL:    `CREATE UNIQUE INDEX networks_cidr_unique ON networks (cidr)`,
+		},
 	}
 }
 
@@ -99,6 +104,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/networks", httpx.Wrap(m.log, m.handler.create))
 	mux.Handle("GET /v1/networks", httpx.Wrap(m.log, m.handler.list))
 	mux.Handle("GET /v1/networks/{id}", httpx.Wrap(m.log, m.handler.get))
+	mux.Handle("DELETE /v1/networks/{id}", httpx.Wrap(m.log, m.handler.delete))
 	mux.Handle("GET /v1/nodes/{nodeID}/network", httpx.Wrap(m.log, m.handler.nodeView))
 }
 
