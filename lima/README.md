@@ -46,10 +46,11 @@ the VM to stop repeating it.
 Then bring up a control plane and one agent:
 
 ```sh
-make dev-up      # builds, starts both, prints the node list
-make dev-logs    # tail both logs
-make dev-down    # stop them
-make dev-reset   # stop, drop the database and all instance state
+make stage-images  # once per node: vm disk and microvm kernel
+make dev-up        # builds, starts both, prints the node list
+make dev-logs      # tail both logs
+make dev-down      # stop them
+make dev-reset     # stop, drop the database and all instance state
 ```
 
 ```sh

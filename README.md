@@ -27,6 +27,47 @@ node or across many baremetal machines, through the same code and the same API.
 
 VMM names never appear in the API or the CLI.
 
+## Staging node images
+
+Do this once per node, before creating anything that is not a container.
+
+```sh
+make stage-images
+```
+
+Containers, microvms and sandboxes pull an OCI image from a registry at start.
+A vm does not: it boots a qcow2 disk that has to be on the node already, and a
+microvm boots an uncompressed kernel that has to be there too.
+
+| Isolation | What the image field means | Where it comes from |
+|---|---|---|
+| `container` | OCI reference | pulled at start |
+| `microvm` | OCI reference, unpacked into an ext4 root | pulled at start, plus `images/kernel.Image` |
+| `sandbox` | OCI reference, unpacked into an ext4 root | pulled at start, plus `images/kernel.Image` |
+| `vm` | file name of a staged disk | `images/<name>.qcow2`, staged by hand |
+
+So `--isolation vm --image alpine:3.20` cannot work. It resolves to
+`/var/lib/marstack/images/alpine_3.20.qcow2`, which nobody staged - `/`, `:`
+and spaces become `_`. Use the name of a disk that is there:
+
+```sh
+sudo ls /var/lib/marstack/images
+marstack instance create --name db-1 --isolation vm --image ubuntu-24.04
+```
+
+To stage a different distribution, drop the qcow2 in yourself:
+
+```sh
+sudo curl -fL -o /var/lib/marstack/images/debian-12.qcow2 \
+  https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-arm64.qcow2
+```
+
+`make stage-images` is deliberately dumb: it downloads the Ubuntu cloud image
+for the node architecture, extracts the running kernel to `images/kernel.Image`
+for the microvm runtimes, verifies both are the format they claim to be, and
+does nothing if they are already there. The agent never downloads a disk image
+on its own - what a node boots stays an operator decision.
+
 ## Running it
 
 ```sh

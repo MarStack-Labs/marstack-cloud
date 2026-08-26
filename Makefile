@@ -6,7 +6,7 @@ LDFLAGS := -X github.com/marstack-labs/marstack-cloud/internal/version.Version=$
 GOBIN  ?= $(shell go env GOPATH)/bin
 PREFIX ?= /usr/local
 
-.PHONY: build install uninstall test vet fmt staticcheck vuln gosec secrets security check tools hooks run dev-up dev-down dev-logs dev-reset clean
+.PHONY: build install uninstall test vet fmt staticcheck vuln gosec secrets security check tools hooks run stage-images dev-up dev-down dev-logs dev-reset clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/marstack ./cmd/marstack
@@ -59,6 +59,9 @@ DEV_DATA ?= $(HOME)/marstack-data
 DEV_LOGS ?= $(HOME)
 DEV_NODE ?= bm-1
 DEV_ZONE ?= rack-a
+
+stage-images:
+	sudo -E scripts/stage-images.sh
 
 dev-up: build
 	@$(MAKE) --no-print-directory dev-down
