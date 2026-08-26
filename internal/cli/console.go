@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/console"
 	"github.com/spf13/cobra"
@@ -51,6 +52,11 @@ func attachConsole(cmd *cobra.Command, socket string) error {
 
 	restore, raw := makeRaw(int(os.Stdin.Fd()))
 	defer restore()
+
+	if login := console.Login(socket); login != "" {
+		user, password, _ := strings.Cut(login, ":")
+		cmd.PrintErrf("console login: %s / %s\n", user, password)
+	}
 
 	if raw {
 		cmd.PrintErrln("attached, press Ctrl-] to detach")

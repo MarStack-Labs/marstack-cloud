@@ -91,6 +91,8 @@ func TestHubFansOut(t *testing.T) {
 	}
 	defer second.Close()
 
+	waitForClients(t, hub, 2)
+
 	if _, err := guest.Write([]byte("login:")); err != nil {
 		t.Fatalf("guest write: %v", err)
 	}
@@ -110,6 +112,20 @@ func TestHubFansOut(t *testing.T) {
 	}
 
 	waitFor(t, filepath.Join(dir, LogName), "login:")
+}
+
+func waitForClients(t *testing.T, hub *Hub, want int) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if hub.attached() >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the hub registered %d clients, want %d: dialling returns before the accept loop "+
+		"adds the client, so anything written first is missed", hub.attached(), want)
 }
 
 func waitFor(t *testing.T, path, want string) {

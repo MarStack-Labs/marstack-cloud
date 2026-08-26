@@ -3,14 +3,18 @@
 package qemu
 
 import (
+	"crypto/rand"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/console"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
+
+const consoleUser = "ubuntu"
 
 func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 	dir := filepath.Join(r.instanceDir(spec.InstanceID), "seed")
@@ -23,7 +27,14 @@ func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 		return "", fmt.Errorf("write meta-data: %w", err)
 	}
 
-	user := "#cloud-config\nhostname: " + spec.Name + "\nssh_pwauth: false\n"
+	password, err := r.consolePassword(spec.InstanceID)
+	if err != nil {
+		return "", err
+	}
+
+	user := "#cloud-config\nhostname: " + spec.Name + "\nssh_pwauth: false\n" +
+		"chpasswd:\n  expire: false\n  users:\n" +
+		"    - {name: " + consoleUser + ", password: " + password + ", type: text}\n"
 	if len(spec.Command) > 0 {
 		user += "runcmd:\n  - " + shellQuote(spec.Command) + "\n"
 	}
@@ -49,6 +60,41 @@ func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 		return "", fmt.Errorf("build cloud-init seed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return iso, nil
+}
+
+func (r *Runtime) consolePassword(instanceID string) (string, error) {
+	path := filepath.Join(r.instanceDir(instanceID), console.LoginName)
+
+	if raw, err := os.ReadFile(path); err == nil {
+		_, password, found := strings.Cut(strings.TrimSpace(string(raw)), ":")
+		if found && password != "" {
+			return password, nil
+		}
+	}
+
+	password, err := secret()
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, []byte(consoleUser+":"+password+"\n"), 0o600); err != nil {
+		return "", fmt.Errorf("write the console login: %w", err)
+	}
+	return password, nil
+}
+
+func secret() (string, error) {
+	const alphabet = "abcdefghijkmnpqrstuvwxyz23456789"
+
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("generate a console password: %w", err)
+	}
+
+	out := make([]byte, len(raw))
+	for index, value := range raw {
+		out[index] = alphabet[int(value)%len(alphabet)]
+	}
+	return string(out), nil
 }
 
 func networkConfig(spec workload.Spec) string {

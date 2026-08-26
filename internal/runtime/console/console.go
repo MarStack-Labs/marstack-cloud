@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -18,6 +19,7 @@ const (
 	UpstreamName = "serial.sock"
 	AttachName   = "console.sock"
 	LogName      = "console.log"
+	LoginName    = "console-login"
 
 	dialWindow = 5 * time.Second
 	dialEvery  = 50 * time.Millisecond
@@ -168,6 +170,12 @@ func (h *Hub) drop(client net.Conn) {
 	}
 }
 
+func (h *Hub) attached() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.clients)
+}
+
 func (h *Hub) Close() error {
 	h.mu.Lock()
 	if h.closed {
@@ -188,6 +196,26 @@ func (h *Hub) Close() error {
 		client.Close()
 	}
 	return h.file.Close()
+}
+
+func Login(socket string) string {
+	root, err := os.OpenRoot(filepath.Dir(socket))
+	if err != nil {
+		return ""
+	}
+	defer root.Close()
+
+	file, err := root.Open(LoginName)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+
+	raw, err := io.ReadAll(io.LimitReader(file, 256))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func Find(root, instanceID string) (string, error) {
