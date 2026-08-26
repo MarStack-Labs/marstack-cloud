@@ -112,6 +112,21 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  8,
 			SQL:    `ALTER TABLE instances ADD COLUMN restart_count INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			Module: "instance",
+			Index:  9,
+			SQL:    `ALTER TABLE instances ADD COLUMN iso TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  10,
+			SQL:    `ALTER TABLE instances ADD COLUMN kernel TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  11,
+			SQL:    `ALTER TABLE instances ADD COLUMN disk_gib INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 }
 

@@ -112,9 +112,22 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return nil
 	}
 
-	base, err := r.stagedDisk(ctx, spec.Image)
-	if err != nil {
-		return err
+	base := ""
+	if spec.Image != "" {
+		staged, err := r.stagedDisk(ctx, spec.Image)
+		if err != nil {
+			return err
+		}
+		base = staged
+	}
+
+	media := ""
+	if spec.ISO != "" {
+		attached, err := r.stagedISO(ctx, spec.ISO)
+		if err != nil {
+			return err
+		}
+		media = attached
 	}
 
 	if err := os.MkdirAll(r.instanceDir(spec.InstanceID), 0o750); err != nil {
@@ -147,7 +160,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	}
 	defer launch.Close()
 
-	args := r.arguments(spec, firmware, vars, seed, tap)
+	args := r.arguments(spec, firmware, vars, seed, media, tap)
 	cmd := exec.Command(qemuBinary(), args...)
 	cmd.Stdout = launch
 	cmd.Stderr = launch
@@ -172,7 +185,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	return nil
 }
 
-func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, tap string) []string {
+func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, media, tap string) []string {
 	mac := "52:54:00:12:34:56"
 	if spec.Network != nil && spec.Network.MAC != "" {
 		mac = spec.Network.MAC
@@ -195,6 +208,13 @@ func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, tap string
 		"-daemonize",
 	}
 
+	if media != "" {
+		args = append(args,
+			"-drive", "id=installer,if=none,format=raw,media=cdrom,readonly=on,file="+media,
+			"-device", "virtio-blk-pci,drive=installer,bootindex=0",
+		)
+	}
+
 	if tap != "" {
 		args = append(args,
 			"-netdev", "tap,id=net0,ifname="+tap+",script=no,downscript=no",
@@ -207,6 +227,19 @@ func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, tap string
 func (r *Runtime) prepareDisk(spec workload.Spec, base string) error {
 	disk := r.diskFile(spec.InstanceID)
 	if _, err := os.Stat(disk); err == nil {
+		return nil
+	}
+
+	if base == "" {
+		size := spec.DiskGiB
+		if size <= 0 {
+			size = 10
+		}
+		blank := exec.Command("qemu-img", "create", "-f", "qcow2", disk,
+			strconv.Itoa(size)+"G")
+		if out, err := blank.CombinedOutput(); err != nil {
+			return fmt.Errorf("create blank disk: %w: %s", err, strings.TrimSpace(string(out)))
+		}
 		return nil
 	}
 
@@ -223,15 +256,18 @@ func (r *Runtime) prepareDisk(spec workload.Spec, base string) error {
 }
 
 func (r *Runtime) stagedDisk(ctx context.Context, reference string) (string, error) {
+	return r.staged(ctx, reference, catalog.KindDisk)
+}
+
+func (r *Runtime) stagedISO(ctx context.Context, reference string) (string, error) {
+	return r.staged(ctx, reference, catalog.KindISO)
+}
+
+func (r *Runtime) staged(ctx context.Context, reference, kind string) (string, error) {
 	if r.images == nil {
 		return "", errors.New("this node has no image catalog, so isolation vm cannot boot")
 	}
-
-	path, err := r.images.Stage(ctx, reference, catalog.KindDisk)
-	if err != nil {
-		return "", err
-	}
-	return path, nil
+	return r.images.Stage(ctx, reference, kind)
 }
 
 func (r *Runtime) prepareFirmware(instanceID string) (string, string, error) {

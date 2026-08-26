@@ -27,6 +27,9 @@ type Spec struct {
 	Name       string
 	Isolation  string
 	Image      string
+	ISO        string
+	Kernel     string
+	DiskGiB    int
 	Command    []string
 	VCPU       int
 	MemoryMiB  int

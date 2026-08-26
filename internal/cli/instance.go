@@ -73,6 +73,9 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		Name          string   `json:"name"`
 		Isolation     string   `json:"isolation"`
 		Image         string   `json:"image"`
+		ISO           string   `json:"iso,omitempty"`
+		Kernel        string   `json:"kernel,omitempty"`
+		DiskGiB       int      `json:"disk_gib,omitempty"`
 		Command       []string `json:"command,omitempty"`
 		RestartPolicy string   `json:"restart_policy,omitempty"`
 		VCPU          int      `json:"vcpu,omitempty"`
@@ -97,15 +100,23 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&req.Name, "name", "", "instance name, unique within the platform")
-	cmd.Flags().StringVar(&req.Isolation, "isolation", "container", "isolation: container, vm, microvm")
-	cmd.Flags().StringVar(&req.Image, "image", "", "image the instance boots from")
+	cmd.Flags().StringVar(&req.Isolation, "isolation", "container",
+		"isolation: container, vm, microvm or sandbox")
+	cmd.Flags().StringVar(&req.Image, "image", "",
+		"image the instance boots from: an OCI reference for container, microvm and sandbox, "+
+			"or a registered disk image for vm")
+	cmd.Flags().StringVar(&req.ISO, "iso", "",
+		"registered iso image to attach to a vm and boot first, for installing an os yourself")
+	cmd.Flags().StringVar(&req.Kernel, "kernel", "",
+		"registered kernel image a microvm or sandbox boots, instead of the one staged on the node")
+	cmd.Flags().IntVar(&req.DiskGiB, "disk-gib", 0,
+		"size of a vm disk created without a base image, in GiB")
 	cmd.Flags().StringVar(&req.RestartPolicy, "restart", "",
 		"restart policy: always, on-failure, never")
 	cmd.Flags().IntVar(&req.VCPU, "vcpu", 0, "virtual CPUs, defaults to the platform default")
 	cmd.Flags().IntVar(&req.MemoryMiB, "memory-mib", 0, "memory in MiB, defaults to the platform default")
 
 	must(cmd.MarkFlagRequired("name"))
-	must(cmd.MarkFlagRequired("image"))
 
 	return cmd
 }

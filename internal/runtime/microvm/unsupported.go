@@ -19,9 +19,13 @@ type VMM interface {
 	ConsoleDevice() string
 }
 
+type Images interface {
+	Stage(ctx context.Context, reference, kind string) (string, error)
+}
+
 type Runtime struct{}
 
-func New(_ string, _ *slog.Logger, _ VMM) *Runtime {
+func New(_ string, _ *slog.Logger, _ VMM, _ Images) *Runtime {
 	return &Runtime{}
 }
 

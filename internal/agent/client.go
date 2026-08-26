@@ -33,6 +33,9 @@ type instanceView struct {
 	Name            string   `json:"name"`
 	Isolation       string   `json:"isolation"`
 	Image           string   `json:"image"`
+	ISO             string   `json:"iso,omitempty"`
+	Kernel          string   `json:"kernel,omitempty"`
+	DiskGiB         int      `json:"disk_gib,omitempty"`
 	Command         []string `json:"command,omitempty"`
 	VCPU            int      `json:"vcpu"`
 	MemoryMiB       int      `json:"memory_mib"`

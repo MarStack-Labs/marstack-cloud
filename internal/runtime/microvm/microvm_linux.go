@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/catalog"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/console"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/image"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
@@ -33,18 +34,23 @@ type tracked struct {
 	exitCode int
 }
 
+type Images interface {
+	Stage(ctx context.Context, reference, kind string) (string, error)
+}
+
 type Runtime struct {
-	root   string
-	log    *slog.Logger
-	vmm    VMM
-	images *image.Store
+	root    string
+	log     *slog.Logger
+	vmm     VMM
+	images  *image.Store
+	kernels Images
 
 	mu       sync.Mutex
 	running  map[string]*tracked
 	consoles *console.Keeper
 }
 
-func New(root string, log *slog.Logger, vmm VMM) *Runtime {
+func New(root string, log *slog.Logger, vmm VMM, kernels Images) *Runtime {
 	if root == "" {
 		root = DefaultRoot
 	}
@@ -53,6 +59,7 @@ func New(root string, log *slog.Logger, vmm VMM) *Runtime {
 		log:      log,
 		vmm:      vmm,
 		images:   image.New(filepath.Join(root, "cache"), log),
+		kernels:  kernels,
 		running:  map[string]*tracked{},
 		consoles: console.NewKeeper(log),
 	}
@@ -97,10 +104,19 @@ func (r *Runtime) launchLog(instanceID string) string {
 	return filepath.Join(r.instanceDir(instanceID), "vmm.log")
 }
 
-func (r *Runtime) kernel() (string, error) {
+func (r *Runtime) kernel(ctx context.Context, reference string) (string, error) {
+	if reference != "" {
+		if r.kernels == nil {
+			return "", errors.New("this node has no image catalog, so it cannot fetch a kernel")
+		}
+		return r.kernels.Stage(ctx, reference, catalog.KindKernel)
+	}
+
 	path := filepath.Join(r.root, "images", KernelFileName)
 	if _, err := os.Stat(path); err != nil {
-		return "", fmt.Errorf("no kernel staged on this node: expected %s", path)
+		return "", fmt.Errorf(
+			"no kernel staged on this node: expected %s, or name one with "+
+				"marstack instance create --kernel <image>", path)
 	}
 	return path, nil
 }
@@ -139,7 +155,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return nil
 	}
 
-	kernel, err := r.kernel()
+	kernel, err := r.kernel(ctx, spec.Kernel)
 	if err != nil {
 		return err
 	}

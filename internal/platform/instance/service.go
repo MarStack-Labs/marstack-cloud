@@ -47,6 +47,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		Name:          normalized.Name,
 		Isolation:     Isolation(normalized.Isolation),
 		Image:         normalized.Image,
+		ISO:           normalized.ISO,
+		Kernel:        normalized.Kernel,
+		DiskGiB:       normalized.DiskGiB,
 		Command:       normalized.Command,
 		NetworkID:     networkID,
 		RestartPolicy: RestartPolicy(normalized.RestartPolicy),
@@ -186,8 +189,30 @@ func normalize(params CreateParams) (CreateParams, error) {
 	if err := validate.OneOf("isolation", params.Isolation, AllIsolations()...); err != nil {
 		return params, err
 	}
-	if params.Image == "" {
-		return params, fault.Invalid("invalid_image", "image must not be empty")
+	if params.Image == "" && params.ISO == "" {
+		return params, fault.Invalid("invalid_image",
+			"image must not be empty, unless an iso is given to boot from instead")
+	}
+	if params.ISO != "" && params.Isolation != string(IsolationVM) {
+		return params, fault.Invalid("invalid_iso",
+			"only isolation vm can attach an iso, because nothing else emulates optical media")
+	}
+	if params.Kernel != "" &&
+		params.Isolation != string(IsolationMicroVM) && params.Isolation != string(IsolationSandbox) {
+		return params, fault.Invalid("invalid_kernel",
+			"only microvm and sandbox boot a kernel directly")
+	}
+	if params.DiskGiB != 0 && params.Isolation != string(IsolationVM) {
+		return params, fault.Invalid("invalid_disk",
+			"only isolation vm has a disk of its own to size")
+	}
+	if params.Image == "" && params.DiskGiB == 0 {
+		params.DiskGiB = DefaultDiskGiB
+	}
+	if params.DiskGiB < 0 || params.DiskGiB > MaxDiskGiB {
+		return params, fault.Invalid("invalid_disk", fmt.Sprintf(
+			"disk_gib must be between 1 and %d", MaxDiskGiB,
+		))
 	}
 	if params.RestartPolicy == "" {
 		params.RestartPolicy = string(DefaultRestartPolicy)

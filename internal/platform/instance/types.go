@@ -80,6 +80,9 @@ type Instance struct {
 	Name            string
 	Isolation       Isolation
 	Image           string
+	ISO             string
+	Kernel          string
+	DiskGiB         int
 	Command         []string
 	NetworkID       string
 	VCPU            int
@@ -98,6 +101,9 @@ type CreateParams struct {
 	Name          string
 	Isolation     string
 	Image         string
+	ISO           string
+	Kernel        string
+	DiskGiB       int
 	Command       []string
 	NetworkID     string
 	RestartPolicy string
@@ -105,4 +111,9 @@ type CreateParams struct {
 	MemoryMiB     int
 }
 
-const MaxCommandArgs = 64
+const (
+	MaxCommandArgs = 64
+
+	DefaultDiskGiB = 10
+	MaxDiskGiB     = 2048
+)

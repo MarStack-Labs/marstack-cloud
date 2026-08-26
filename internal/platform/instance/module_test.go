@@ -234,3 +234,74 @@ func TestDeleteFreesTheName(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusCreated)
 	}
 }
+
+func TestBootingFromAnISO(t *testing.T) {
+	h := newTestModule(t)
+
+	body := `{"name":"installer","isolation":"vm","iso":"alpine-virt","disk_gib":20}`
+	rec := request(t, h, http.MethodPost, "/v1/instances", body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want an iso to stand in for an image (%s)", rec.Code, rec.Body.String())
+	}
+
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.ISO != "alpine-virt" || created.DiskGiB != 20 {
+		t.Fatalf("iso = %q, disk = %d", created.ISO, created.DiskGiB)
+	}
+	if created.Image != "" {
+		t.Fatalf("image = %q, want it left empty", created.Image)
+	}
+}
+
+func TestABlankDiskGetsADefaultSize(t *testing.T) {
+	h := newTestModule(t)
+
+	rec := request(t, h, http.MethodPost, "/v1/instances",
+		`{"name":"installer","isolation":"vm","iso":"alpine-virt"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.DiskGiB != DefaultDiskGiB {
+		t.Fatalf("disk_gib = %d, want %d: a vm with no base image needs somewhere to install to",
+			created.DiskGiB, DefaultDiskGiB)
+	}
+}
+
+func TestMediaAndKernelBelongToTheRightIsolation(t *testing.T) {
+	h := newTestModule(t)
+
+	cases := map[string]string{
+		"iso on a container":    `{"name":"a","isolation":"container","image":"alpine:3.20","iso":"x"}`,
+		"iso on a microvm":      `{"name":"a","isolation":"microvm","image":"alpine:3.20","iso":"x"}`,
+		"kernel on a vm":        `{"name":"a","isolation":"vm","image":"ubuntu-24.04","kernel":"k"}`,
+		"kernel on a container": `{"name":"a","isolation":"container","image":"alpine:3.20","kernel":"k"}`,
+		"disk on a container":   `{"name":"a","isolation":"container","image":"alpine:3.20","disk_gib":5}`,
+		"nothing to boot":       `{"name":"a","isolation":"vm"}`,
+	}
+
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if rec := request(t, h, http.MethodPost, "/v1/instances", body); rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestAKernelIsAcceptedForAMicrovm(t *testing.T) {
+	h := newTestModule(t)
+
+	rec := request(t, h, http.MethodPost, "/v1/instances",
+		`{"name":"mv","isolation":"microvm","image":"alpine:3.20","kernel":"linux-6.8"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d (%s)", rec.Code, rec.Body.String())
+	}
+}

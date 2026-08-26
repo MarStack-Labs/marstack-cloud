@@ -61,8 +61,8 @@ func newAgentCmd(g *globals) *cobra.Command {
 				Runtimes: map[string]workload.Runtime{
 					"container": container.New(runtimeRoot, log),
 					"vm":        qemu.New(runtimeRoot, log, images),
-					"microvm":   microvm.New(runtimeRoot, log, microvm.CloudHypervisor()),
-					"sandbox":   microvm.New(runtimeRoot, log, microvm.Firecracker()),
+					"microvm":   microvm.New(runtimeRoot, log, microvm.CloudHypervisor(), images),
+					"sandbox":   microvm.New(runtimeRoot, log, microvm.Firecracker(), images),
 				},
 				Datapath: netdev.Datapath{},
 				Resolver: resolver.New(log),

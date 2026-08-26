@@ -11,6 +11,9 @@ type createRequest struct {
 	Name          string   `json:"name"`
 	Isolation     string   `json:"isolation"`
 	Image         string   `json:"image"`
+	ISO           string   `json:"iso,omitempty"`
+	Kernel        string   `json:"kernel,omitempty"`
+	DiskGiB       int      `json:"disk_gib,omitempty"`
 	Command       []string `json:"command,omitempty"`
 	NetworkID     string   `json:"network_id,omitempty"`
 	RestartPolicy string   `json:"restart_policy,omitempty"`
@@ -28,7 +31,10 @@ type response struct {
 	ID              string   `json:"id"`
 	Name            string   `json:"name"`
 	Isolation       string   `json:"isolation"`
-	Image           string   `json:"image"`
+	Image           string   `json:"image,omitempty"`
+	ISO             string   `json:"iso,omitempty"`
+	Kernel          string   `json:"kernel,omitempty"`
+	DiskGiB         int      `json:"disk_gib,omitempty"`
 	Command         []string `json:"command,omitempty"`
 	NetworkID       string   `json:"network_id,omitempty"`
 	RestartPolicy   string   `json:"restart_policy"`
@@ -53,6 +59,9 @@ func toResponse(in Instance) response {
 		Name:            in.Name,
 		Isolation:       string(in.Isolation),
 		Image:           in.Image,
+		ISO:             in.ISO,
+		Kernel:          in.Kernel,
+		DiskGiB:         in.DiskGiB,
 		Command:         in.Command,
 		NetworkID:       in.NetworkID,
 		RestartPolicy:   string(in.RestartPolicy),
@@ -82,6 +91,9 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		Name:          req.Name,
 		Isolation:     req.Isolation,
 		Image:         req.Image,
+		ISO:           req.ISO,
+		Kernel:        req.Kernel,
+		DiskGiB:       req.DiskGiB,
 		Command:       req.Command,
 		NetworkID:     req.NetworkID,
 		RestartPolicy: req.RestartPolicy,
