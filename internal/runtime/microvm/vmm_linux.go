@@ -17,7 +17,7 @@ type bootConfig struct {
 	MAC        string
 	VCPU       int
 	MemoryMiB  int
-	ConsoleLog string
+	SerialSock string
 	APISocket  string
 	ConfigFile string
 }
@@ -26,7 +26,7 @@ type VMM interface {
 	Name() string
 	Binary() string
 	Arguments(cfg bootConfig) ([]string, error)
-	WritesConsoleItself() bool
+	HasSerialSocket() bool
 	ConsoleDevice() string
 }
 
@@ -44,7 +44,7 @@ func (cloudHypervisor) Binary() string {
 	return "cloud-hypervisor"
 }
 
-func (cloudHypervisor) WritesConsoleItself() bool {
+func (cloudHypervisor) HasSerialSocket() bool {
 	return true
 }
 
@@ -60,7 +60,7 @@ func (cloudHypervisor) Arguments(cfg bootConfig) ([]string, error) {
 		"--disk", "path=" + cfg.Rootfs + ",image_type=raw",
 		"--cpus", "boot=" + strconv.Itoa(cfg.VCPU),
 		"--memory", "size=" + strconv.Itoa(cfg.MemoryMiB) + "M",
-		"--serial", "file=" + cfg.ConsoleLog,
+		"--serial", "socket=" + cfg.SerialSock,
 		"--console", "off",
 	}
 	if cfg.Tap != "" {
@@ -83,7 +83,7 @@ func (firecracker) Binary() string {
 	return "firecracker"
 }
 
-func (firecracker) WritesConsoleItself() bool {
+func (firecracker) HasSerialSocket() bool {
 	return false
 }
 

@@ -13,9 +13,11 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/console"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
@@ -28,13 +30,16 @@ const (
 type Runtime struct {
 	root string
 	log  *slog.Logger
+
+	mu       sync.Mutex
+	consoles map[string]*console.Hub
 }
 
 func New(root string, log *slog.Logger) *Runtime {
 	if root == "" {
 		root = DefaultRoot
 	}
-	return &Runtime{root: root, log: log}
+	return &Runtime{root: root, log: log, consoles: map[string]*console.Hub{}}
 }
 
 func (r *Runtime) Name() string {
@@ -50,7 +55,41 @@ func (r *Runtime) pidFile(instanceID string) string {
 }
 
 func (r *Runtime) consoleFile(instanceID string) string {
-	return filepath.Join(r.instanceDir(instanceID), "console.log")
+	return filepath.Join(r.instanceDir(instanceID), console.LogName)
+}
+
+func (r *Runtime) serialSocket(instanceID string) string {
+	return filepath.Join(r.instanceDir(instanceID), console.UpstreamName)
+}
+
+func (r *Runtime) openConsole(instanceID string) {
+	r.mu.Lock()
+	_, known := r.consoles[instanceID]
+	r.mu.Unlock()
+	if known {
+		return
+	}
+
+	hub, err := console.Attach(r.instanceDir(instanceID), r.log)
+	if err != nil {
+		r.log.Warn("cannot attach to the vm console", "instance", instanceID, "error", err)
+		return
+	}
+
+	r.mu.Lock()
+	r.consoles[instanceID] = hub
+	r.mu.Unlock()
+}
+
+func (r *Runtime) closeConsole(instanceID string) {
+	r.mu.Lock()
+	hub, known := r.consoles[instanceID]
+	delete(r.consoles, instanceID)
+	r.mu.Unlock()
+
+	if known {
+		hub.Close()
+	}
 }
 
 func (r *Runtime) launchLog(instanceID string) string {
@@ -91,6 +130,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	}
 
 	if state, err := r.Status(ctx, spec.InstanceID); err == nil && state.Phase == workload.PhaseRunning {
+		r.openConsole(spec.InstanceID)
 		return nil
 	}
 
@@ -138,6 +178,8 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
+	r.openConsole(spec.InstanceID)
+
 	r.log.Info("vm started",
 		"instance", spec.InstanceID,
 		"vcpu", spec.VCPU,
@@ -165,7 +207,7 @@ func (r *Runtime) arguments(spec workload.Spec, firmware, vars, seed, tap string
 		"-drive", "if=pflash,format=raw,unit=1,file=" + vars,
 		"-drive", "if=virtio,format=qcow2,file=" + r.diskFile(spec.InstanceID),
 		"-drive", "if=virtio,format=raw,media=cdrom,readonly=on,file=" + seed,
-		"-serial", "file:" + r.consoleFile(spec.InstanceID),
+		"-serial", "unix:" + r.serialSocket(spec.InstanceID) + ",server=on,wait=off",
 		"-pidfile", r.pidFile(spec.InstanceID),
 		"-daemonize",
 	}
@@ -308,6 +350,8 @@ func (r *Runtime) tailOf(path string) string {
 }
 
 func (r *Runtime) Stop(_ context.Context, instanceID string) error {
+	defer r.closeConsole(instanceID)
+
 	pid, alive := r.livePID(instanceID)
 	if !alive {
 		return nil

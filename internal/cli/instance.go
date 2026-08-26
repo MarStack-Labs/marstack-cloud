@@ -63,6 +63,7 @@ func newInstanceCmd(g *globals) *cobra.Command {
 		newInstanceStartCmd(g),
 		newInstanceStopCmd(g),
 		newInstanceDeleteCmd(g),
+		newInstanceConsoleCmd(),
 	)
 	return cmd
 }

@@ -29,15 +29,15 @@ func TestCmdlineCarriesTheConsoleDeviceAndHostClock(t *testing.T) {
 
 func TestEachVMMDeclaresItsOwnConsole(t *testing.T) {
 	cases := map[string]struct {
-		vmm     VMM
-		device  string
-		selfLog bool
+		vmm    VMM
+		device string
+		socket bool
 	}{
-		"cloud hypervisor exposes a pl011 and writes the log itself": {
-			vmm: CloudHypervisor(), device: "ttyAMA0", selfLog: true,
+		"cloud hypervisor exposes a pl011 and a serial socket": {
+			vmm: CloudHypervisor(), device: "ttyAMA0", socket: true,
 		},
 		"firecracker exposes an ns16550a and logs through stdout": {
-			vmm: Firecracker(), device: "ttyS0", selfLog: false,
+			vmm: Firecracker(), device: "ttyS0", socket: false,
 		},
 	}
 
@@ -46,8 +46,8 @@ func TestEachVMMDeclaresItsOwnConsole(t *testing.T) {
 			if got := want.vmm.ConsoleDevice(); got != want.device {
 				t.Fatalf("console device: got %q, want %q", got, want.device)
 			}
-			if got := want.vmm.WritesConsoleItself(); got != want.selfLog {
-				t.Fatalf("writes console itself: got %v, want %v", got, want.selfLog)
+			if got := want.vmm.HasSerialSocket(); got != want.socket {
+				t.Fatalf("has serial socket: got %v, want %v", got, want.socket)
 			}
 		})
 	}

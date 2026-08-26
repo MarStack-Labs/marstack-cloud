@@ -15,7 +15,7 @@ var errUnsupported = errors.New("the microvm runtime needs Linux with KVM")
 type VMM interface {
 	Binary() string
 	Name() string
-	WritesConsoleItself() bool
+	HasSerialSocket() bool
 	ConsoleDevice() string
 }
 

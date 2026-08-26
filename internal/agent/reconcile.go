@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
@@ -48,6 +49,7 @@ func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
 	if err != nil {
 		return cachedState{}, fmt.Errorf("assigned instances: %w", err)
 	}
+	assigned = a.usableInstances(assigned)
 
 	networks, err := a.client.nodeNetworks(ctx, nodeID)
 	if err != nil {
@@ -98,6 +100,31 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 			a.log.Warn("could not report status", "instance", in.ID, "error", err)
 		}
 	}
+}
+
+func (a *Agent) usableInstances(assigned []instanceView) []instanceView {
+	usable := make([]instanceView, 0, len(assigned))
+	for _, in := range assigned {
+		if !safeInstanceID(in.ID) {
+			a.log.Warn("refusing an instance with an unusable id", "instance", in.ID)
+			continue
+		}
+		usable = append(usable, in)
+	}
+	return usable
+}
+
+func safeInstanceID(id string) bool {
+	if !ids.HasPrefix(id, "i") || len(id) > 40 {
+		return false
+	}
+
+	for _, char := range id[2:] {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func isolationsOf(assigned []instanceView) map[string]string {

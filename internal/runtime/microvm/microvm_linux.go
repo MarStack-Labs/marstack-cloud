@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/console"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/image"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
@@ -38,8 +39,9 @@ type Runtime struct {
 	vmm    VMM
 	images *image.Store
 
-	mu      sync.Mutex
-	running map[string]*tracked
+	mu       sync.Mutex
+	running  map[string]*tracked
+	consoles map[string]*console.Hub
 }
 
 func New(root string, log *slog.Logger, vmm VMM) *Runtime {
@@ -47,11 +49,12 @@ func New(root string, log *slog.Logger, vmm VMM) *Runtime {
 		root = DefaultRoot
 	}
 	return &Runtime{
-		root:    root,
-		log:     log,
-		vmm:     vmm,
-		images:  image.New(filepath.Join(root, "cache"), log),
-		running: map[string]*tracked{},
+		root:     root,
+		log:      log,
+		vmm:      vmm,
+		images:   image.New(filepath.Join(root, "cache"), log),
+		running:  map[string]*tracked{},
+		consoles: map[string]*console.Hub{},
 	}
 }
 
@@ -76,7 +79,45 @@ func (r *Runtime) pidFile(instanceID string) string {
 }
 
 func (r *Runtime) consoleFile(instanceID string) string {
-	return filepath.Join(r.instanceDir(instanceID), "console.log")
+	return filepath.Join(r.instanceDir(instanceID), console.LogName)
+}
+
+func (r *Runtime) serialSocket(instanceID string) string {
+	return filepath.Join(r.instanceDir(instanceID), console.UpstreamName)
+}
+
+func (r *Runtime) openConsole(instanceID string) {
+	if !r.vmm.HasSerialSocket() {
+		return
+	}
+
+	r.mu.Lock()
+	_, known := r.consoles[instanceID]
+	r.mu.Unlock()
+	if known {
+		return
+	}
+
+	hub, err := console.Attach(r.instanceDir(instanceID), r.log)
+	if err != nil {
+		r.log.Warn("cannot attach to the microvm console", "instance", instanceID, "error", err)
+		return
+	}
+
+	r.mu.Lock()
+	r.consoles[instanceID] = hub
+	r.mu.Unlock()
+}
+
+func (r *Runtime) closeConsole(instanceID string) {
+	r.mu.Lock()
+	hub, known := r.consoles[instanceID]
+	delete(r.consoles, instanceID)
+	r.mu.Unlock()
+
+	if known {
+		hub.Close()
+	}
 }
 
 func (r *Runtime) launchLog(instanceID string) string {
@@ -121,6 +162,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	}
 
 	if state, err := r.Status(ctx, spec.InstanceID); err == nil && state.Phase == workload.PhaseRunning {
+		r.openConsole(spec.InstanceID)
 		return nil
 	}
 
@@ -143,6 +185,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 
 	socket := filepath.Join(r.instanceDir(spec.InstanceID), "api.sock")
 	_ = os.Remove(socket)
+	_ = os.Remove(r.serialSocket(spec.InstanceID))
 
 	args, err := r.vmm.Arguments(bootConfig{
 		Kernel:     kernel,
@@ -152,7 +195,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		MAC:        mac,
 		VCPU:       spec.VCPU,
 		MemoryMiB:  spec.MemoryMiB,
-		ConsoleLog: r.consoleFile(spec.InstanceID),
+		SerialSock: r.serialSocket(spec.InstanceID),
 		APISocket:  socket,
 		ConfigFile: filepath.Join(r.instanceDir(spec.InstanceID), "config.json"),
 	})
@@ -171,14 +214,14 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	cmd.Stderr = launch
 	cmd.Stdout = launch
 
-	if !r.vmm.WritesConsoleItself() {
-		console, err := os.OpenFile(r.consoleFile(spec.InstanceID),
-			os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if !r.vmm.HasSerialSocket() {
+		guest, err := os.OpenFile(r.consoleFile(spec.InstanceID),
+			os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
 			return fmt.Errorf("open console log: %w", err)
 		}
-		defer console.Close()
-		cmd.Stdout = console
+		defer guest.Close()
+		cmd.Stdout = guest
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
@@ -197,6 +240,8 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	r.mu.Unlock()
 
 	go r.reap(spec.InstanceID, entry)
+
+	r.openConsole(spec.InstanceID)
 
 	r.log.Info("microvm started",
 		"instance", spec.InstanceID,
@@ -320,6 +365,8 @@ func (r *Runtime) livePID(instanceID string) (int, bool) {
 }
 
 func (r *Runtime) Stop(_ context.Context, instanceID string) error {
+	defer r.closeConsole(instanceID)
+
 	pid, alive := r.livePID(instanceID)
 	if !alive {
 		return nil
