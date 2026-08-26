@@ -150,3 +150,148 @@ func TestSecretsAreNotListed(t *testing.T) {
 		t.Fatalf("a token secret appeared in the listing: %s", body)
 	}
 }
+
+func auditEntries(t *testing.T, a *testApp) []struct {
+	Actor  string `json:"actor"`
+	Role   string `json:"role"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Status int    `json:"status"`
+} {
+	t.Helper()
+
+	var body struct {
+		Entries []struct {
+			Actor  string `json:"actor"`
+			Role   string `json:"role"`
+			Method string `json:"method"`
+			Path   string `json:"path"`
+			Status int    `json:"status"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(do(t, a, http.MethodGet, "/v1/audit", nil).Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return body.Entries
+}
+
+func TestTheAuditTrailNamesWhoChangedWhat(t *testing.T) {
+	a := newTestApp(t)
+
+	do(t, a, http.MethodPost, "/v1/networks", strings.NewReader(`{"name":"audited","cidr":"10.70.0.0/16"}`))
+
+	entries := auditEntries(t, a)
+	if len(entries) == 0 {
+		t.Fatal("nothing was recorded")
+	}
+
+	found := false
+	for _, entry := range entries {
+		if entry.Method == "POST" && entry.Path == "/v1/networks" {
+			found = true
+			if entry.Actor != "bootstrap" || entry.Role != "admin" {
+				t.Fatalf("entry = %+v, want the token that did it", entry)
+			}
+			if entry.Status != http.StatusCreated {
+				t.Fatalf("status = %d", entry.Status)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("the create is missing from %+v", entries)
+	}
+}
+
+func TestReadsAreNotRecorded(t *testing.T) {
+	a := newTestApp(t)
+
+	for range 3 {
+		do(t, a, http.MethodGet, "/v1/instances", nil)
+	}
+
+	for _, entry := range auditEntries(t, a) {
+		if entry.Method == "GET" && entry.Path == "/v1/instances" {
+			t.Fatal("a plain read was recorded: the trail would drown in polling")
+		}
+	}
+}
+
+func TestRefusedRequestsAreRecordedWithoutAnActor(t *testing.T) {
+	a := newTestApp(t)
+
+	doAs(t, a, "", http.MethodPost, "/v1/instances", strings.NewReader(`{}`))
+	doAs(t, a, "mst_notarealtoken", http.MethodDelete, "/v1/networks/nw-1", nil)
+
+	entries := auditEntries(t, a)
+
+	denied := 0
+	for _, entry := range entries {
+		if entry.Status == http.StatusUnauthorized {
+			denied++
+			if entry.Actor != "" {
+				t.Fatalf("entry = %+v, want no actor: the caller never proved who they were", entry)
+			}
+		}
+	}
+	if denied < 2 {
+		t.Fatalf("recorded %d denials in %+v, want both attempts", denied, entries)
+	}
+}
+
+func TestANodeTokenCannotReadTheTrail(t *testing.T) {
+	a := newTestApp(t)
+	secret := nodeToken(t, a)
+
+	if rec := doAs(t, a, secret, http.MethodGet, "/v1/audit", nil); rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d: a node has no business reading who did what",
+			rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestTokenSecretsNeverReachTheTrail(t *testing.T) {
+	a := newTestApp(t)
+	secret := nodeToken(t, a)
+
+	body := do(t, a, http.MethodGet, "/v1/audit", nil).Body.String()
+	if strings.Contains(body, secret) || strings.Contains(body, "mst_") {
+		t.Fatalf("a token secret appeared in the audit trail: %s", body)
+	}
+}
+
+func TestTheReconcileLoopDoesNotFloodTheTrail(t *testing.T) {
+	a := newTestApp(t)
+	secret := nodeToken(t, a)
+
+	for range 5 {
+		doAs(t, a, secret, http.MethodPut, "/v1/nodes/n-1/usage",
+			strings.NewReader(`{"cpu_percent":1,"memory_used_mib":10,"memory_mib":100}`))
+		doAs(t, a, secret, http.MethodPut, "/v1/nodes/n-1/images", strings.NewReader(`{"images":[]}`))
+	}
+
+	for _, entry := range auditEntries(t, a) {
+		if entry.Role == "node" && entry.Status < 400 {
+			t.Fatalf("entry = %+v: routine reconcile traffic buries the decisions an operator "+
+				"needs to see, and the access log already carries it", entry)
+		}
+	}
+}
+
+func TestARefusedNodeTokenIsNamed(t *testing.T) {
+	a := newTestApp(t)
+	secret := nodeToken(t, a)
+
+	doAs(t, a, secret, http.MethodPost, "/v1/instances",
+		strings.NewReader(`{"name":"sneaky","isolation":"container","image":"alpine:3.20"}`))
+
+	for _, entry := range auditEntries(t, a) {
+		if entry.Status != http.StatusForbidden {
+			continue
+		}
+		if entry.Actor != "bm-1" || entry.Role != "node" {
+			t.Fatalf("entry = %+v, want the token that was refused: knowing who tried is the "+
+				"whole point of recording a denial", entry)
+		}
+		return
+	}
+	t.Fatal("the refusal was not recorded")
+}

@@ -92,6 +92,12 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+func Observe(next http.Handler, w http.ResponseWriter, r *http.Request) int {
+	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	next.ServeHTTP(rec, r)
+	return rec.status
+}
+
 func AccessLog(log *slog.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

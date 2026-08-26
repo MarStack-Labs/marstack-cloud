@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/firewall"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
@@ -59,6 +60,7 @@ type App struct {
 	modules   []Module
 	networks  *network.Module
 	tokens    *token.Module
+	trail     *audit.Module
 	scheduler *scheduler.Scheduler
 	router    http.Handler
 	http      *http.Server
@@ -82,6 +84,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	firewalls := firewall.New(st, log)
 	tokens := token.New(st, log)
 	usages := usage.New(st, log)
+	trail := audit.New(st, log)
+	a.trail = trail
 	a.tokens = tokens
 
 	a.modules = []Module{
@@ -95,6 +99,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		forwards,
 		firewalls,
 		usages,
+		trail,
 		tokens,
 	}
 	instances.UseVolumes(volumes)
@@ -166,6 +171,7 @@ func (a *App) buildRouter() http.Handler {
 		httpx.AccessLog(a.log),
 		httpx.SecureHeaders(),
 		httpx.Timeout(a.cfg.RequestTimeout),
+		auditTrail(a.trail),
 		authenticate(a.tokens, a.log),
 	)
 }

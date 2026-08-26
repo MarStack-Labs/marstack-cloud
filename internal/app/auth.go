@@ -15,6 +15,19 @@ type verifier interface {
 	Verify(ctx context.Context, secret string) (token.Identity, error)
 }
 
+type identityKey struct{}
+
+func withIdentityHolder(ctx context.Context) (context.Context, *token.Identity) {
+	holder := &token.Identity{}
+	return context.WithValue(ctx, identityKey{}, holder), holder
+}
+
+func noteIdentity(ctx context.Context, identity token.Identity) {
+	if holder, ok := ctx.Value(identityKey{}).(*token.Identity); ok {
+		*holder = identity
+	}
+}
+
 var openPaths = map[string]bool{
 	"/healthz": true,
 }
@@ -51,6 +64,8 @@ func authenticate(verify verifier, log *slog.Logger) httpx.Middleware {
 				httpx.WriteFault(w, err)
 				return
 			}
+
+			noteIdentity(r.Context(), identity)
 
 			if identity.Role != token.RoleAdmin && !allowed(r) {
 				log.Warn("a node token was refused an operator endpoint",
