@@ -10,6 +10,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
 )
 
@@ -128,6 +129,29 @@ func (s forwardAddresses) Endpoint(ctx context.Context, instanceID string) (forw
 		return forward.Endpoint{}, err
 	}
 	return forward.Endpoint{NodeID: nic.NodeID, Address: nic.IP}, nil
+}
+
+const staleLoad = 30 * time.Second
+
+type nodeLoad struct {
+	usage *usage.Module
+	now   func() time.Time
+}
+
+func (s nodeLoad) NodeLoad(ctx context.Context) (map[string]scheduler.Load, error) {
+	samples, err := s.usage.Nodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	load := make(map[string]scheduler.Load, len(samples))
+	for _, sample := range samples {
+		load[sample.NodeID] = scheduler.Load{
+			MemoryFreeMiB: sample.MemoryMiB - sample.MemoryUsedMiB,
+			Fresh:         s.now().Sub(sample.ReportedAt) < staleLoad,
+		}
+	}
+	return load, nil
 }
 
 type dnsInstances struct {

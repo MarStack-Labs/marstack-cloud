@@ -119,6 +119,15 @@ type Resolver interface {
 	Update(records map[string]string)
 }
 
+type Sample struct {
+	CPUSeconds float64
+	MemoryMiB  int
+}
+
+type Sampler interface {
+	Sample(instanceID string) (Sample, bool)
+}
+
 type VolumeKeeper interface {
 	PruneVolumes(keep []string) error
 	SyncSnapshots(plans []SnapshotPlan) []SnapshotState

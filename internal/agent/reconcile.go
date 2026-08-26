@@ -104,6 +104,11 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	a.tidyVolumes(state.Volumes)
 	a.applySnapshots(ctx, state.Volumes, state.Instances, report)
 	a.tidyImages(ctx, state.Instances, report)
+
+	if report {
+		a.forgetMarks(state.Instances)
+		a.reportUsage(ctx, state.Instances)
+	}
 	a.serveDNS(ctx, state.Networks, state.Records)
 
 	interfaces := a.interfacesByInstance(state.Networks)

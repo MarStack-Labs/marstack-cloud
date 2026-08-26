@@ -307,3 +307,66 @@ func TestOneFailedReleaseDoesNotStopTheRest(t *testing.T) {
 		t.Fatalf("tick returned %v, want the pass to continue", err)
 	}
 }
+
+func TestPlacementPrefersTheNodeWithMoreFreeMemory(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{
+		{ID: "n-busy", Name: "aaa"},
+		{ID: "n-free", Name: "zzz"},
+	}}
+	instances := &fakeInstances{pending: []Pending{{ID: "i-1", Name: "web-1"}}}
+
+	s := New(nodes, instances, &fakeAddresses{}, logging.New("error", io.Discard), time.Hour)
+	s.UseLoad(fakeLoad{load: map[string]Load{
+		"n-busy": {MemoryFreeMiB: 500, Fresh: true},
+		"n-free": {MemoryFreeMiB: 4000, Fresh: true},
+	}})
+
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if instances.assignedTo("i-1") != "n-free" {
+		t.Fatalf("placed on %q, want the node with more free memory even though it sorts last "+
+			"by name and holds the same instance count", instances.assignedTo("i-1"))
+	}
+}
+
+func TestPlacementIgnoresStaleLoad(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{
+		{ID: "n-a", Name: "aaa"},
+		{ID: "n-b", Name: "bbb"},
+	}}
+	instances := &fakeInstances{pending: []Pending{{ID: "i-1", Name: "web-1"}}}
+
+	s := New(nodes, instances, &fakeAddresses{}, logging.New("error", io.Discard), time.Hour)
+	s.UseLoad(fakeLoad{load: map[string]Load{
+		"n-a": {MemoryFreeMiB: 10, Fresh: false},
+		"n-b": {MemoryFreeMiB: 9000, Fresh: false},
+	}})
+
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if instances.assignedTo("i-1") != "n-a" {
+		t.Fatalf("placed on %q, want the count based order when the numbers are old: a node that "+
+			"stopped reporting must not look empty", instances.assignedTo("i-1"))
+	}
+}
+
+func (f *fakeInstances) assignedTo(instanceID string) string {
+	for _, placed := range f.assignments {
+		if placed.instanceID == instanceID {
+			return placed.nodeID
+		}
+	}
+	return ""
+}
+
+type fakeLoad struct {
+	load map[string]Load
+}
+
+func (f fakeLoad) NodeLoad(context.Context) (map[string]Load, error) {
+	return f.load, nil
+}

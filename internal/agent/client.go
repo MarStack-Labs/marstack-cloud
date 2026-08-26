@@ -208,6 +208,19 @@ type firewallView struct {
 	Rules []firewallRuleView `json:"rules"`
 }
 
+type instanceUsageBody struct {
+	InstanceID    string  `json:"instance_id"`
+	CPUPercent    float64 `json:"cpu_percent"`
+	MemoryUsedMiB int     `json:"memory_used_mib"`
+}
+
+type usageBody struct {
+	CPUPercent    float64             `json:"cpu_percent"`
+	MemoryUsedMiB int                 `json:"memory_used_mib"`
+	MemoryMiB     int                 `json:"memory_mib"`
+	Instances     []instanceUsageBody `json:"instances,omitempty"`
+}
+
 type firewallsBody struct {
 	Firewalls []firewallView `json:"firewalls"`
 }
@@ -245,6 +258,10 @@ func (c *client) forwards(ctx context.Context, nodeID string) ([]forwardView, er
 	var out forwardsBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/forwards", nil, &out)
 	return out.Forwards, err
+}
+
+func (c *client) reportUsage(ctx context.Context, nodeID string, body usageBody) error {
+	return c.do(ctx, http.MethodPut, "/v1/nodes/"+nodeID+"/usage", body, nil)
 }
 
 func (c *client) firewalls(ctx context.Context) ([]firewallView, error) {

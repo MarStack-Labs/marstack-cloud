@@ -51,10 +51,20 @@ type AddressSource interface {
 	Allocate(ctx context.Context, instanceID, networkID, nodeID string) error
 }
 
+type Load struct {
+	MemoryFreeMiB int
+	Fresh         bool
+}
+
+type LoadSource interface {
+	NodeLoad(ctx context.Context) (map[string]Load, error)
+}
+
 type Scheduler struct {
 	nodes     NodeSource
 	instances InstanceSource
 	addresses AddressSource
+	loads     LoadSource
 	log       *slog.Logger
 	interval  time.Duration
 	grace     time.Duration
@@ -78,6 +88,10 @@ func New(
 		interval:  interval,
 		grace:     DefaultStrandedGrace,
 	}
+}
+
+func (s *Scheduler) UseLoad(loads LoadSource) {
+	s.loads = loads
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
@@ -121,13 +135,23 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		return nil
 	}
 
+	load := map[string]Load{}
+	if s.loads != nil {
+		measured, err := s.loads.NodeLoad(ctx)
+		if err != nil {
+			s.log.Warn("could not read node load, placing by instance count", "error", err)
+		} else {
+			load = measured
+		}
+	}
+
 	counts, err := s.instances.AssignedCounts(ctx)
 	if err != nil {
 		return err
 	}
 
 	for _, p := range pending {
-		target := leastLoaded(candidates, counts)
+		target := leastLoaded(candidates, counts, load)
 		if err := s.instances.Assign(ctx, p.ID, target.ID); err != nil {
 			s.log.Warn("assignment failed", "instance", p.ID, "node", target.ID, "error", err)
 			continue
@@ -180,11 +204,16 @@ func (s *Scheduler) releaseStranded(ctx context.Context) error {
 	return nil
 }
 
-func leastLoaded(candidates []Candidate, counts map[string]int) Candidate {
+func leastLoaded(candidates []Candidate, counts map[string]int, load map[string]Load) Candidate {
 	ordered := make([]Candidate, len(candidates))
 	copy(ordered, candidates)
 
 	sort.SliceStable(ordered, func(i, j int) bool {
+		left, right := load[ordered[i].ID], load[ordered[j].ID]
+		if left.Fresh && right.Fresh && left.MemoryFreeMiB != right.MemoryFreeMiB {
+			return left.MemoryFreeMiB > right.MemoryFreeMiB
+		}
+
 		ci, cj := counts[ordered[i].ID], counts[ordered[j].ID]
 		if ci != cj {
 			return ci < cj

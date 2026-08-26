@@ -18,6 +18,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
@@ -80,6 +81,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	forwards := forward.New(st, forwardAddresses{networks: networks}, log)
 	firewalls := firewall.New(st, log)
 	tokens := token.New(st, log)
+	usages := usage.New(st, log)
 	a.tokens = tokens
 
 	a.modules = []Module{
@@ -92,6 +94,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		volumes,
 		forwards,
 		firewalls,
+		usages,
 		tokens,
 	}
 	instances.UseVolumes(volumes)
@@ -104,6 +107,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		log,
 		cfg.SchedulerInterval,
 	)
+
+	a.scheduler.UseLoad(nodeLoad{usage: usages, now: time.Now})
 
 	if err := a.migrate(ctx); err != nil {
 		st.Close()

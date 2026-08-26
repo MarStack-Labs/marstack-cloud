@@ -65,6 +65,9 @@ type Agent struct {
 
 	restartsMu sync.Mutex
 	restarts   map[string]*restartState
+
+	marksMu sync.Mutex
+	marks   map[string]sampleMark
 }
 
 func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
@@ -80,6 +83,7 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 		catalog:  deps.Catalog,
 		now:      time.Now,
 		restarts: map[string]*restartState{},
+		marks:    map[string]sampleMark{},
 	}
 }
 
