@@ -60,7 +60,7 @@ func newNodeListCmd(g *globals) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var list nodeListView
-			if err := newClient(g.endpoint).do(cmd.Context(), "GET", "/v1/nodes", nil, &list); err != nil {
+			if err := g.client().do(cmd.Context(), "GET", "/v1/nodes", nil, &list); err != nil {
 				return err
 			}
 
@@ -80,7 +80,7 @@ func newNodeGetCmd(g *globals) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var n nodeView
-			if err := newClient(g.endpoint).do(cmd.Context(), "GET", "/v1/nodes/"+args[0], nil, &n); err != nil {
+			if err := g.client().do(cmd.Context(), "GET", "/v1/nodes/"+args[0], nil, &n); err != nil {
 				return err
 			}
 			return render(cmd.OutOrStdout(), g.output, n, table{

@@ -23,6 +23,7 @@ const (
 
 type Config struct {
 	Endpoint          string
+	Token             string
 	Name              string
 	Zone              string
 	Address           string
@@ -70,7 +71,7 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 	cfg = cfg.withDefaults()
 	return &Agent{
 		cfg:      cfg,
-		client:   newClient(cfg.Endpoint),
+		client:   newClient(cfg.Endpoint, cfg.Token),
 		log:      log,
 		host:     inspectHost(),
 		runtimes: deps.Runtimes,

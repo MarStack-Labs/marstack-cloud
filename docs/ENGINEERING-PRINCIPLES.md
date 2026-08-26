@@ -98,6 +98,12 @@ make check      # vet + test + security scans
   init hook keyed on `MARSTACK_INIT_CONFIG`. Do not move that entrypoint back into the CLI: any
   binary linking the package, including test binaries, has to be able to act as container init, or
   the child re-runs whatever the parent was doing.
+- Authentication is a middleware in `app`, not in `kernel/httpx` and not in the modules. The
+  mechanism (parse a bearer token, hash it, compare) belongs to `platform/token`; the policy of
+  which role may call which path belongs to the composition root, where every route is already
+  visible. A module that checked roles itself would have to know about roles.
+- `app.nodePaths` is the whole authorisation policy for node tokens. Adding an agent-facing route
+  without adding it there makes agents fail with 403 at runtime, not at compile time.
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead

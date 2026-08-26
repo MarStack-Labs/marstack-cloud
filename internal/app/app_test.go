@@ -6,28 +6,59 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 )
 
-func newTestApp(t *testing.T) *App {
+type testApp struct {
+	*App
+	secret string
+}
+
+func newTestApp(t *testing.T) *testApp {
 	t.Helper()
 
+	dir := t.TempDir()
 	log := logging.New("error", io.Discard)
-	a, err := New(context.Background(), Config{DataDir: t.TempDir()}, log)
+	a, err := New(context.Background(), Config{DataDir: dir}, log)
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
 	t.Cleanup(func() { a.Close() })
-	return a
+
+	raw, err := os.ReadFile(filepath.Join(dir, token.BootstrapFileName))
+	if err != nil {
+		t.Fatalf("read the bootstrap token: %v", err)
+	}
+	return &testApp{App: a, secret: strings.TrimSpace(string(raw))}
 }
 
-func do(t *testing.T, a *App, method, path string, body io.Reader) *httptest.ResponseRecorder {
+func do(t *testing.T, a *testApp, method, path string, body io.Reader) *httptest.ResponseRecorder {
 	t.Helper()
+
+	req := httptest.NewRequest(method, path, body)
+	req.Header.Set("Authorization", "Bearer "+a.secret)
+
 	rec := httptest.NewRecorder()
-	a.Handler().ServeHTTP(rec, httptest.NewRequest(method, path, body))
+	a.Handler().ServeHTTP(rec, req)
+	return rec
+}
+
+func doAs(t *testing.T, a *testApp, secret, method, path string, body io.Reader) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(method, path, body)
+	if secret != "" {
+		req.Header.Set("Authorization", "Bearer "+secret)
+	}
+
+	rec := httptest.NewRecorder()
+	a.Handler().ServeHTTP(rec, req)
 	return rec
 }
 

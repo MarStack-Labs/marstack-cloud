@@ -14,18 +14,22 @@ import (
 const (
 	defaultEndpoint = "http://127.0.0.1:7443"
 	endpointEnvVar  = "MARSTACK_ENDPOINT"
+	tokenEnvVar     = "MARSTACK_TOKEN"
+	tokenFileEnvVar = "MARSTACK_TOKEN_FILE"
 	requestTimeout  = 30 * time.Second
 	maxErrorBody    = 1 << 16
 )
 
 type client struct {
 	endpoint string
+	secret   string
 	http     *http.Client
 }
 
-func newClient(endpoint string) *client {
+func newClient(endpoint, secret string) *client {
 	return &client{
 		endpoint: strings.TrimRight(endpoint, "/"),
+		secret:   secret,
 		http:     &http.Client{Timeout: requestTimeout},
 	}
 }
@@ -61,6 +65,9 @@ func (c *client) do(ctx context.Context, method, path string, in, out any) error
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Accept", "application/json")
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
 
 	res, err := c.http.Do(req)
 	if err != nil {

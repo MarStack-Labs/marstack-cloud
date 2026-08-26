@@ -95,12 +95,14 @@ type registerBody struct {
 
 type client struct {
 	endpoint string
+	secret   string
 	http     *http.Client
 }
 
-func newClient(endpoint string) *client {
+func newClient(endpoint, secret string) *client {
 	return &client{
 		endpoint: strings.TrimRight(endpoint, "/"),
+		secret:   secret,
 		http:     &http.Client{Timeout: callTimeout},
 	}
 }
@@ -236,6 +238,9 @@ func (c *client) do(ctx context.Context, method, path string, in, out any) error
 	}
 	if in != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
 	}
 
 	res, err := c.http.Do(req)

@@ -6,43 +6,52 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 )
 
-func newSchedulingApp(t *testing.T) *App {
+func newSchedulingApp(t *testing.T) *testApp {
 	t.Helper()
 
+	dir := t.TempDir()
 	a, err := New(context.Background(), Config{
-		DataDir:           t.TempDir(),
+		DataDir:           dir,
 		SchedulerInterval: 10 * time.Millisecond,
 	}, logging.New("error", io.Discard))
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}
 	t.Cleanup(func() { a.Close() })
-	return a
+
+	raw, err := os.ReadFile(filepath.Join(dir, token.BootstrapFileName))
+	if err != nil {
+		t.Fatalf("read the bootstrap token: %v", err)
+	}
+	return &testApp{App: a, secret: strings.TrimSpace(string(raw))}
 }
 
-func post(t *testing.T, a *App, path, body string) *httptest.ResponseRecorder {
+func post(t *testing.T, a *testApp, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+a.secret)
 
 	rec := httptest.NewRecorder()
 	a.Handler().ServeHTTP(rec, req)
 	return rec
 }
 
-func instanceNodeID(t *testing.T, a *App, id string) string {
+func instanceNodeID(t *testing.T, a *testApp, id string) string {
 	t.Helper()
 
-	rec := httptest.NewRecorder()
-	a.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/instances/"+id, nil))
+	rec := do(t, a, http.MethodGet, "/v1/instances/"+id, nil)
 
 	var body struct {
 		NodeID string `json:"node_id"`
@@ -53,7 +62,7 @@ func instanceNodeID(t *testing.T, a *App, id string) string {
 	return body.NodeID
 }
 
-func waitForPlacement(t *testing.T, a *App, instanceID string) string {
+func waitForPlacement(t *testing.T, a *testApp, instanceID string) string {
 	t.Helper()
 
 	deadline := time.Now().Add(3 * time.Second)

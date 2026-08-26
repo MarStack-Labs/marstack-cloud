@@ -15,6 +15,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
@@ -54,6 +55,7 @@ type App struct {
 	store     *store.Store
 	modules   []Module
 	networks  *network.Module
+	tokens    *token.Module
 	scheduler *scheduler.Scheduler
 	router    http.Handler
 	http      *http.Server
@@ -73,6 +75,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 
 	a := &App{cfg: cfg, log: log, store: st, networks: networks}
 	volumes := volume.New(st, volumeInstances{instances: instances}, log)
+	tokens := token.New(st, log)
+	a.tokens = tokens
 
 	a.modules = []Module{
 		system.New(st, log),
@@ -82,6 +86,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		dns.New(log, dnsInstances{instances: instances}, networks),
 		image.New(st, log),
 		volumes,
+		tokens,
 	}
 	instances.UseVolumes(volumes)
 	a.scheduler = scheduler.New(
@@ -98,6 +103,11 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	}
 
 	if _, err := a.networks.EnsureDefault(ctx); err != nil {
+		st.Close()
+		return nil, err
+	}
+
+	if err := a.tokens.EnsureBootstrap(ctx, cfg.DataDir); err != nil {
 		st.Close()
 		return nil, err
 	}
@@ -143,6 +153,7 @@ func (a *App) buildRouter() http.Handler {
 		httpx.AccessLog(a.log),
 		httpx.SecureHeaders(),
 		httpx.Timeout(a.cfg.RequestTimeout),
+		authenticate(a.tokens, a.log),
 	)
 }
 

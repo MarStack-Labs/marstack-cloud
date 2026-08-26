@@ -43,7 +43,7 @@ func newNetworkCreateCmd(g *globals) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var created networkView
-			if err := newClient(g.endpoint).do(cmd.Context(), "POST", "/v1/networks", req, &created); err != nil {
+			if err := g.client().do(cmd.Context(), "POST", "/v1/networks", req, &created); err != nil {
 				return err
 			}
 			return render(cmd.OutOrStdout(), g.output, created, table{
@@ -67,7 +67,7 @@ func newNetworkListCmd(g *globals) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var list networkListView
-			if err := newClient(g.endpoint).do(cmd.Context(), "GET", "/v1/networks", nil, &list); err != nil {
+			if err := g.client().do(cmd.Context(), "GET", "/v1/networks", nil, &list); err != nil {
 				return err
 			}
 
@@ -86,7 +86,7 @@ func newNetworkDeleteCmd(g *globals) *cobra.Command {
 		Short: "Delete a network that has no addresses handed out",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "DELETE", "/v1/networks/"+args[0], nil, nil,
 			); err != nil {
 				return err

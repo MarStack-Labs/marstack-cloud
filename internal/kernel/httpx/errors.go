@@ -47,11 +47,17 @@ func Wrap(log *slog.Logger, h Handler) http.HandlerFunc {
 			)
 		}
 
-		Write(w, status, map[string]any{
-			"error": map[string]string{
-				"code":    f.Code,
-				"message": f.Message,
-			},
-		})
+		WriteFault(w, err)
 	}
+}
+
+func WriteFault(w http.ResponseWriter, err error) {
+	f := fault.From(err)
+
+	Write(w, statusFor(f.Kind), map[string]any{
+		"error": map[string]string{
+			"code":    f.Code,
+			"message": f.Message,
+		},
+	})
 }

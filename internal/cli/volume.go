@@ -63,7 +63,7 @@ func newVolumeCreateCmd(g *globals) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var created volumeView
-			if err := newClient(g.endpoint).do(cmd.Context(), "POST", "/v1/volumes", req, &created); err != nil {
+			if err := g.client().do(cmd.Context(), "POST", "/v1/volumes", req, &created); err != nil {
 				return err
 			}
 			return renderVolume(cmd, g, created)
@@ -85,7 +85,7 @@ func newVolumeListCmd(g *globals) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var list volumeListView
-			if err := newClient(g.endpoint).do(cmd.Context(), "GET", "/v1/volumes", nil, &list); err != nil {
+			if err := g.client().do(cmd.Context(), "GET", "/v1/volumes", nil, &list); err != nil {
 				return err
 			}
 
@@ -109,7 +109,7 @@ func newVolumeAttachCmd(g *globals) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var attached volumeView
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "POST", "/v1/volumes/"+args[0]+"/attach", body, &attached,
 			); err != nil {
 				return err
@@ -132,7 +132,7 @@ func newVolumeDetachCmd(g *globals) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var detached volumeView
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "POST", "/v1/volumes/"+args[0]+"/detach", nil, &detached,
 			); err != nil {
 				return err
@@ -148,7 +148,7 @@ func newVolumeDeleteCmd(g *globals) *cobra.Command {
 		Short: "Delete a volume and the data on it",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "DELETE", "/v1/volumes/"+args[0], nil, nil,
 			); err != nil {
 				return err

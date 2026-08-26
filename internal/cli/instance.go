@@ -90,7 +90,7 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 			req.Command = args
 
 			var created instanceView
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "POST", "/v1/instances", req, &created,
 			); err != nil {
 				return err
@@ -128,7 +128,7 @@ func newInstanceListCmd(g *globals) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var list instanceListView
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "GET", "/v1/instances", nil, &list,
 			); err != nil {
 				return err
@@ -150,7 +150,7 @@ func newInstanceGetCmd(g *globals) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var in instanceView
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "GET", "/v1/instances/"+args[0], nil, &in,
 			); err != nil {
 				return err
@@ -175,7 +175,7 @@ func newInstanceTransitionCmd(g *globals, verb, short string) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var in instanceView
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "POST", "/v1/instances/"+args[0]+"/"+verb, nil, &in,
 			); err != nil {
 				return err
@@ -191,7 +191,7 @@ func newInstanceDeleteCmd(g *globals) *cobra.Command {
 		Short: "Delete an instance",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "DELETE", "/v1/instances/"+args[0], nil, nil,
 			); err != nil {
 				return err

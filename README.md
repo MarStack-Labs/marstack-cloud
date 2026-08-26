@@ -93,6 +93,43 @@ The iso is attached with `bootindex=0`, so it boots before the disk. Give the vm
 an `--image` instead and it overlays that disk rather than starting empty; give
 it both and the iso boots first, which is how a rescue disk works.
 
+## Tokens
+
+Every endpoint except `/healthz` needs a bearer token. The first time the
+control plane starts with an empty database it mints an admin token and writes
+it to `<data-dir>/bootstrap-token`, mode 0600, and says so in the log.
+
+```sh
+export MARSTACK_TOKEN=$(cat ./data/bootstrap-token)
+marstack token list
+```
+
+```
+NAME        ID                  ROLE    LAST USED
+bm-1        tok-38158xayggpk6   node    2026-08-26T16:19:47
+bootstrap   tok-sb510112ps6gw   admin   2026-08-26T16:19:48
+```
+
+A node gets its own token, and it cannot do an operator's work with it:
+
+```sh
+marstack token create --name bm-1 --role node > /etc/marstack/token
+sudo MARSTACK_TOKEN=$(cat /etc/marstack/token) marstack agent --name bm-1
+```
+
+| Role | May call |
+|---|---|
+| `admin` | everything |
+| `node` | register, heartbeat, its own desired state, the dns zone, the image catalog |
+
+A node token asking for `/v1/instances` gets 403, and creating an instance with
+one gets 403 too, so a compromised node cannot schedule work or read the whole
+platform. Secrets are stored as a sha256 hash and never appear in a listing.
+The only admin token cannot be revoked, because that locks everyone out.
+
+The CLI reads `--token`, then `MARSTACK_TOKEN`, then `--token-file`, then
+`MARSTACK_TOKEN_FILE`. Nothing is read implicitly from a default path.
+
 ## Running it
 
 ```sh
@@ -390,9 +427,10 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
  7  isolation: microvm and sandbox                    done
  8  serial console                                    done
  9  image catalog: disk, iso, kernel                  done
-10  volumes + snapshot
-11  api authentication
-12  fencing a partitioned node
+10  volumes                                           done
+11  api authentication                                done
+12  snapshots
+13  fencing a partitioned node
 ```
 
 ## License

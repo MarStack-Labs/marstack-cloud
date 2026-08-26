@@ -78,7 +78,7 @@ func newImageCreateCmd(g *globals) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var created imageView
-			if err := newClient(g.endpoint).do(cmd.Context(), "POST", "/v1/images", req, &created); err != nil {
+			if err := g.client().do(cmd.Context(), "POST", "/v1/images", req, &created); err != nil {
 				return err
 			}
 			return render(cmd.OutOrStdout(), g.output, created, table{
@@ -107,7 +107,7 @@ func newImageListCmd(g *globals) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var list imageListView
-			if err := newClient(g.endpoint).do(cmd.Context(), "GET", "/v1/images", nil, &list); err != nil {
+			if err := g.client().do(cmd.Context(), "GET", "/v1/images", nil, &list); err != nil {
 				return err
 			}
 
@@ -127,7 +127,7 @@ func newImageGetCmd(g *globals) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var in imageView
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "GET", "/v1/images/"+args[0], nil, &in,
 			); err != nil {
 				return err
@@ -146,7 +146,7 @@ func newImageDeleteCmd(g *globals) *cobra.Command {
 		Short: "Remove an image from the catalog",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := newClient(g.endpoint).do(
+			if err := g.client().do(
 				cmd.Context(), "DELETE", "/v1/images/"+args[0], nil, nil,
 			); err != nil {
 				return err

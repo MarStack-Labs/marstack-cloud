@@ -52,6 +52,7 @@ func newAgentCmd(g *globals) *cobra.Command {
 
 			return agent.New(agent.Config{
 				Endpoint: g.endpoint,
+				Token:    g.secret(),
 				Name:     name,
 				Zone:     zone,
 				Address:  address,
