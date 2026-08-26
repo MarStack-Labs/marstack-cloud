@@ -73,6 +73,14 @@ func (s *service) create(ctx context.Context, params CreateParams) (Network, err
 	return n, nil
 }
 
+func (s *service) nicOf(ctx context.Context, instanceID string) (NIC, error) {
+	nic, err := s.repo.nic(ctx, instanceID)
+	if err != nil {
+		return NIC{}, translate(err)
+	}
+	return nic, nil
+}
+
 func (s *service) remove(ctx context.Context, id string) error {
 	if _, err := s.repo.network(ctx, id); err != nil {
 		return translate(err)

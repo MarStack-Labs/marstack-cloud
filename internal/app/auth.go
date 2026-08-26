@@ -27,6 +27,7 @@ var nodePaths = []string{
 	"PUT /v1/nodes/{id}/instances/{instanceID}/status",
 	"GET /v1/nodes/{id}/network",
 	"GET /v1/nodes/{id}/volumes",
+	"GET /v1/nodes/{id}/forwards",
 	"PUT /v1/nodes/{id}/volumes",
 	"PUT /v1/nodes/{id}/images",
 	"GET /v1/dns/records",

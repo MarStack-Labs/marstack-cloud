@@ -185,6 +185,19 @@ type volumesBody struct {
 	Volumes []volumeView `json:"volumes"`
 }
 
+type forwardView struct {
+	ID         string `json:"id"`
+	InstanceID string `json:"instance_id"`
+	Protocol   string `json:"protocol"`
+	NodePort   int    `json:"node_port"`
+	TargetPort int    `json:"target_port"`
+	Address    string `json:"address"`
+}
+
+type forwardsBody struct {
+	Forwards []forwardView `json:"forwards"`
+}
+
 type imagesBody struct {
 	Images []imageView `json:"images"`
 }
@@ -208,6 +221,12 @@ func (c *client) volumes(ctx context.Context, nodeID string) ([]volumeView, erro
 func (c *client) reportVolumes(ctx context.Context, nodeID string, reports []reportedVolumeBody) error {
 	return c.do(ctx, http.MethodPut, "/v1/nodes/"+nodeID+"/volumes",
 		reportVolumesBody{Volumes: reports}, nil)
+}
+
+func (c *client) forwards(ctx context.Context, nodeID string) ([]forwardView, error) {
+	var out forwardsBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/forwards", nil, &out)
+	return out.Forwards, err
 }
 
 func (c *client) images(ctx context.Context) ([]imageView, error) {

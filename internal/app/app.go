@@ -9,6 +9,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/image"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
@@ -75,6 +76,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 
 	a := &App{cfg: cfg, log: log, store: st, networks: networks}
 	volumes := volume.New(st, volumeInstances{instances: instances}, log)
+	forwards := forward.New(st, forwardAddresses{networks: networks}, log)
 	tokens := token.New(st, log)
 	a.tokens = tokens
 
@@ -86,9 +88,11 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		dns.New(log, dnsInstances{instances: instances}, networks),
 		image.New(st, log),
 		volumes,
+		forwards,
 		tokens,
 	}
 	instances.UseVolumes(volumes)
+	instances.UseForwards(forwards)
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},
 		instanceSource{instances: instances},

@@ -1,0 +1,121 @@
+package forward
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/marstack-labs/marstack-cloud/internal/store"
+)
+
+var (
+	errNotFound = errors.New("forward not found")
+	errPortUsed = errors.New("node port already published")
+)
+
+const columns = `id, instance_id, protocol, node_port, target_port, node_id, address, created_at`
+
+type repository struct {
+	db *sql.DB
+}
+
+func newRepository(st *store.Store) *repository {
+	return &repository{db: st.DB()}
+}
+
+func (r *repository) insert(ctx context.Context, f Forward) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO forwards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		f.ID, f.InstanceID, f.Protocol, f.NodePort, f.TargetPort, f.NodeID, f.Address,
+		f.CreatedAt.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		if isUniqueViolation(err) {
+			return errPortUsed
+		}
+		return fmt.Errorf("insert forward: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) list(ctx context.Context) ([]Forward, error) {
+	return r.query(ctx, `SELECT `+columns+` FROM forwards ORDER BY node_port`)
+}
+
+func (r *repository) onNode(ctx context.Context, nodeID string) ([]Forward, error) {
+	return r.query(ctx,
+		`SELECT `+columns+` FROM forwards WHERE node_id = ? ORDER BY node_port`, nodeID)
+}
+
+func (r *repository) query(ctx context.Context, sql string, args ...any) ([]Forward, error) {
+	rows, err := r.db.QueryContext(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list forwards: %w", err)
+	}
+	defer rows.Close()
+
+	forwards := make([]Forward, 0, 8)
+	for rows.Next() {
+		f, scanErr := scan(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		forwards = append(forwards, f)
+	}
+	return forwards, rows.Err()
+}
+
+func (r *repository) delete(ctx context.Context, id string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM forwards WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete forward: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete forward: %w", err)
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func (r *repository) deleteInstance(ctx context.Context, instanceID string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM forwards WHERE instance_id = ?`, instanceID)
+	if err != nil {
+		return fmt.Errorf("delete the forwards of an instance: %w", err)
+	}
+	return nil
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scan(row scanner) (Forward, error) {
+	var f Forward
+	var created string
+
+	if err := row.Scan(&f.ID, &f.InstanceID, &f.Protocol, &f.NodePort, &f.TargetPort,
+		&f.NodeID, &f.Address, &created); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Forward{}, err
+		}
+		return Forward{}, fmt.Errorf("scan forward: %w", err)
+	}
+
+	at, err := time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return Forward{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	f.CreatedAt = at
+	return f, nil
+}
+
+func isUniqueViolation(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "unique")
+}

@@ -85,8 +85,16 @@ type Filter struct {
 	MAC        string
 }
 
+type Publish struct {
+	Protocol   string
+	NodePort   int
+	TargetPort int
+	Address    string
+}
+
 type Datapath interface {
 	ApplyRoutes(ctx context.Context, routes []Route) error
+	ApplyForwards(ctx context.Context, forwards []Publish) error
 	ApplyFilters(ctx context.Context, filters []Filter) error
 	Prune(ctx context.Context, keep Keep) error
 }

@@ -113,8 +113,22 @@ type fakeDatapath struct {
 	mu       sync.Mutex
 	routes   []workload.Route
 	filters  []workload.Filter
+	forwards []workload.Publish
 	pruned   []workload.Keep
 	pruneErr error
+}
+
+func (f *fakeDatapath) ApplyForwards(_ context.Context, forwards []workload.Publish) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.forwards = forwards
+	return nil
+}
+
+func (f *fakeDatapath) snapshotForwards() []workload.Publish {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]workload.Publish(nil), f.forwards...)
 }
 
 func (f *fakeDatapath) ApplyFilters(_ context.Context, filters []workload.Filter) error {
@@ -180,6 +194,7 @@ type controlPlane struct {
 	nodes     []nodeView
 	records   []dnsRecordView
 	volumes   []volumeView
+	forwards  []forwardView
 	reports   []report
 }
 
@@ -201,6 +216,11 @@ func (c *controlPlane) handler() http.Handler {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(instanceListBody{Instances: c.instances})
+	})
+	mux.HandleFunc("GET /v1/nodes/{id}/forwards", func(w http.ResponseWriter, _ *http.Request) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		json.NewEncoder(w).Encode(forwardsBody{Forwards: c.forwards})
 	})
 	mux.HandleFunc("GET /v1/nodes/{id}/volumes", func(w http.ResponseWriter, _ *http.Request) {
 		c.mu.Lock()
@@ -896,4 +916,40 @@ func (r *snapshotRuntime) SyncSnapshots(plans []workload.SnapshotPlan) []workloa
 		states = append(states, workload.SnapshotState{VolumeID: plan.VolumeID, Present: files})
 	}
 	return states
+}
+
+func TestPublishedPortsReachTheDatapath(t *testing.T) {
+	in := runningInstance()
+
+	cp := &controlPlane{
+		instances: []instanceView{in},
+		networks:  []networkView{defaultNetworkView(in.ID, "10.20.0.65")},
+		forwards: []forwardView{
+			{ID: "fwd-1", InstanceID: in.ID, Protocol: "tcp", NodePort: 8080,
+				TargetPort: 80, Address: "10.20.0.65"},
+		},
+	}
+
+	dp := &fakeDatapath{}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtimes: runtimesFor(rt), Datapath: dp}, logging.New("error", io.Discard))
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+
+	published := dp.snapshotForwards()
+	if len(published) != 1 {
+		t.Fatalf("forwards = %+v, want the one this node must program", published)
+	}
+	if published[0].NodePort != 8080 || published[0].Address != "10.20.0.65" ||
+		published[0].TargetPort != 80 {
+		t.Fatalf("forward = %+v", published[0])
+	}
 }

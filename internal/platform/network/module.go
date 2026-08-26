@@ -138,6 +138,10 @@ func (m *Module) ReleaseAddress(ctx context.Context, instanceID string) error {
 	return m.svc.release(ctx, instanceID)
 }
 
+func (m *Module) NICOf(ctx context.Context, instanceID string) (NIC, error) {
+	return m.svc.nicOf(ctx, instanceID)
+}
+
 func (m *Module) AllAddresses(ctx context.Context) (map[string]string, error) {
 	return m.svc.allAddresses(ctx)
 }

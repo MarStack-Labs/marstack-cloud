@@ -43,6 +43,10 @@ func (Datapath) ApplyRoutes(context.Context, []workload.Route) error {
 	return errUnsupported
 }
 
+func (Datapath) ApplyForwards(context.Context, []workload.Publish) error {
+	return errUnsupported
+}
+
 func (Datapath) ApplyFilters(context.Context, []workload.Filter) error {
 	return errUnsupported
 }

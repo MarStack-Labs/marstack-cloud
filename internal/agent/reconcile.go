@@ -74,12 +74,18 @@ func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
 		return cachedState{}, fmt.Errorf("volumes: %w", err)
 	}
 
+	forwards, err := a.client.forwards(ctx, nodeID)
+	if err != nil {
+		return cachedState{}, fmt.Errorf("forwards: %w", err)
+	}
+
 	return cachedState{
 		Instances: assigned,
 		Networks:  networks,
 		Records:   records,
 		Nodes:     nodes,
 		Volumes:   volumes,
+		Forwards:  forwards,
 	}, nil
 }
 
@@ -98,6 +104,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	disks := disksByInstance(state.Volumes)
 	a.applyRoutes(ctx, state.Networks, state.Nodes)
 	a.applyFilters(ctx, state.Networks, isolationsOf(state.Instances))
+	a.applyForwards(ctx, state.Forwards)
 
 	for _, in := range state.Instances {
 		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID], disks[in.ID])
@@ -303,6 +310,26 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolat
 		return
 	}
 	a.log.Debug("anti-spoof rules applied", "interfaces", len(filters))
+}
+
+func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView) {
+	if a.datapath == nil {
+		return
+	}
+
+	published := make([]workload.Publish, 0, len(forwards))
+	for _, f := range forwards {
+		published = append(published, workload.Publish{
+			Protocol:   f.Protocol,
+			NodePort:   f.NodePort,
+			TargetPort: f.TargetPort,
+			Address:    f.Address,
+		})
+	}
+
+	if err := a.datapath.ApplyForwards(ctx, published); err != nil {
+		a.log.Warn("could not apply the published ports", "error", err)
+	}
 }
 
 func (a *Agent) tidyVolumes(volumes []volumeView) {

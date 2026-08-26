@@ -18,6 +18,7 @@ type service struct {
 	now      clock
 	networks Networks
 	volumes  Volumes
+	forwards Forwards
 }
 
 func newService(repo *repository, now clock) *service {
@@ -105,6 +106,12 @@ func (s *service) delete(ctx context.Context, id string) error {
 		if err := s.volumes.ReleaseInstance(ctx, id); err != nil {
 			return fault.Internal(fmt.Errorf(
 				"instance %s was deleted but its volumes stayed attached to it: %w", id, err))
+		}
+	}
+	if s.forwards != nil {
+		if err := s.forwards.ReleaseInstance(ctx, id); err != nil {
+			return fault.Internal(fmt.Errorf(
+				"instance %s was deleted but its published ports stayed: %w", id, err))
 		}
 	}
 	return nil

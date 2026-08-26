@@ -19,6 +19,7 @@ const (
 	tapPrefix    = "mst-"
 	bridgePrefix = "msbr-"
 	nftTable     = "marstack"
+	nftNAT       = "marstack_nat"
 	guestIface   = "eth0"
 	maxIfName    = 15
 )
@@ -142,6 +143,36 @@ func (Datapath) ApplyRoutes(_ context.Context, routes []workload.Route) error {
 		}
 	}
 	return nil
+}
+
+func (Datapath) ApplyForwards(_ context.Context, forwards []workload.Publish) error {
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(renderForwards(forwards))
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("apply published ports: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func renderForwards(forwards []workload.Publish) string {
+	var ruleset strings.Builder
+
+	ruleset.WriteString("table ip " + nftNAT + " { }\n")
+	ruleset.WriteString("delete table ip " + nftNAT + "\n")
+	ruleset.WriteString("table ip " + nftNAT + " {\n")
+	ruleset.WriteString("  chain prerouting {\n")
+	ruleset.WriteString("    type nat hook prerouting priority dstnat; policy accept;\n")
+	for _, publish := range forwards {
+		if publish.Address == "" {
+			continue
+		}
+		ruleset.WriteString(fmt.Sprintf("    %s dport %d dnat to %s:%d\n",
+			publish.Protocol, publish.NodePort, publish.Address, publish.TargetPort))
+	}
+	ruleset.WriteString("  }\n}\n")
+
+	return ruleset.String()
 }
 
 func (Datapath) ApplyFilters(_ context.Context, filters []workload.Filter) error {

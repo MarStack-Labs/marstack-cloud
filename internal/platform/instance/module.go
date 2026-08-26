@@ -24,6 +24,10 @@ type Volumes interface {
 	ReleaseInstance(ctx context.Context, instanceID string) error
 }
 
+type Forwards interface {
+	ReleaseInstance(ctx context.Context, instanceID string) error
+}
+
 func New(st *store.Store, log *slog.Logger, networks Networks) *Module {
 	svc := newService(newRepository(st), nil)
 	svc.networks = networks
@@ -36,6 +40,10 @@ func New(st *store.Store, log *slog.Logger, networks Networks) *Module {
 
 func (m *Module) UseVolumes(volumes Volumes) {
 	m.svc.volumes = volumes
+}
+
+func (m *Module) UseForwards(forwards Forwards) {
+	m.svc.forwards = forwards
 }
 
 func (m *Module) Get(ctx context.Context, id string) (Instance, error) {

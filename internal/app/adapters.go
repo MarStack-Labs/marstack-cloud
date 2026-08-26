@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
@@ -115,6 +116,18 @@ func (s volumeInstances) Placement(ctx context.Context, instanceID string) (volu
 		Isolation: string(in.Isolation),
 		Running:   in.Desired == instance.DesiredRunning,
 	}, nil
+}
+
+type forwardAddresses struct {
+	networks *network.Module
+}
+
+func (s forwardAddresses) Endpoint(ctx context.Context, instanceID string) (forward.Endpoint, error) {
+	nic, err := s.networks.NICOf(ctx, instanceID)
+	if err != nil {
+		return forward.Endpoint{}, err
+	}
+	return forward.Endpoint{NodeID: nic.NodeID, Address: nic.IP}, nil
 }
 
 type dnsInstances struct {
