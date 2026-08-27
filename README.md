@@ -657,6 +657,70 @@ reach a machine that has already booted, and deleting one does not lock you out
 of a machine already carrying it. The serial console password still works and is
 still written to `<runtime-root>/vms/<id>/console-login`, mode 0600.
 
+## Spreading one port across replicas
+
+A placement group keeps replicas off one machine, but on its own that only
+halves the damage: a client still talks to one instance, and losing that
+instance loses those requests. A balancer puts one port in front of the set.
+
+```sh
+marstack lb create --name pool --target-port 80 --listen-port 8080 \
+  --instance i-mf7wfr80mhe8r --instance i-d70vdse8nb8gg
+marstack lb get pool
+```
+
+```
+INSTANCE          ADDRESS       STATE
+i-d70vdse8nb8gg   10.20.0.133   up
+i-mf7wfr80mhe8r   10.20.0.76    up
+```
+
+Every node claims the listen port and rewrites arriving packets with one
+nftables rule:
+
+```
+tcp dport 8080 ct mark set 0x1 dnat to numgen inc mod 2 \
+  map { 0 : 10.20.0.133 . 80, 1 : 10.20.0.76 . 80 }
+ct mark 0x1 masquerade
+```
+
+`numgen inc` walks the map, so consecutive connections land on consecutive
+backends. `--algorithm source_hash` swaps it for `jhash ip saddr`, which keeps
+one client on one backend for as long as the set does not change — the choice
+between spreading load and holding a session.
+
+**There is no single virtual address.** A VIP that survives a node dying needs
+anycast and ECMP from the router, or VRRP between the nodes; neither exists
+here. What exists is that the same port answers on every node, so any node
+address is an entry point and losing one costs only the clients that were using
+that one. That is the same trade a Kubernetes NodePort makes, and it is named
+here rather than hidden.
+
+The masquerade is load-bearing and it costs something. A backend chosen on
+another node would otherwise reply straight to the client, from an address the
+client never dialled, and the connection would never establish — this was
+measured: seven of ten requests failed before the masquerade was added, exactly
+the ones the map sent across the node boundary. The cost is that a balanced
+backend sees the node's address rather than the client's. Single-target
+published ports are deliberately left unmarked, so they still see the real
+client.
+
+A backend only takes traffic while its instance is observed running, and the map
+shrinks and grows on its own:
+
+```
+tcp dport 8080 ... mod 1 map { 0 : 10.20.0.76 . 80 }     # after one was stopped
+tcp dport 8080 ... mod 2 map { 0 : ..., 1 : ... }        # after it came back
+```
+
+That is VM liveness, not application liveness. A process that is running but
+wedged still counts as up, because nothing here probes the port. Deleting an
+instance drops it from every balancer it was in.
+
+A balancer holds its listen port on every node, so it cannot share one with a
+published port or another balancer. Both modules refuse the collision at create
+time rather than letting two nftables rules race for the same `dport`.
+
 ## Networking
 
 An instance is given an address when it is placed, and the agent wires it before the workload runs:
@@ -919,6 +983,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 24  backup and restore of encrypted volumes           done
 25  volume resize, placement groups, disk hot-plug    done
 26  ssh keys for vm instances                         done
+27  load balancer across replicas                     done
 ```
 
 ## License

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/balancer"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
@@ -141,6 +142,28 @@ func (s forwardAddresses) Endpoint(ctx context.Context, instanceID string) (forw
 		return forward.Endpoint{ProjectID: in.ProjectID}, nil
 	}
 	return forward.Endpoint{ProjectID: in.ProjectID, NodeID: nic.NodeID, Address: nic.IP}, nil
+}
+
+type balancerMembers struct {
+	networks  *network.Module
+	instances *instance.Module
+}
+
+func (s balancerMembers) Member(ctx context.Context, instanceID string) (balancer.Member, error) {
+	in, err := s.instances.Get(ctx, instanceID)
+	if err != nil {
+		return balancer.Member{}, err
+	}
+
+	nic, err := s.networks.NICOf(ctx, instanceID)
+	if err != nil {
+		return balancer.Member{ProjectID: in.ProjectID}, nil
+	}
+	return balancer.Member{
+		ProjectID: in.ProjectID,
+		Address:   nic.IP,
+		Running:   in.Observed == instance.ObservedRunning,
+	}, nil
 }
 
 const staleLoad = 30 * time.Second

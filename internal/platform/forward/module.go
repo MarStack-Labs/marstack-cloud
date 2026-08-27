@@ -71,6 +71,14 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/nodes/{nodeID}/forwards", httpx.Wrap(m.log, m.handler.listForNode))
 }
 
+func (m *Module) UseBalancers(b Balancers) {
+	m.svc.balancers = b
+}
+
+func (m *Module) NodePortTaken(ctx context.Context, protocol string, port int) (bool, error) {
+	return m.svc.nodePortTaken(ctx, protocol, port)
+}
+
 func (m *Module) ReleaseInstance(ctx context.Context, instanceID string) error {
 	return m.svc.releaseInstance(ctx, instanceID)
 }

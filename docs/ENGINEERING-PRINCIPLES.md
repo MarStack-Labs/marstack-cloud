@@ -177,6 +177,22 @@ make check      # vet + test + security scans
 - `make check` on macOS does not compile a single `_linux.go` file, so it will happily pass on code
   that does not build on a node. `make cross` is part of `check` for that reason - it builds and
   vets for linux and builds for darwin. A green local run without it means nothing for the agent.
+- A balancer claims its listen port on **every** node, while a published port claims one on a
+  single node. That makes their port spaces overlap, so `forward` and `balancer` each declare an
+  interface for the other and `app` wires both directions. Dropping either check does not fail
+  loudly - it produces two nftables rules matching the same `dport` in the same chain, and which
+  one wins is undefined.
+- Balanced traffic is marked with `ct mark 0x1` and masqueraded in postrouting. Without it a
+  backend on another node replies straight to the client from an address the client never dialled,
+  and the connection never establishes - the symptom is that exactly the cross-node share of
+  requests times out while local ones succeed. Single-target forwards are deliberately left
+  unmarked so they keep seeing the real client address; marking them would hide it for nothing.
+- `GET /v1/nodes/{id}/balancers` returns the same set to every node and already drops backends
+  whose instance is not observed running. The node does not filter again beyond skipping an empty
+  target list, so a balancer with nothing up programs no rule at all rather than an empty map,
+  which `nft` would reject.
+- A backend is "up" when its instance is observed running. That is VM liveness, not application
+  liveness, and there is no port probe anywhere - a wedged process still receives its share.
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead

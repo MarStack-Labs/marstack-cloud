@@ -155,6 +155,27 @@ simultaneous creates can both pass. That is stated in the README rather than pap
 the fix would be a cross-module transaction and the boundary is worth more than the last percent of
 strictness here.
 
+## Balancing
+
+`forward` and `balancer` both hand out ports on a node, and their spaces overlap: a published port
+is claimed on one node, a balancer's listen port on all of them. Neither may import the other, so
+each declares the question it needs answered - `Balancers.ListenPortTaken` and
+`Ports.NodePortTaken` - and `app` wires both directions to the other module. This is the rule about
+consumer-declared interfaces earning its keep: the dependency is genuinely mutual, and the only
+place that can see both is the composition root.
+
+The node side stays one authority. Balancers are not a second nftables table at a second priority;
+the agent merges them into the same `[]workload.Publish` that published ports already travel in, and
+`ApplyForwards` renders one table. `Publish` gained `Targets` and `Algorithm`, and the renderer takes
+the map branch when `Targets` is set. A second table would have meant two writers racing over the
+same `dport`, discovered only in production.
+
+Health is borrowed rather than measured. The control plane already knows each instance's observed
+state, so `GET /v1/nodes/{id}/balancers` drops backends whose instance is not running and omits a
+balancer with none left. That is deliberately VM liveness and not a port probe - a real health check
+means a prober, a threshold and a state machine, and none of that exists yet. Calling it "healthy"
+in the API would overstate what is known, which is why the README says plainly what it is.
+
 ## Data protection
 
 Backup content is sealed with `kernel/sealed`, a streaming chunked AEAD over the standard library

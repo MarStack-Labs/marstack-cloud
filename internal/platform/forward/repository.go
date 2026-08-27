@@ -62,6 +62,17 @@ func (r *repository) onNode(ctx context.Context, nodeID string) ([]Forward, erro
 		`SELECT `+columns+` FROM forwards WHERE node_id = ? ORDER BY node_port`, nodeID)
 }
 
+func (r *repository) portTaken(ctx context.Context, protocol string, port int) (bool, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM forwards WHERE protocol = ? AND node_port = ?`,
+		protocol, port).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("check the node port: %w", err)
+	}
+	return count > 0, nil
+}
+
 func (r *repository) query(ctx context.Context, sql string, args ...any) ([]Forward, error) {
 	rows, err := r.db.QueryContext(ctx, sql, args...)
 	if err != nil {

@@ -20,6 +20,7 @@ type cachedState struct {
 	Nodes     []nodeView      `json:"nodes"`
 	Volumes   []volumeView    `json:"volumes"`
 	Forwards  []forwardView   `json:"forwards"`
+	Balancers []balancerView  `json:"balancers"`
 	Firewalls []firewallView  `json:"firewalls"`
 }
 

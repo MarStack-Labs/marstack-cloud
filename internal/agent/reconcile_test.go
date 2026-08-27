@@ -209,6 +209,7 @@ type controlPlane struct {
 	records   []dnsRecordView
 	volumes   []volumeView
 	forwards  []forwardView
+	balancers []balancerView
 	firewalls []firewallView
 	reports   []report
 }
@@ -241,6 +242,11 @@ func (c *controlPlane) handler() http.Handler {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(forwardsBody{Forwards: c.forwards})
+	})
+	mux.HandleFunc("GET /v1/nodes/{id}/balancers", func(w http.ResponseWriter, _ *http.Request) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		json.NewEncoder(w).Encode(balancersBody{Balancers: c.balancers})
 	})
 	mux.HandleFunc("GET /v1/nodes/{id}/volumes", func(w http.ResponseWriter, _ *http.Request) {
 		c.mu.Lock()
@@ -977,6 +983,93 @@ func TestPublishedPortsReachTheDatapath(t *testing.T) {
 	if published[0].NodePort != 8080 || published[0].Address != "10.20.0.65" ||
 		published[0].TargetPort != 80 {
 		t.Fatalf("forward = %+v", published[0])
+	}
+}
+
+func TestABalancerReachesTheDatapathAsOneRuleWithManyTargets(t *testing.T) {
+	in := runningInstance()
+
+	cp := &controlPlane{
+		instances: []instanceView{in},
+		networks:  []networkView{defaultNetworkView(in.ID, "10.20.0.65")},
+		balancers: []balancerView{
+			{
+				ID: "lb-1", Name: "web", Protocol: "tcp", ListenPort: 8080,
+				TargetPort: 80, Algorithm: "source_hash",
+				Backends: []balancerBackendView{
+					{InstanceID: "i-1", Address: "10.20.0.65", Healthy: true},
+					{InstanceID: "i-2", Address: "10.20.0.66", Healthy: true},
+					{InstanceID: "i-3", Address: "10.20.0.67", Healthy: false},
+					{InstanceID: "i-4", Address: "", Healthy: true},
+				},
+			},
+		},
+	}
+
+	dp := &fakeDatapath{}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtimes: runtimesFor(rt), Datapath: dp}, logging.New("error", io.Discard))
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+
+	published := dp.snapshotForwards()
+	if len(published) != 1 {
+		t.Fatalf("forwards = %+v, want the balancer as a single rule", published)
+	}
+
+	got := published[0]
+	if got.NodePort != 8080 || got.TargetPort != 80 || got.Algorithm != "source_hash" {
+		t.Fatalf("publish = %+v", got)
+	}
+	if len(got.Targets) != 2 ||
+		got.Targets[0] != "10.20.0.65" || got.Targets[1] != "10.20.0.66" {
+		t.Fatalf("targets = %v, want only the two that are up and addressable", got.Targets)
+	}
+	if got.Address != "" {
+		t.Fatalf("address = %q, want it empty so the renderer takes the map branch", got.Address)
+	}
+}
+
+func TestABalancerWithNoLiveBackendProgramsNothing(t *testing.T) {
+	in := runningInstance()
+
+	cp := &controlPlane{
+		instances: []instanceView{in},
+		networks:  []networkView{defaultNetworkView(in.ID, "10.20.0.65")},
+		balancers: []balancerView{
+			{
+				ID: "lb-1", Name: "web", Protocol: "tcp", ListenPort: 8080, TargetPort: 80,
+				Backends: []balancerBackendView{
+					{InstanceID: "i-1", Address: "10.20.0.65", Healthy: false},
+				},
+			},
+		},
+	}
+
+	dp := &fakeDatapath{}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtimes: runtimesFor(rt), Datapath: dp}, logging.New("error", io.Discard))
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+
+	if published := dp.snapshotForwards(); len(published) != 0 {
+		t.Fatalf("forwards = %+v, want nothing rather than a map with no entries", published)
 	}
 }
 

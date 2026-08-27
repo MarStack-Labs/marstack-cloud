@@ -243,6 +243,26 @@ type forwardsBody struct {
 	Forwards []forwardView `json:"forwards"`
 }
 
+type balancerBackendView struct {
+	InstanceID string `json:"instance_id"`
+	Address    string `json:"address,omitempty"`
+	Healthy    bool   `json:"healthy"`
+}
+
+type balancerView struct {
+	ID         string                `json:"id"`
+	Name       string                `json:"name"`
+	Protocol   string                `json:"protocol"`
+	ListenPort int                   `json:"listen_port"`
+	TargetPort int                   `json:"target_port"`
+	Algorithm  string                `json:"algorithm"`
+	Backends   []balancerBackendView `json:"backends"`
+}
+
+type balancersBody struct {
+	Balancers []balancerView `json:"balancers"`
+}
+
 type imagesBody struct {
 	Images []imageView `json:"images"`
 }
@@ -272,6 +292,12 @@ func (c *client) forwards(ctx context.Context, nodeID string) ([]forwardView, er
 	var out forwardsBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/forwards", nil, &out)
 	return out.Forwards, err
+}
+
+func (c *client) balancers(ctx context.Context, nodeID string) ([]balancerView, error) {
+	var out balancersBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/balancers", nil, &out)
+	return out.Balancers, err
 }
 
 func (c *client) reportUsage(ctx context.Context, nodeID string, body usageBody) error {

@@ -110,6 +110,7 @@ func newRootCmd() *cobra.Command {
 		newVolumeCmd(g),
 		newBackupCmd(g),
 		newForwardCmd(g),
+		newBalancerCmd(g),
 		newFirewallCmd(g),
 		newUsageCmd(g),
 		newAuditCmd(g),

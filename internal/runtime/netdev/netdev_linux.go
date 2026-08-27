@@ -23,6 +23,7 @@ const (
 	nftGuard     = "marstack_fw"
 	guestIface   = "eth0"
 	maxIfName    = 15
+	balancedMark = "0x1"
 )
 
 func hostName(instanceID string) string {
@@ -165,15 +166,45 @@ func renderForwards(forwards []workload.Publish) string {
 	ruleset.WriteString("  chain prerouting {\n")
 	ruleset.WriteString("    type nat hook prerouting priority dstnat; policy accept;\n")
 	for _, publish := range forwards {
-		if publish.Address == "" {
+		rule := forwardRule(publish)
+		if rule == "" {
 			continue
 		}
-		ruleset.WriteString(fmt.Sprintf("    %s dport %d dnat to %s:%d\n",
-			publish.Protocol, publish.NodePort, publish.Address, publish.TargetPort))
+		ruleset.WriteString("    " + rule + "\n")
 	}
+	ruleset.WriteString("  }\n")
+	ruleset.WriteString("  chain postrouting {\n")
+	ruleset.WriteString("    type nat hook postrouting priority srcnat; policy accept;\n")
+	ruleset.WriteString("    ct mark " + balancedMark + " masquerade\n")
 	ruleset.WriteString("  }\n}\n")
 
 	return ruleset.String()
+}
+
+func forwardRule(publish workload.Publish) string {
+	if len(publish.Targets) == 0 {
+		if publish.Address == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s dport %d dnat to %s:%d",
+			publish.Protocol, publish.NodePort, publish.Address, publish.TargetPort)
+	}
+
+	entries := make([]string, 0, len(publish.Targets))
+	for i, address := range publish.Targets {
+		entries = append(entries, fmt.Sprintf("%d : %s . %d", i, address, publish.TargetPort))
+	}
+
+	return fmt.Sprintf("%s dport %d ct mark set %s dnat to %s mod %d map { %s }",
+		publish.Protocol, publish.NodePort, balancedMark, selector(publish.Algorithm),
+		len(publish.Targets), strings.Join(entries, ", "))
+}
+
+func selector(algorithm string) string {
+	if algorithm == "source_hash" {
+		return "jhash ip saddr"
+	}
+	return "numgen inc"
 }
 
 func (Datapath) ApplyGuards(_ context.Context, guards []workload.Guard) error {

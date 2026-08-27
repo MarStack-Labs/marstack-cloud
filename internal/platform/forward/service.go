@@ -16,11 +16,16 @@ type Addresses interface {
 	Endpoint(ctx context.Context, instanceID string) (Endpoint, error)
 }
 
+type Balancers interface {
+	ListenPortTaken(ctx context.Context, protocol string, port int) (bool, error)
+}
+
 type clock func() time.Time
 
 type service struct {
 	repo      *repository
 	addresses Addresses
+	balancers Balancers
 	now       clock
 }
 
@@ -51,6 +56,18 @@ func (s *service) create(ctx context.Context, params CreateParams) (Forward, err
 	if params.NodePort < MinPort || params.NodePort > MaxPort {
 		return Forward{}, fault.Invalid("invalid_node_port", fmt.Sprintf(
 			"node_port must be between %d and %d", MinPort, MaxPort))
+	}
+
+	if s.balancers != nil {
+		balanced, err := s.balancers.ListenPortTaken(ctx, params.Protocol, params.NodePort)
+		if err != nil {
+			return Forward{}, err
+		}
+		if balanced {
+			return Forward{}, fault.Conflict("node_port_taken", "port "+
+				strconv.Itoa(params.NodePort)+"/"+params.Protocol+
+				" is claimed by a balancer, which holds it on every node")
+		}
 	}
 
 	if s.addresses == nil {
@@ -124,6 +141,14 @@ func (s *service) removeAny(ctx context.Context, id string) error {
 		return translate(err)
 	}
 	return nil
+}
+
+func (s *service) nodePortTaken(ctx context.Context, protocol string, port int) (bool, error) {
+	taken, err := s.repo.portTaken(ctx, protocol, port)
+	if err != nil {
+		return false, translate(err)
+	}
+	return taken, nil
 }
 
 func (s *service) releaseInstance(ctx context.Context, instanceID string) error {

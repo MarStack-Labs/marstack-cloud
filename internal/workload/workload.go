@@ -96,6 +96,8 @@ type Publish struct {
 	NodePort   int
 	TargetPort int
 	Address    string
+	Targets    []string
+	Algorithm  string
 }
 
 type GuardRule struct {

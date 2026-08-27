@@ -84,6 +84,11 @@ func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
 		return cachedState{}, fmt.Errorf("forwards: %w", err)
 	}
 
+	balancers, err := a.client.balancers(ctx, nodeID)
+	if err != nil {
+		return cachedState{}, fmt.Errorf("balancers: %w", err)
+	}
+
 	firewalls, err := a.client.firewalls(ctx, nodeID)
 	if err != nil {
 		return cachedState{}, fmt.Errorf("firewalls: %w", err)
@@ -96,6 +101,7 @@ func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
 		Nodes:     nodes,
 		Volumes:   volumes,
 		Forwards:  forwards,
+		Balancers: balancers,
 		Firewalls: firewalls,
 	}, nil
 }
@@ -125,7 +131,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	disks := a.disksByInstance(ctx, state.Volumes)
 	a.applyRoutes(ctx, state.Networks, state.Nodes)
 	a.applyFilters(ctx, state.Networks, isolationsOf(state.Instances))
-	a.applyForwards(ctx, state.Forwards)
+	a.applyForwards(ctx, state.Forwards, state.Balancers)
 	a.applyGuards(ctx, state.Instances, state.Networks, state.Firewalls)
 
 	for _, in := range state.Instances {
@@ -390,18 +396,39 @@ func (a *Agent) applyGuards(
 	}
 }
 
-func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView) {
+func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView, balancers []balancerView) {
 	if a.datapath == nil {
 		return
 	}
 
-	published := make([]workload.Publish, 0, len(forwards))
+	published := make([]workload.Publish, 0, len(forwards)+len(balancers))
 	for _, f := range forwards {
 		published = append(published, workload.Publish{
 			Protocol:   f.Protocol,
 			NodePort:   f.NodePort,
 			TargetPort: f.TargetPort,
 			Address:    f.Address,
+		})
+	}
+
+	for _, b := range balancers {
+		targets := make([]string, 0, len(b.Backends))
+		for _, backend := range b.Backends {
+			if !backend.Healthy || backend.Address == "" {
+				continue
+			}
+			targets = append(targets, backend.Address)
+		}
+		if len(targets) == 0 {
+			continue
+		}
+
+		published = append(published, workload.Publish{
+			Protocol:   b.Protocol,
+			NodePort:   b.ListenPort,
+			TargetPort: b.TargetPort,
+			Targets:    targets,
+			Algorithm:  b.Algorithm,
 		})
 	}
 

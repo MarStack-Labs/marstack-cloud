@@ -13,6 +13,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/balancer"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/firewall"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
@@ -104,6 +105,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 	forwards := forward.New(st, forwardAddresses{networks: networks, instances: instances}, log)
+	balancers := balancer.New(st, log)
 	firewalls := firewall.New(st, log)
 	keys := keypair.New(st, log)
 	projects := project.New(st, log)
@@ -118,6 +120,9 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	quotas.UseUsage(projectUsage{instances: instances, volumes: volumes})
 	instances.UseQuota(instanceQuota{quotas: quotas})
 	instances.UseKeys(keys)
+	balancers.UseMembers(balancerMembers{networks: networks, instances: instances})
+	balancers.UsePorts(forwards)
+	forwards.UseBalancers(balancers)
 	volumes.UseQuota(volumeQuota{quotas: quotas})
 	projects.UseOccupancy(projectOccupancy{
 		tokens:    tokens,
@@ -141,6 +146,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		volumes,
 		backups,
 		forwards,
+		balancers,
 		firewalls,
 		usages,
 		trail,
@@ -151,6 +157,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	}
 	instances.UseVolumes(volumes)
 	instances.UseForwards(forwards)
+	instances.UseBalancers(balancers)
 	instances.UseFirewalls(firewalls)
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},

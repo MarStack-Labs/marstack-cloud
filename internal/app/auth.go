@@ -43,6 +43,7 @@ var nodePaths = []string{
 	"GET /v1/nodes/{id}/volumes",
 	"GET /v1/nodes/{id}/volumes/{volumeID}/key",
 	"GET /v1/nodes/{id}/forwards",
+	"GET /v1/nodes/{id}/balancers",
 	"PUT /v1/nodes/{id}/volumes",
 	"PUT /v1/nodes/{id}/images",
 	"PUT /v1/nodes/{id}/usage",
@@ -121,6 +122,13 @@ var memberPaths = []string{
 	"GET /v1/forwards",
 	"POST /v1/forwards",
 	"DELETE /v1/forwards/{id}",
+
+	"GET /v1/balancers",
+	"GET /v1/balancers/{id}",
+	"POST /v1/balancers",
+	"DELETE /v1/balancers/{id}",
+	"POST /v1/balancers/{id}/backends",
+	"DELETE /v1/balancers/{id}/backends/{instanceID}",
 }
 
 func readsOf(patterns []string) []string {

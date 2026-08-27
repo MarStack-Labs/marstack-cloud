@@ -21,6 +21,7 @@ type service struct {
 	quota     Quota
 	volumes   Volumes
 	forwards  Forwards
+	balancers Balancers
 	firewalls Firewalls
 }
 
@@ -178,6 +179,12 @@ func (s *service) delete(ctx context.Context, id, projectID string) error {
 		if err := s.forwards.ReleaseInstance(ctx, id); err != nil {
 			return fault.Internal(fmt.Errorf(
 				"instance %s was deleted but its published ports stayed: %w", id, err))
+		}
+	}
+	if s.balancers != nil {
+		if err := s.balancers.ReleaseInstance(ctx, id); err != nil {
+			return fault.Internal(fmt.Errorf(
+				"instance %s was deleted but stayed a balancer backend: %w", id, err))
 		}
 	}
 	return nil
