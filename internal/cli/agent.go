@@ -58,6 +58,7 @@ func newAgentCmd(g *globals) *cobra.Command {
 				Zone:       zone,
 				Address:    address,
 				StateDir:   stateDir,
+				TLS:        g.tls,
 				Interval:   interval,
 				FenceAfter: fenceAfter,
 			}, agent.Deps{

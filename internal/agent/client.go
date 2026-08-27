@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -102,12 +103,19 @@ type client struct {
 	transfer *http.Client
 }
 
-func newClient(endpoint, secret string) *client {
+func newClient(endpoint, secret string, trusted *tls.Config) *client {
+	transport := http.DefaultTransport
+	if trusted != nil {
+		cloned := http.DefaultTransport.(*http.Transport).Clone()
+		cloned.TLSClientConfig = trusted
+		transport = cloned
+	}
+
 	return &client{
 		endpoint: strings.TrimRight(endpoint, "/"),
 		secret:   secret,
-		http:     &http.Client{Timeout: callTimeout},
-		transfer: &http.Client{Timeout: transferTimeout},
+		http:     &http.Client{Timeout: callTimeout, Transport: transport},
+		transfer: &http.Client{Timeout: transferTimeout, Transport: transport},
 	}
 }
 

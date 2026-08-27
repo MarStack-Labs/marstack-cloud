@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"net/http"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/certs"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
@@ -38,6 +40,12 @@ type Config struct {
 	RequestTimeout    time.Duration
 	SchedulerInterval time.Duration
 	Now               func() time.Time
+	TLSCert           string
+	TLSKey            string
+}
+
+func (c Config) servesTLS() bool {
+	return c.TLSCert != "" && c.TLSKey != ""
 }
 
 func (c Config) withDefaults() Config {
@@ -156,7 +164,17 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	}
 
 	a.router = a.buildRouter()
+
+	var tlsConfig *tls.Config
+	if cfg.servesTLS() {
+		if tlsConfig, err = certs.Server(cfg.TLSCert, cfg.TLSKey); err != nil {
+			st.Close()
+			return nil, err
+		}
+	}
+
 	a.http = &http.Server{
+		TLSConfig:         tlsConfig,
 		Addr:              cfg.Listen,
 		Handler:           a.router,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -204,6 +222,27 @@ func (a *App) buildRouter() http.Handler {
 	)
 }
 
+func (a *App) announce() {
+	scheme := "http"
+	if a.cfg.servesTLS() {
+		scheme = "https"
+	}
+	a.log.Info("control plane listening",
+		"addr", a.cfg.Listen, "scheme", scheme, "modules", len(a.modules))
+
+	if !a.cfg.servesTLS() {
+		a.log.Warn("serving plain HTTP, so every bearer token crosses the network in the clear",
+			"fix", "pass --tls-cert and --tls-key")
+	}
+}
+
+func (a *App) listen() error {
+	if a.cfg.servesTLS() {
+		return a.http.ListenAndServeTLS("", "")
+	}
+	return a.http.ListenAndServe()
+}
+
 func (a *App) Handler() http.Handler {
 	return a.router
 }
@@ -213,8 +252,8 @@ func (a *App) Run(ctx context.Context) error {
 
 	errc := make(chan error, 1)
 	go func() {
-		a.log.Info("control plane listening", "addr", a.cfg.Listen, "modules", len(a.modules))
-		err := a.http.ListenAndServe()
+		a.announce()
+		err := a.listen()
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
 		}

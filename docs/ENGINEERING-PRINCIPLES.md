@@ -118,6 +118,9 @@ make check      # vet + test + security scans
   file on the node, so it survives a bad write but dies with the disk. A backup is a copy held by
   the control plane. Do not "simplify" one into the other; the whole point is that they fail
   independently.
+- There is no flag to skip certificate verification, and there must not be one. An encrypted
+  channel to a server nobody authenticated proves nothing, and such a flag is always found by
+  somebody in a hurry. Point `--ca-file` at the authority instead.
 - `httpx.Timeout` wraps `http.TimeoutHandler`, which buffers the whole response in memory and
   cuts it off at the deadline. That is right for an API call and fatal for moving a volume, so
   `app.streamingPaths` names the routes that skip it. Adding a route that streams bytes without

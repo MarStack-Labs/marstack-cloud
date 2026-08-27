@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ const (
 	endpointEnvVar  = "MARSTACK_ENDPOINT"
 	tokenEnvVar     = "MARSTACK_TOKEN"
 	tokenFileEnvVar = "MARSTACK_TOKEN_FILE"
+	caFileEnvVar    = "MARSTACK_CA_FILE"
 	requestTimeout  = 30 * time.Second
 	maxErrorBody    = 1 << 16
 )
@@ -26,11 +28,18 @@ type client struct {
 	http     *http.Client
 }
 
-func newClient(endpoint, secret string) *client {
+func newClient(endpoint, secret string, trusted *tls.Config) *client {
+	transport := http.DefaultTransport
+	if trusted != nil {
+		cloned := http.DefaultTransport.(*http.Transport).Clone()
+		cloned.TLSClientConfig = trusted
+		transport = cloned
+	}
+
 	return &client{
 		endpoint: strings.TrimRight(endpoint, "/"),
 		secret:   secret,
-		http:     &http.Client{Timeout: requestTimeout},
+		http:     &http.Client{Timeout: requestTimeout, Transport: transport},
 	}
 }
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
 	"sort"
@@ -29,6 +30,7 @@ type Config struct {
 	Zone              string
 	Address           string
 	StateDir          string
+	TLS               *tls.Config
 	Interval          time.Duration
 	HeartbeatInterval time.Duration
 }
@@ -84,7 +86,7 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 	cfg = cfg.withDefaults()
 	return &Agent{
 		cfg:       cfg,
-		client:    newClient(cfg.Endpoint, cfg.Token),
+		client:    newClient(cfg.Endpoint, cfg.Token, cfg.TLS),
 		log:       log,
 		host:      inspectHost(),
 		runtimes:  deps.Runtimes,

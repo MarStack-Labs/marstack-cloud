@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"crypto/tls"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/certs"
 )
 
 const maxTokenBytes = 4096
@@ -16,10 +19,25 @@ type globals struct {
 	output    string
 	token     string
 	tokenFile string
+	caFile    string
+	tls       *tls.Config
 }
 
 func (g *globals) client() *client {
-	return newClient(g.endpoint, g.secret())
+	return newClient(g.endpoint, g.secret(), g.tls)
+}
+
+func (g *globals) trust() error {
+	if g.caFile == "" {
+		g.caFile = os.Getenv(caFileEnvVar)
+	}
+
+	trusted, err := certs.Client(g.caFile)
+	if err != nil {
+		return err
+	}
+	g.tls = trusted
+	return nil
 }
 
 func (g *globals) secret() string {
@@ -66,12 +84,17 @@ func newRootCmd() *cobra.Command {
 		Short:         "MarStack Cloud control plane, node agent, and client",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		PersistentPreRunE: func(*cobra.Command, []string) error {
+			return g.trust()
+		},
 	}
 
 	root.PersistentFlags().StringVar(&g.endpoint, "endpoint", resolveDefaultEndpoint(),
 		"control plane endpoint, overrides "+endpointEnvVar)
 	root.PersistentFlags().StringVar(&g.token, "token", "",
 		"bearer token, overrides "+tokenEnvVar)
+	root.PersistentFlags().StringVar(&g.caFile, "ca-file", "",
+		"PEM certificate authority to trust for https, overrides "+caFileEnvVar)
 	root.PersistentFlags().StringVar(&g.tokenFile, "token-file", "",
 		"file holding a bearer token, overrides "+tokenFileEnvVar)
 	root.PersistentFlags().StringVarP(&g.output, "output", "o", outputTable,

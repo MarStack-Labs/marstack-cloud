@@ -219,6 +219,45 @@ a later change to one interface.
 The CLI reads `--token`, then `MARSTACK_TOKEN`, then `--token-file`, then
 `MARSTACK_TOKEN_FILE`. Nothing is read implicitly from a default path.
 
+## TLS
+
+Without a certificate the control plane serves plain HTTP, and every bearer
+token crosses the network in the clear. It says so on every start, because a
+warning you see once a day is better than a default you forget:
+
+```
+level=WARN msg="serving plain HTTP, so every bearer token crosses the network
+  in the clear" fix="pass --tls-cert and --tls-key"
+```
+
+That is fine on a loopback address and wrong anywhere else:
+
+```sh
+marstack server --listen 0.0.0.0:7443   --tls-cert /etc/marstack/tls/server.pem --tls-key /etc/marstack/tls/server-key.pem
+```
+
+TLS 1.2 is the floor. Clients trust a private CA by pointing at it, and there
+is deliberately no flag to skip verification — an encrypted channel to a server
+you did not authenticate proves nothing:
+
+```sh
+export MARSTACK_ENDPOINT=https://control.internal:7443
+export MARSTACK_CA_FILE=/etc/marstack/tls/ca.pem
+marstack node list
+
+sudo marstack agent --name bm-1 --ca-file /etc/marstack/tls/ca.pem
+```
+
+For a lab, one self-signed certificate is enough. It is its own CA, so the same
+file goes to `--tls-cert` and to `--ca-file`:
+
+```sh
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1   -nodes -days 365 -keyout server-key.pem -out server.pem   -subj "/CN=marstack" -addext "subjectAltName=IP:192.168.107.2,DNS:localhost"
+```
+
+The `subjectAltName` must name the address clients actually dial. A certificate
+with only a common name is rejected by every current client.
+
 ## Running it
 
 ```sh
@@ -551,6 +590,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 16  audit trail                                       done
 17  projects and per-project scoping                  done
 18  off-node volume backup and restore                done
+19  token lifetimes + TLS on the API                  done
 ```
 
 ## License
