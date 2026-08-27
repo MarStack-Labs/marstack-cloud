@@ -725,6 +725,23 @@ container asking for `AAAA` first would then never try `A`.
 
 Not implemented yet: anti-spoof filtering, image pulling, restart policy, and `isolation: vm`.
 
+## Continuous integration
+
+Three jobs on every push and pull request: build, vet, race tests and a gofmt
+check; a cross-compile for darwin/arm64 and linux/amd64; and the same security
+scans the pre-commit hook runs.
+
+The cross-compile job earns its place. Runtime packages are split by build tag,
+so a check run on one platform never compiles the other's files — `_linux.go`
+code is invisible to a macOS `go vet`, and the non-Linux stubs are invisible on
+the runner. Building both catches a stub that fell behind its interface.
+
+Two things are deliberately absent. `gitleaks-action` needs a paid licence for
+organisations, so CI installs the gitleaks binary and runs it directly. CodeQL
+needs GitHub Advanced Security to upload results on a private repository, so its
+job was removed rather than left permanently red — a job that can never pass
+teaches people to ignore the build.
+
 ## Development
 
 ```sh

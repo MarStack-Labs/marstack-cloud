@@ -23,14 +23,22 @@ jobs:
           cache: true
       - run: go build ./...
       - run: go vet ./...
-      - run: go test -race -coverprofile=coverage.out ./...
+      - run: go test -race ./...
       - run: gofmt -l . | tee /dev/stderr | (! read)
+
+  portable:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: GOOS=darwin GOARCH=arm64 go build ./...
+      - run: GOOS=linux GOARCH=amd64 go build ./...
 
   security:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@v5
         with:
@@ -56,19 +64,6 @@ jobs:
           gosec -severity medium -confidence medium ./...
 
       - name: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  codeql:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
-    steps:
-      - uses: actions/checkout@v5
-      - uses: github/codeql-action/init@v4
-        with:
-          languages: go
-          queries: security-extended
-      - uses: github/codeql-action/analyze@v4
+        run: |
+          go install github.com/zricethezav/gitleaks/v8@latest
+          gitleaks git --no-banner --redact
