@@ -21,6 +21,8 @@ type createRequest struct {
 	RestartPolicy string   `json:"restart_policy,omitempty"`
 	VCPU          int      `json:"vcpu,omitempty"`
 	MemoryMiB     int      `json:"memory_mib,omitempty"`
+	Group         string   `json:"placement_group,omitempty"`
+	Strict        bool     `json:"placement_strict,omitempty"`
 }
 
 type statusRequest struct {
@@ -44,6 +46,8 @@ type response struct {
 	RestartCount    int      `json:"restart_count"`
 	VCPU            int      `json:"vcpu"`
 	MemoryMiB       int      `json:"memory_mib"`
+	Group           string   `json:"placement_group,omitempty"`
+	Strict          bool     `json:"placement_strict,omitempty"`
 	Desired         string   `json:"desired_state"`
 	Observed        string   `json:"observed_state"`
 	ObservedMessage string   `json:"observed_message,omitempty"`
@@ -72,6 +76,8 @@ func toResponse(in Instance) response {
 		RestartCount:    in.RestartCount,
 		VCPU:            in.VCPU,
 		MemoryMiB:       in.MemoryMiB,
+		Group:           in.Group,
+		Strict:          in.Strict,
 		Desired:         string(in.Desired),
 		Observed:        string(in.Observed),
 		ObservedMessage: in.ObservedMessage,
@@ -93,6 +99,8 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 
 	in, err := h.svc.create(r.Context(), CreateParams{
 		ProjectID:     scope.From(r.Context()).ProjectID,
+		Group:         req.Group,
+		Strict:        req.Strict,
 		Name:          req.Name,
 		Isolation:     req.Isolation,
 		Image:         req.Image,

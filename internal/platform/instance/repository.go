@@ -26,7 +26,7 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, project_id, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
+const columns = `id, project_id, placement_group, placement_strict, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
 	taken, err := r.nameTaken(ctx, in.ProjectID, in.Name)
@@ -44,8 +44,8 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO instances (`+columns+`) VALUES `+
-			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.ID, in.ProjectID, in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
+			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.ID, in.ProjectID, in.Group, in.Strict, in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
 		in.FirewallID, string(command), in.NetworkID,
 		string(in.RestartPolicy), in.RestartCount, in.VCPU, in.MemoryMiB,
 		string(in.Desired), string(in.Observed), in.ObservedMessage, in.NodeID,
@@ -336,7 +336,8 @@ func scanInstance(row scanner) (Instance, error) {
 	)
 
 	if err := row.Scan(
-		&in.ID, &in.ProjectID, &in.Name, &isolation, &in.Image, &in.ISO, &in.Kernel, &in.DiskGiB,
+		&in.ID, &in.ProjectID, &in.Group, &in.Strict, &in.Name, &isolation, &in.Image, &in.ISO,
+		&in.Kernel, &in.DiskGiB,
 		&in.FirewallID, &command, &in.NetworkID,
 		&policy, &in.RestartCount, &in.VCPU, &in.MemoryMiB,
 		&desired, &observed, &in.ObservedMessage, &nodeID, &createdRaw, &updatedRaw,
@@ -365,4 +366,38 @@ func scanInstance(row scanner) (Instance, error) {
 	}
 
 	return in, nil
+}
+
+func (r *repository) groupCounts(ctx context.Context, group string) (map[string]int, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT node_id, COUNT(*) FROM instances
+		 WHERE placement_group = ? AND node_id IS NOT NULL AND node_id != ''
+		 GROUP BY node_id`, group)
+	if err != nil {
+		return nil, fmt.Errorf("count a placement group: %w", err)
+	}
+	defer rows.Close()
+
+	counts := map[string]int{}
+	for rows.Next() {
+		var (
+			nodeID string
+			count  int
+		)
+		if err := rows.Scan(&nodeID, &count); err != nil {
+			return nil, fmt.Errorf("scan a placement group: %w", err)
+		}
+		counts[nodeID] = count
+	}
+	return counts, rows.Err()
+}
+
+func (r *repository) setObservedMessage(ctx context.Context, id, message string, at time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE instances SET observed_message = ?, updated_at = ? WHERE id = ?`,
+		message, at.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("record why a placement was held: %w", err)
+	}
+	return nil
 }

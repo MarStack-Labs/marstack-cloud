@@ -25,6 +25,8 @@ type Pending struct {
 	ID        string
 	Name      string
 	NetworkID string
+	Group     string
+	Strict    bool
 }
 
 type Stranded struct {
@@ -42,6 +44,8 @@ type NodeSource interface {
 type InstanceSource interface {
 	PendingPlacement(ctx context.Context) ([]Pending, error)
 	AssignedCounts(ctx context.Context) (map[string]int, error)
+	GroupCounts(ctx context.Context, group string) (map[string]int, error)
+	HoldPlacement(ctx context.Context, instanceID, reason string) error
 	Assign(ctx context.Context, instanceID, nodeID string) error
 	StrandedOn(ctx context.Context, nodeIDs []string) ([]Stranded, error)
 	ReleasePlacement(ctx context.Context, instanceID, nodeID string) error
@@ -150,14 +154,30 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		return err
 	}
 
+	groups := map[string]map[string]int{}
+
 	for _, p := range pending {
-		target := leastLoaded(candidates, counts, load)
+		members, err := s.membersOf(ctx, groups, p.Group)
+		if err != nil {
+			return err
+		}
+
+		target, room := bestFor(candidates, counts, load, members)
+		if p.Strict && p.Group != "" && !room {
+			s.hold(ctx, p)
+			continue
+		}
+
 		if err := s.instances.Assign(ctx, p.ID, target.ID); err != nil {
 			s.log.Warn("assignment failed", "instance", p.ID, "node", target.ID, "error", err)
 			continue
 		}
 		counts[target.ID]++
-		s.log.Info("instance placed", "instance", p.ID, "name", p.Name, "node", target.Name)
+		if p.Group != "" {
+			members[target.ID]++
+		}
+		s.log.Info("instance placed",
+			"instance", p.ID, "name", p.Name, "node", target.Name, "group", p.Group)
 
 		if s.addresses == nil || p.NetworkID == "" {
 			continue
@@ -204,22 +224,64 @@ func (s *Scheduler) releaseStranded(ctx context.Context) error {
 	return nil
 }
 
-func leastLoaded(candidates []Candidate, counts map[string]int, load map[string]Load) Candidate {
+func bestFor(
+	candidates []Candidate, counts map[string]int, load map[string]Load, members map[string]int,
+) (Candidate, bool) {
+	byZone := map[string]int{}
+	for _, c := range candidates {
+		byZone[c.Zone] += members[c.ID]
+	}
+
 	ordered := make([]Candidate, len(candidates))
 	copy(ordered, candidates)
 
 	sort.SliceStable(ordered, func(i, j int) bool {
-		left, right := load[ordered[i].ID], load[ordered[j].ID]
-		if left.Fresh && right.Fresh && left.MemoryFreeMiB != right.MemoryFreeMiB {
-			return left.MemoryFreeMiB > right.MemoryFreeMiB
+		left, right := ordered[i], ordered[j]
+
+		if zi, zj := byZone[left.Zone], byZone[right.Zone]; zi != zj {
+			return zi < zj
+		}
+		if mi, mj := members[left.ID], members[right.ID]; mi != mj {
+			return mi < mj
 		}
 
-		ci, cj := counts[ordered[i].ID], counts[ordered[j].ID]
-		if ci != cj {
+		li, lj := load[left.ID], load[right.ID]
+		if li.Fresh && lj.Fresh && li.MemoryFreeMiB != lj.MemoryFreeMiB {
+			return li.MemoryFreeMiB > lj.MemoryFreeMiB
+		}
+		if ci, cj := counts[left.ID], counts[right.ID]; ci != cj {
 			return ci < cj
 		}
-		return ordered[i].Name < ordered[j].Name
+		return left.Name < right.Name
 	})
 
-	return ordered[0]
+	return ordered[0], members[ordered[0].ID] == 0
+}
+
+func (s *Scheduler) membersOf(
+	ctx context.Context, cache map[string]map[string]int, group string,
+) (map[string]int, error) {
+	if group == "" {
+		return map[string]int{}, nil
+	}
+	if known, ok := cache[group]; ok {
+		return known, nil
+	}
+
+	members, err := s.instances.GroupCounts(ctx, group)
+	if err != nil {
+		return nil, err
+	}
+	cache[group] = members
+	return members, nil
+}
+
+func (s *Scheduler) hold(ctx context.Context, p Pending) {
+	reason := "every ready node already runs a member of placement group " + p.Group
+
+	s.log.Info("placement held", "instance", p.ID, "name", p.Name, "group", p.Group)
+	if err := s.instances.HoldPlacement(ctx, p.ID, reason); err != nil {
+		s.log.Warn("could not record why a placement was held",
+			"instance", p.ID, "error", err)
+	}
 }

@@ -67,6 +67,8 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 	in := Instance{
 		ID:            ids.New("i"),
 		ProjectID:     params.ProjectID,
+		Group:         normalized.Group,
+		Strict:        params.Strict,
 		Name:          normalized.Name,
 		Isolation:     Isolation(normalized.Isolation),
 		Image:         normalized.Image,
@@ -257,6 +259,15 @@ func normalize(params CreateParams) (CreateParams, error) {
 	if err := validate.Name("name", params.Name); err != nil {
 		return params, err
 	}
+	if params.Group != "" {
+		if err := validate.Name("placement_group", params.Group); err != nil {
+			return params, err
+		}
+	}
+	if params.Strict && params.Group == "" {
+		return params, fault.Invalid("invalid_placement",
+			"strict placement without a group has nothing to spread away from")
+	}
 	if err := validate.OneOf("isolation", params.Isolation, AllIsolations()...); err != nil {
 		return params, err
 	}
@@ -331,4 +342,16 @@ func translate(err error) error {
 	default:
 		return fault.Internal(err)
 	}
+}
+
+func (s *service) groupCounts(ctx context.Context, group string) (map[string]int, error) {
+	counts, err := s.repo.groupCounts(ctx, group)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return counts, nil
+}
+
+func (s *service) holdPlacement(ctx context.Context, id, reason string) error {
+	return translate(s.repo.setObservedMessage(ctx, id, reason, s.now()))
 }

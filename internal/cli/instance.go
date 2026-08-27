@@ -81,6 +81,8 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		RestartPolicy string   `json:"restart_policy,omitempty"`
 		VCPU          int      `json:"vcpu,omitempty"`
 		MemoryMiB     int      `json:"memory_mib,omitempty"`
+		Group         string   `json:"placement_group,omitempty"`
+		Strict        bool     `json:"placement_strict,omitempty"`
 	}
 
 	cmd := &cobra.Command{
@@ -118,6 +120,10 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		"restart policy: always, on-failure, never")
 	cmd.Flags().IntVar(&req.VCPU, "vcpu", 0, "virtual CPUs, defaults to the platform default")
 	cmd.Flags().IntVar(&req.MemoryMiB, "memory-mib", 0, "memory in MiB, defaults to the platform default")
+	cmd.Flags().StringVar(&req.Group, "placement-group", "",
+		"instances sharing this name are spread across nodes and zones")
+	cmd.Flags().BoolVar(&req.Strict, "placement-strict", false,
+		"hold this instance pending rather than share a node with its group")
 
 	must(cmd.MarkFlagRequired("name"))
 

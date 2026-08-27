@@ -63,6 +63,8 @@ func (s instanceSource) PendingPlacement(ctx context.Context) ([]scheduler.Pendi
 			ID:        in.ID,
 			Name:      in.Name,
 			NetworkID: in.NetworkID,
+			Group:     in.Group,
+			Strict:    in.Strict,
 		})
 	}
 	return pending, nil
@@ -296,4 +298,12 @@ func (s volumeBackups) Restorable(
 		KeySealed: envelope.KeySealed,
 		KeyID:     envelope.KeyID,
 	}, nil
+}
+
+func (s instanceSource) GroupCounts(ctx context.Context, group string) (map[string]int, error) {
+	return s.instances.GroupCounts(ctx, group)
+}
+
+func (s instanceSource) HoldPlacement(ctx context.Context, instanceID, reason string) error {
+	return s.instances.HoldPlacement(ctx, instanceID, reason)
 }

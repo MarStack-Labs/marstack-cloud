@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,11 +36,29 @@ type fakeInstances struct {
 	pending     []Pending
 	stranded    []Stranded
 	counts      map[string]int
+	groups      map[string]map[string]int
 	assignments []assignment
 	released    []string
+	held        map[string]string
 	pendingErr  error
 	assignErr   error
 	releaseErr  error
+}
+
+func (f *fakeInstances) GroupCounts(_ context.Context, group string) (map[string]int, error) {
+	counts := map[string]int{}
+	for node, count := range f.groups[group] {
+		counts[node] = count
+	}
+	return counts, nil
+}
+
+func (f *fakeInstances) HoldPlacement(_ context.Context, instanceID, reason string) error {
+	if f.held == nil {
+		f.held = map[string]string{}
+	}
+	f.held[instanceID] = reason
+	return nil
 }
 
 func (f *fakeInstances) StrandedOn(_ context.Context, nodeIDs []string) ([]Stranded, error) {
@@ -369,4 +388,110 @@ type fakeLoad struct {
 
 func (f fakeLoad) NodeLoad(context.Context) (map[string]Load, error) {
 	return f.load, nil
+}
+
+func TestAGroupSpreadsAcrossZonesFirst(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{
+		{ID: "n-1", Name: "a", Zone: "rack-a"},
+		{ID: "n-2", Name: "b", Zone: "rack-a"},
+		{ID: "n-3", Name: "c", Zone: "rack-b"},
+	}}
+	instances := &fakeInstances{
+		pending: []Pending{{ID: "i-1", Name: "web-2", Group: "web"}},
+		groups:  map[string]map[string]int{"web": {"n-1": 1}},
+	}
+
+	s := newTestScheduler(nodes, instances)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("step: %v", err)
+	}
+
+	if len(instances.assignments) != 1 {
+		t.Fatalf("assignments = %+v", instances.assignments)
+	}
+	if got := instances.assignments[0].nodeID; got != "n-3" {
+		t.Fatalf("placed on %s, want n-3: the other zone holds no member, and a zone is the "+
+			"failure domain a group is spread across", got)
+	}
+}
+
+func TestAGroupAvoidsANodeThatAlreadyHoldsAMember(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{
+		{ID: "n-1", Name: "a", Zone: "rack-a"},
+		{ID: "n-2", Name: "b", Zone: "rack-a"},
+	}}
+	instances := &fakeInstances{
+		pending: []Pending{{ID: "i-1", Name: "web-2", Group: "web"}},
+		groups:  map[string]map[string]int{"web": {"n-1": 1}},
+	}
+
+	s := newTestScheduler(nodes, instances)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("step: %v", err)
+	}
+	if got := instances.assignments[0].nodeID; got != "n-2" {
+		t.Fatalf("placed on %s, want n-2", got)
+	}
+}
+
+func TestTwoMembersPlacedInOnePassDoNotShareANode(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{
+		{ID: "n-1", Name: "a", Zone: "rack-a"},
+		{ID: "n-2", Name: "b", Zone: "rack-b"},
+	}}
+	instances := &fakeInstances{pending: []Pending{
+		{ID: "i-1", Name: "web-1", Group: "web"},
+		{ID: "i-2", Name: "web-2", Group: "web"},
+	}}
+
+	s := newTestScheduler(nodes, instances)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("step: %v", err)
+	}
+
+	if len(instances.assignments) != 2 {
+		t.Fatalf("assignments = %+v", instances.assignments)
+	}
+	if instances.assignments[0].nodeID == instances.assignments[1].nodeID {
+		t.Fatal("both members landed on one node, so the scheduler forgot what it had just " +
+			"placed within the same pass")
+	}
+}
+
+func TestStrictPlacementHoldsRatherThanDoubleUp(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{{ID: "n-1", Name: "a", Zone: "rack-a"}}}
+	instances := &fakeInstances{
+		pending: []Pending{{ID: "i-2", Name: "web-2", Group: "web", Strict: true}},
+		groups:  map[string]map[string]int{"web": {"n-1": 1}},
+	}
+
+	s := newTestScheduler(nodes, instances)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("step: %v", err)
+	}
+
+	if len(instances.assignments) != 0 {
+		t.Fatalf("assigned %+v, want the guarantee kept", instances.assignments)
+	}
+	if reason := instances.held["i-2"]; reason == "" {
+		t.Fatal("nothing was recorded, so the instance sits pending with no explanation")
+	} else if !strings.Contains(reason, "web") {
+		t.Fatalf("reason = %q, want it to name the group", reason)
+	}
+}
+
+func TestWithoutStrictAGroupDoublesUpRatherThanStall(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{{ID: "n-1", Name: "a", Zone: "rack-a"}}}
+	instances := &fakeInstances{
+		pending: []Pending{{ID: "i-2", Name: "web-2", Group: "web"}},
+		groups:  map[string]map[string]int{"web": {"n-1": 1}},
+	}
+
+	s := newTestScheduler(nodes, instances)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("step: %v", err)
+	}
+	if len(instances.assignments) != 1 {
+		t.Fatalf("assignments = %+v, want it placed anyway", instances.assignments)
+	}
 }

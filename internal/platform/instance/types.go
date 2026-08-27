@@ -95,6 +95,8 @@ type Instance struct {
 	Observed        ObservedState
 	ObservedMessage string
 	NodeID          string
+	Group           string
+	Strict          bool
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -108,6 +110,8 @@ type Footprint struct {
 type CreateParams struct {
 	ProjectID     string
 	Name          string
+	Group         string
+	Strict        bool
 	Isolation     string
 	Image         string
 	ISO           string

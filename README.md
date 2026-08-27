@@ -564,6 +564,36 @@ $ cat /sys/fs/cgroup/marstack/$ID/memory.max   536870912        ← 512Mi enforc
 $ cat /sys/fs/cgroup/marstack/$ID/cpu.max      100000 100000    ← one vCPU
 ```
 
+## Placement
+
+Instances sharing a placement group are spread apart:
+
+```sh
+marstack instance create --name web-1 --isolation container --image alpine:3.20   --placement-group web
+marstack instance create --name web-2 --isolation container --image alpine:3.20   --placement-group web
+```
+
+Zones come first, then nodes. A zone is the failure domain a group exists to
+survive, so the scheduler fills the zone holding no member before it looks at
+individual nodes. After that it falls back to what it did before: most free
+memory, then fewest instances.
+
+Members placed in the same pass do not collide — the scheduler counts what it
+has just assigned, not only what the database already knew.
+
+By default the spread is a preference. With `--placement-strict` it is a
+guarantee, and an instance that cannot be placed without breaking it stays
+pending with the reason on the instance:
+
+```
+NAME    DESIRED   OBSERVED   MESSAGE
+web-2   running   pending    every ready node already runs a member of placement group web
+```
+
+That choice is the operator's: a strict group in a two-node fleet will refuse
+to run a third replica, and a soft one will double up rather than stall. Neither
+is right for everyone, so neither is the hidden default.
+
 ## Networking
 
 An instance is given an address when it is placed, and the agent wires it before the workload runs:

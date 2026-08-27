@@ -78,6 +78,14 @@ func (m *Module) PendingPlacement(ctx context.Context) ([]Instance, error) {
 	return m.svc.pendingPlacement(ctx)
 }
 
+func (m *Module) GroupCounts(ctx context.Context, group string) (map[string]int, error) {
+	return m.svc.groupCounts(ctx, group)
+}
+
+func (m *Module) HoldPlacement(ctx context.Context, instanceID, reason string) error {
+	return m.svc.holdPlacement(ctx, instanceID, reason)
+}
+
 func (m *Module) AssignedCounts(ctx context.Context) (map[string]int, error) {
 	return m.svc.assignedCounts(ctx)
 }
@@ -186,6 +194,21 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "instance",
 			Index:  15,
 			SQL:    `CREATE UNIQUE INDEX instances_name_unique ON instances (project_id, name)`,
+		},
+		{
+			Module: "instance",
+			Index:  16,
+			SQL:    `ALTER TABLE instances ADD COLUMN placement_group TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  17,
+			SQL:    `ALTER TABLE instances ADD COLUMN placement_strict INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			Module: "instance",
+			Index:  18,
+			SQL:    `CREATE INDEX instances_placement_group ON instances (placement_group)`,
 		},
 	}
 }
