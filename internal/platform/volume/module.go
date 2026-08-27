@@ -142,6 +142,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /v1/volumes/{id}", httpx.Wrap(m.log, m.handler.delete))
 	mux.Handle("POST /v1/volumes/{id}/attach", httpx.Wrap(m.log, m.handler.attach))
 	mux.Handle("POST /v1/volumes/{id}/detach", httpx.Wrap(m.log, m.handler.detach))
+	mux.Handle("POST /v1/volumes/{id}/resize", httpx.Wrap(m.log, m.handler.resize))
 
 	mux.Handle("POST /v1/volumes/{id}/snapshots", httpx.Wrap(m.log, m.handler.snapshot))
 	mux.Handle("GET /v1/volumes/{id}/snapshots", httpx.Wrap(m.log, m.handler.listSnapshots))

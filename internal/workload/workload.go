@@ -136,6 +136,13 @@ type Sampler interface {
 type VolumeKeeper interface {
 	PruneVolumes(keep []string) error
 	SyncSnapshots(plans []SnapshotPlan) []SnapshotState
+	GrowVolume(plan GrowPlan) error
+}
+
+type GrowPlan struct {
+	VolumeID string
+	SizeGiB  int
+	KeyFile  string
 }
 
 type VolumeArchiver interface {

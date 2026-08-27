@@ -5,8 +5,12 @@ package qemu
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
 func (r *Runtime) PruneVolumes(keep []string) error {
@@ -44,5 +48,34 @@ func (r *Runtime) PruneVolumes(keep []string) error {
 			return fmt.Errorf("remove %s: %w", name, err)
 		}
 	}
+	return nil
+}
+
+func (r *Runtime) GrowVolume(plan workload.GrowPlan) error {
+	path, err := r.volumeFile(plan.VolumeID)
+	if err != nil {
+		return nil
+	}
+
+	current, err := virtualSize(path, plan.KeyFile)
+	if err != nil {
+		return err
+	}
+
+	wanted := int64(plan.SizeGiB) << 30
+	if current >= wanted {
+		return nil
+	}
+
+	args := append([]string{"resize"}, imageArgs(path, plan.KeyFile)...)
+	args = append(args, strconv.FormatInt(wanted, 10))
+
+	if out, err := exec.Command("qemu-img", args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("grow volume %s: %w: %s",
+			plan.VolumeID, err, strings.TrimSpace(string(out)))
+	}
+
+	r.log.Info("volume grown",
+		"volume", plan.VolumeID, "from_bytes", current, "to_gib", plan.SizeGiB)
 	return nil
 }

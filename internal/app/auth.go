@@ -84,6 +84,7 @@ var memberPaths = []string{
 	"DELETE /v1/volumes/{id}",
 	"POST /v1/volumes/{id}/attach",
 	"POST /v1/volumes/{id}/detach",
+	"POST /v1/volumes/{id}/resize",
 	"GET /v1/volumes/{id}/snapshots",
 	"POST /v1/volumes/{id}/snapshots",
 

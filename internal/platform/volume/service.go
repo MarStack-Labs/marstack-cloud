@@ -20,6 +20,7 @@ type Instances interface {
 
 type Quota interface {
 	AdmitVolume(ctx context.Context, projectID string, sizeGiB int) error
+	AdmitVolumeGrowth(ctx context.Context, projectID string, extraGiB int) error
 }
 
 type Backups interface {
@@ -206,10 +207,11 @@ func (s *service) quiet(ctx context.Context, v Volume, action string) error {
 		return fault.Conflict("volume_empty",
 			"the volume has never been attached, so there is nothing on disk to "+action)
 	}
-	if v.InstanceID == "" {
-		return nil
-	}
-	if s.instances == nil {
+	return s.idle(ctx, v, action)
+}
+
+func (s *service) idle(ctx context.Context, v Volume, action string) error {
+	if v.InstanceID == "" || s.instances == nil {
 		return nil
 	}
 
@@ -497,4 +499,41 @@ func (s *service) keyForNode(ctx context.Context, volumeID, nodeID string) (stri
 		return "", fault.Internal(err)
 	}
 	return hex.EncodeToString(raw), nil
+}
+
+func (s *service) resize(ctx context.Context, nameOrID, projectID string, sizeGiB int) (Volume, error) {
+	v, err := s.resolveIn(ctx, nameOrID, projectID)
+	if err != nil {
+		return Volume{}, err
+	}
+
+	if sizeGiB < MinSizeGiB || sizeGiB > MaxSizeGiB {
+		return Volume{}, fault.Invalid("invalid_size", fmt.Sprintf(
+			"size_gib must be between %d and %d", MinSizeGiB, MaxSizeGiB))
+	}
+	if sizeGiB == v.SizeGiB {
+		return v, nil
+	}
+	if sizeGiB < v.SizeGiB {
+		return Volume{}, fault.Conflict("volume_shrink",
+			fmt.Sprintf("the volume is %d GiB, and shrinking it to %d would mean deciding "+
+				"which bytes to lose", v.SizeGiB, sizeGiB))
+	}
+
+	if err := s.idle(ctx, v, "resize"); err != nil {
+		return Volume{}, err
+	}
+
+	if s.quota != nil {
+		if err := s.quota.AdmitVolumeGrowth(ctx, v.ProjectID, sizeGiB-v.SizeGiB); err != nil {
+			return Volume{}, err
+		}
+	}
+
+	if err := s.repo.setSize(ctx, v.ID, sizeGiB, s.now()); err != nil {
+		return Volume{}, translate(err)
+	}
+
+	v.SizeGiB = sizeGiB
+	return v, nil
 }

@@ -457,6 +457,7 @@ func (a *Agent) applySnapshots(
 	}
 
 	plans := make([]workload.SnapshotPlan, 0, len(volumes))
+	grow := make([]workload.GrowPlan, 0, len(volumes))
 	for _, v := range volumes {
 		if a.volumeIsBusy(ctx, v, assigned) {
 			continue
@@ -481,6 +482,11 @@ func (a *Agent) applySnapshots(
 			plan.KeyFile = path
 		}
 		plans = append(plans, plan)
+		grow = append(grow, workload.GrowPlan{
+			VolumeID: v.ID,
+			SizeGiB:  v.SizeGiB,
+			KeyFile:  plan.KeyFile,
+		})
 	}
 
 	if len(plans) == 0 {
@@ -492,6 +498,12 @@ func (a *Agent) applySnapshots(
 		keeper, able := runtime.(workload.VolumeKeeper)
 		if !able {
 			continue
+		}
+
+		for _, plan := range grow {
+			if err := keeper.GrowVolume(plan); err != nil {
+				a.log.Warn("could not grow a volume", "volume", plan.VolumeID, "error", err)
+			}
 		}
 
 		for _, state := range keeper.SyncSnapshots(plans) {

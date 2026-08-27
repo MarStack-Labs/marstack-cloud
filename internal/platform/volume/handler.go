@@ -315,3 +315,23 @@ func (h *handler) nodeKey(w http.ResponseWriter, r *http.Request) error {
 	httpx.Write(w, http.StatusOK, keyResponse{VolumeID: r.PathValue("id"), Key: key})
 	return nil
 }
+
+type resizeRequest struct {
+	SizeGiB int `json:"size_gib"`
+}
+
+func (h *handler) resize(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[resizeRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	v, err := h.svc.resize(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, req.SizeGiB)
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(v))
+	return nil
+}

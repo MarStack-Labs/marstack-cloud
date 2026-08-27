@@ -920,9 +920,15 @@ func TestSnapshotsAreLeftAloneWhileTheGuestRuns(t *testing.T) {
 type snapshotRuntime struct {
 	fakeRuntime
 	plans int
+	grown []workload.GrowPlan
 }
 
 func (r *snapshotRuntime) PruneVolumes([]string) error { return nil }
+
+func (r *snapshotRuntime) GrowVolume(plan workload.GrowPlan) error {
+	r.grown = append(r.grown, plan)
+	return nil
+}
 
 func (r *snapshotRuntime) SyncSnapshots(plans []workload.SnapshotPlan) []workload.SnapshotState {
 	r.plans += len(plans)

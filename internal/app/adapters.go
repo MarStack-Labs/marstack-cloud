@@ -252,6 +252,12 @@ func (q volumeQuota) AdmitVolume(ctx context.Context, projectID string, sizeGiB 
 	return q.quotas.Admit(ctx, projectID, quota.Claim{Volumes: 1, VolumeGiB: sizeGiB})
 }
 
+func (q volumeQuota) AdmitVolumeGrowth(
+	ctx context.Context, projectID string, extraGiB int,
+) error {
+	return q.quotas.Admit(ctx, projectID, quota.Claim{VolumeGiB: extraGiB})
+}
+
 type backupVolumes struct {
 	volumes *volume.Module
 }

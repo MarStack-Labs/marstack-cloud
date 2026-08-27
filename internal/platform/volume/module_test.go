@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -684,4 +685,77 @@ func TestAPlaintextRestoreStaysPlaintext(t *testing.T) {
 	if created.Encrypted {
 		t.Fatal("a plaintext backup produced a volume claiming encryption")
 	}
+}
+
+func resizeTo(t *testing.T, h http.Handler, name string, size int) *httptest.ResponseRecorder {
+	t.Helper()
+	return request(t, h, http.MethodPost, "/v1/volumes/"+name+"/resize",
+		`{"size_gib":`+strconv.Itoa(size)+`}`)
+}
+
+func TestAVolumeGrows(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+
+	create(t, h, `{"name":"data","size_gib":4}`)
+	rec := resizeTo(t, h, "data", 10)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d %s", rec.Code, rec.Body.String())
+	}
+
+	var resized response
+	if err := json.Unmarshal(rec.Body.Bytes(), &resized); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resized.SizeGiB != 10 {
+		t.Fatalf("size = %d, want 10", resized.SizeGiB)
+	}
+}
+
+func TestAVolumeDoesNotShrink(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+
+	create(t, h, `{"name":"data","size_gib":10}`)
+	rec := resizeTo(t, h, "data", 4)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: shrinking means choosing bytes to lose, which is not "+
+			"a control plane's call", rec.Code, http.StatusConflict)
+	}
+
+	if got := resizeTo(t, h, "data", 10); got.Code != http.StatusOK {
+		t.Fatalf("status = %d, want the same size to be a no-op", got.Code)
+	}
+}
+
+func TestGrowthIsRefusedWhileTheGuestRuns(t *testing.T) {
+	h, _ := newTestModule(t, runningVM("n-1"))
+
+	create(t, h, `{"name":"data","size_gib":4}`)
+	if rec := request(t, h, http.MethodPost, "/v1/volumes/data/attach",
+		`{"instance_id":"i-1"}`); rec.Code != http.StatusOK {
+		t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec := resizeTo(t, h, "data", 10)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: qemu holds the write lock, so the resize would fail "+
+			"halfway", rec.Code, http.StatusConflict)
+	}
+}
+
+func TestGrowthGoesThroughTheQuota(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+	m.UseQuota(refusingQuota{})
+
+	create(t, h, `{"name":"data","size_gib":4}`)
+	if rec := resizeTo(t, h, "data", 10); rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want the quota to be asked about the extra capacity", rec.Code)
+	}
+}
+
+type refusingQuota struct{}
+
+func (refusingQuota) AdmitVolume(context.Context, string, int) error { return nil }
+
+func (refusingQuota) AdmitVolumeGrowth(context.Context, string, int) error {
+	return fault.Conflict("quota_exceeded", "no room to grow")
 }

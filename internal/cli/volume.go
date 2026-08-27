@@ -48,6 +48,7 @@ func newVolumeCmd(g *globals) *cobra.Command {
 		newVolumeDetachCmd(g),
 		newVolumeDeleteCmd(g),
 		newVolumeSnapshotCmd(g),
+		newVolumeResizeCmd(g),
 	)
 	return cmd
 }
@@ -310,4 +311,39 @@ func newSnapshotDeleteCmd(g *globals) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newVolumeResizeCmd(g *globals) *cobra.Command {
+	var req struct {
+		SizeGiB int `json:"size_gib"`
+	}
+
+	cmd := &cobra.Command{
+		Use:   "resize <volume>",
+		Short: "Grow a volume",
+		Long: "Grow a volume.\n\n" +
+			"A volume only grows. Shrinking means choosing which bytes to lose, which is not\n" +
+			"a decision a control plane should make on its own. The guest must be stopped,\n" +
+			"because qemu holds the disk open while it runs, and the node applies the new\n" +
+			"size on its next pass. The filesystem inside the guest still needs growing by\n" +
+			"the guest.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var resized volumeView
+			err := g.client().do(cmd.Context(), "POST",
+				"/v1/volumes/"+args[0]+"/resize", req, &resized)
+			if err != nil {
+				return err
+			}
+
+			cmd.PrintErrln("the node grows the disk on its next pass; " +
+				"the guest still has to grow its filesystem")
+			return renderVolume(cmd, g, resized)
+		},
+	}
+
+	cmd.Flags().IntVar(&req.SizeGiB, "size-gib", 0, "the new size in GiB")
+	must(cmd.MarkFlagRequired("size-gib"))
+
+	return cmd
 }

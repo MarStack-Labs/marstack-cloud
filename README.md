@@ -217,6 +217,30 @@ pass a limit they would individually respect. SQLite runs one writer at a time
 so the window is small, and closing it properly needs a transaction spanning
 two modules, which this architecture deliberately does not allow.
 
+### Growing a volume
+
+```sh
+marstack instance stop i-7dn7y7vsn7218
+marstack volume resize data-1 --size-gib 20
+```
+
+A volume only grows. Shrinking means choosing which bytes to lose, and that is
+not a decision a control plane should make on its own, so it is refused with the
+current size in the message.
+
+The guest must be stopped, because qemu holds the disk open while it runs and
+`qemu-img resize` would be writing to an image that is changing underneath. The
+control plane records the new size and the node applies it on its next pass,
+comparing the file's virtual size with the wanted one — so a resize that arrives
+while a node is down still happens when it comes back.
+
+A volume that has never been attached has no file yet, so resizing it is only a
+change of mind about how big to make it. That case is allowed where snapshots
+and backups are not.
+
+Growing the filesystem inside the guest is the guest's job. The platform gives
+it a bigger disk and stops there.
+
 ## Backups
 
 A snapshot lives inside the volume file, on the node that holds it. That

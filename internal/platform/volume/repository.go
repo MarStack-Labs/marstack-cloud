@@ -332,3 +332,13 @@ func scan(row scanner) (Volume, error) {
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "unique")
 }
+
+func (r *repository) setSize(ctx context.Context, id string, sizeGiB int, at time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE volumes SET size_gib = ?, updated_at = ? WHERE id = ?`,
+		sizeGiB, at.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("record the new size: %w", err)
+	}
+	return nil
+}
