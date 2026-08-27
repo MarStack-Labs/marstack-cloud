@@ -12,6 +12,8 @@ const (
 	BootstrapFileName = "bootstrap-token"
 
 	defaultProjectID = "prj-default"
+
+	MaxLifetime = 10 * 365 * 24 * time.Hour
 )
 
 type Token struct {

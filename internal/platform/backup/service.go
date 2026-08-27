@@ -3,12 +3,14 @@ package backup
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/interval"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -52,14 +54,15 @@ func (s *service) create(ctx context.Context, params CreateParams) (Backup, erro
 
 	now := s.now()
 	b := Backup{
-		ID:        ids.New("bkp"),
-		ProjectID: params.ProjectID,
-		VolumeID:  params.VolumeID,
-		NodeID:    source.NodeID,
-		Name:      params.Name,
-		State:     StatePending,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:         ids.New("bkp"),
+		ProjectID:  params.ProjectID,
+		ScheduleID: params.ScheduleID,
+		VolumeID:   params.VolumeID,
+		NodeID:     source.NodeID,
+		Name:       params.Name,
+		State:      StatePending,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	if err := s.repo.insert(ctx, b); err != nil {
@@ -140,6 +143,14 @@ func (s *service) store(ctx context.Context, id, nodeID string, content io.Reade
 	b.SizeBytes = size
 	b.Checksum = checksum
 	b.UpdatedAt = at
+
+	if b.ScheduleID != "" {
+		if sc, err := s.repo.scheduleOf(ctx, b.VolumeID); err == nil && sc.ID == b.ScheduleID {
+			if _, err := s.retain(ctx, sc); err != nil {
+				return b, fault.Internal(err)
+			}
+		}
+	}
 	return b, nil
 }
 
@@ -209,4 +220,171 @@ func translate(err error) error {
 	default:
 		return fault.Internal(err)
 	}
+}
+
+func (s *service) setSchedule(ctx context.Context, params ScheduleParams) (Schedule, error) {
+	every, err := interval.Parse(params.Every)
+	if err != nil {
+		return Schedule{}, fault.Invalid("invalid_interval", err.Error())
+	}
+	if every < MinEvery || every > MaxEvery {
+		return Schedule{}, fault.Invalid("invalid_interval",
+			"the interval must be between "+MinEvery.String()+" and "+MaxEvery.String())
+	}
+	if params.Keep < MinKeep || params.Keep > MaxKeep {
+		return Schedule{}, fault.Invalid("invalid_keep", fmt.Sprintf(
+			"keep must be between %d and %d, because a schedule that keeps nothing "+
+				"copies for no reason", MinKeep, MaxKeep))
+	}
+
+	if s.volumes == nil {
+		return Schedule{}, fault.Unavailable("volumes_unavailable",
+			"the platform cannot look up the volume")
+	}
+	if _, err := s.volumes.Source(ctx, params.VolumeID, params.ProjectID); err != nil {
+		return Schedule{}, err
+	}
+
+	now := s.now()
+	sc := Schedule{
+		ID:        ids.New("bsc"),
+		ProjectID: params.ProjectID,
+		VolumeID:  params.VolumeID,
+		Every:     every,
+		Keep:      params.Keep,
+		NextAt:    now.Add(every),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if existing, err := s.repo.scheduleOf(ctx, params.VolumeID); err == nil {
+		sc.ID = existing.ID
+		sc.CreatedAt = existing.CreatedAt
+		sc.LastAt = existing.LastAt
+	} else if !errors.Is(err, errNotFound) {
+		return Schedule{}, fault.Internal(err)
+	}
+
+	if err := s.repo.upsertSchedule(ctx, sc); err != nil {
+		return Schedule{}, fault.Internal(err)
+	}
+	return sc, nil
+}
+
+func (s *service) scheduleOf(ctx context.Context, volumeID, projectID string) (Schedule, error) {
+	if s.volumes == nil {
+		return Schedule{}, fault.Unavailable("volumes_unavailable",
+			"the platform cannot look up the volume")
+	}
+	if _, err := s.volumes.Source(ctx, volumeID, projectID); err != nil {
+		return Schedule{}, err
+	}
+
+	sc, err := s.repo.scheduleOf(ctx, volumeID)
+	if errors.Is(err, errNotFound) {
+		return Schedule{}, fault.NotFound("schedule_not_found",
+			"that volume carries no backup schedule")
+	}
+	if err != nil {
+		return Schedule{}, fault.Internal(err)
+	}
+	return sc, nil
+}
+
+func (s *service) schedulesIn(ctx context.Context, projectID string) ([]Schedule, error) {
+	schedules, err := s.repo.schedulesIn(ctx, projectID)
+	if err != nil {
+		return nil, fault.Internal(err)
+	}
+	return schedules, nil
+}
+
+func (s *service) removeSchedule(ctx context.Context, volumeID, projectID string) error {
+	if _, err := s.scheduleOf(ctx, volumeID, projectID); err != nil {
+		return err
+	}
+	if err := s.repo.deleteSchedule(ctx, volumeID); err != nil {
+		return fault.Internal(err)
+	}
+	return nil
+}
+
+func (s *service) sweep(ctx context.Context) (taken, pruned int, err error) {
+	now := s.now()
+
+	due, err := s.repo.schedulesDue(ctx, now)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	for _, sc := range due {
+		fired, err := s.fire(ctx, sc, now)
+		if err != nil {
+			return taken, pruned, err
+		}
+		if fired {
+			taken++
+		}
+
+		gone, err := s.retain(ctx, sc)
+		if err != nil {
+			return taken, pruned, err
+		}
+		pruned += gone
+	}
+	return taken, pruned, nil
+}
+
+func (s *service) fire(ctx context.Context, sc Schedule, now time.Time) (bool, error) {
+	if err := s.repo.markScheduleFired(ctx, sc.ID, now, now.Add(sc.Every)); err != nil {
+		return false, err
+	}
+
+	waiting, err := s.repo.pendingForVolume(ctx, sc.VolumeID)
+	if err != nil {
+		return false, err
+	}
+	if waiting > 0 {
+		return false, nil
+	}
+
+	_, err = s.create(ctx, CreateParams{
+		ProjectID:  sc.ProjectID,
+		VolumeID:   sc.VolumeID,
+		Name:       "auto-" + now.Format("20060102-150405"),
+		ScheduleID: sc.ID,
+	})
+	if err != nil {
+		return false, nil
+	}
+	return true, nil
+}
+
+func (s *service) retain(ctx context.Context, sc Schedule) (int, error) {
+	made, err := s.repo.madeBySchedule(ctx, sc.ID)
+	if err != nil {
+		return 0, err
+	}
+
+	keepable := make([]Backup, 0, len(made))
+	for _, b := range made {
+		if b.State == StateReady {
+			keepable = append(keepable, b)
+		}
+	}
+	if len(keepable) <= sc.Keep {
+		return 0, nil
+	}
+
+	pruned := 0
+	for _, b := range keepable[sc.Keep:] {
+		if err := s.vault.remove(b.ID); err != nil {
+			return pruned, err
+		}
+		if err := s.repo.delete(ctx, b.ID); err != nil {
+			return pruned, err
+		}
+		pruned++
+	}
+	return pruned, nil
 }

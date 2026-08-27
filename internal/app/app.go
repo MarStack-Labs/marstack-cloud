@@ -261,6 +261,7 @@ func (a *App) Handler() http.Handler {
 
 func (a *App) Run(ctx context.Context) error {
 	go a.scheduler.Run(ctx)
+	go a.backups.Run(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

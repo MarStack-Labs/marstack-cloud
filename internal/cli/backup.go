@@ -47,7 +47,8 @@ func newBackupCmd(g *globals) *cobra.Command {
 			"marstack volume create --from-backup.",
 		Aliases: []string{"backups"},
 	}
-	cmd.AddCommand(newBackupCreateCmd(g), newBackupListCmd(g), newBackupDeleteCmd(g))
+	cmd.AddCommand(newBackupCreateCmd(g), newBackupListCmd(g), newBackupDeleteCmd(g),
+		newScheduleCmd(g))
 	return cmd
 }
 
@@ -123,6 +124,109 @@ func newBackupDeleteCmd(g *globals) *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return g.client().do(cmd.Context(), "DELETE", "/v1/backups/"+args[0], nil, nil)
+		},
+	}
+}
+
+type scheduleView struct {
+	ID       string `json:"id"`
+	VolumeID string `json:"volume_id"`
+	Every    string `json:"every"`
+	Keep     int    `json:"keep"`
+	NextAt   string `json:"next_at"`
+	LastAt   string `json:"last_at,omitempty"`
+}
+
+type scheduleListView struct {
+	Schedules []scheduleView `json:"schedules"`
+}
+
+var scheduleHeaders = []string{"VOLUME", "EVERY", "KEEP", "NEXT", "LAST"}
+
+func scheduleRow(sc scheduleView) []string {
+	last := sc.LastAt
+	if last == "" {
+		last = "never"
+	}
+	return []string{sc.VolumeID, sc.Every, strconv.Itoa(sc.Keep),
+		shortStamp(sc.NextAt), shortStamp(last)}
+}
+
+func newScheduleCmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "schedule",
+		Short: "Take backups on a timer and keep only the newest",
+		Long: "Take backups on a timer and keep only the newest.\n\n" +
+			"A volume carries at most one schedule. Retention only ever removes copies the\n" +
+			"schedule itself made, so a backup you took by hand is never pruned.",
+		Aliases: []string{"schedules"},
+	}
+	cmd.AddCommand(newScheduleSetCmd(g), newScheduleListCmd(g), newScheduleClearCmd(g))
+	return cmd
+}
+
+func newScheduleSetCmd(g *globals) *cobra.Command {
+	var req struct {
+		Every string `json:"every"`
+		Keep  int    `json:"keep"`
+	}
+
+	cmd := &cobra.Command{
+		Use:   "set <volume>",
+		Short: "Set or replace the backup schedule of a volume",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var sc scheduleView
+			err := g.client().do(cmd.Context(), "PUT", "/v1/volumes/"+args[0]+"/schedule", req, &sc)
+			if err != nil {
+				return err
+			}
+			return render(cmd.OutOrStdout(), g.output, sc, table{
+				headers: scheduleHeaders,
+				rows:    [][]string{scheduleRow(sc)},
+			})
+		},
+	}
+
+	cmd.Flags().StringVar(&req.Every, "every", "", "how often, such as 6h, 1d or 1w")
+	cmd.Flags().IntVar(&req.Keep, "keep", 7, "how many of its own copies to keep")
+	must(cmd.MarkFlagRequired("every"))
+
+	return cmd
+}
+
+func newScheduleListCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List backup schedules",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var list scheduleListView
+			err := g.client().do(cmd.Context(), "GET", "/v1/backup-schedules", nil, &list)
+			if err != nil {
+				return err
+			}
+
+			rows := make([][]string, 0, len(list.Schedules))
+			for _, sc := range list.Schedules {
+				rows = append(rows, scheduleRow(sc))
+			}
+			return render(cmd.OutOrStdout(), g.output, list, table{
+				headers: scheduleHeaders,
+				rows:    rows,
+			})
+		},
+	}
+}
+
+func newScheduleClearCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "clear <volume>",
+		Short: "Stop taking scheduled backups of a volume",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return g.client().do(cmd.Context(), "DELETE",
+				"/v1/volumes/"+args[0]+"/schedule", nil, nil)
 		},
 	}
 }

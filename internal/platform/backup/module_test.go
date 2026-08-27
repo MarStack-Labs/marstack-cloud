@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
@@ -306,5 +308,229 @@ func TestTwoBackupsOfOneVolumeCannotShareAName(t *testing.T) {
 	rec := request(t, h, http.MethodPost, "/v1/volumes/"+testVolume+"/backups", `{"name":"nightly"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+}
+
+func setSchedule(t *testing.T, h http.Handler, every string, keep int) scheduleResponse {
+	t.Helper()
+
+	body := `{"every":"` + every + `","keep":` + strconv.Itoa(keep) + `}`
+	rec := request(t, h, http.MethodPut, "/v1/volumes/"+testVolume+"/schedule", body)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set schedule: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var sc scheduleResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &sc); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return sc
+}
+
+func TestAScheduleIsRefusedWhenItMakesNoSense(t *testing.T) {
+	h, _, _ := newTestModule(t)
+
+	for name, body := range map[string]string{
+		"no interval":  `{"every":"","keep":3}`,
+		"too often":    `{"every":"1s","keep":3}`,
+		"nonsense":     `{"every":"whenever","keep":3}`,
+		"keeps none":   `{"every":"1h","keep":0}`,
+		"keeps absurd": `{"every":"1h","keep":9999}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := request(t, h, http.MethodPut,
+				"/v1/volumes/"+testVolume+"/schedule", body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+func TestASweepTakesABackupWhenTheScheduleIsDue(t *testing.T) {
+	h, m, _ := newTestModule(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	m.svc.now = func() time.Time { return now }
+
+	setSchedule(t, h, "1h", 3)
+
+	taken, _, err := m.svc.sweep(ctx)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if taken != 0 {
+		t.Fatalf("took %d backups before the interval passed", taken)
+	}
+
+	now = now.Add(time.Hour + time.Second)
+	taken, _, err = m.svc.sweep(ctx)
+	if err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
+	if taken != 1 {
+		t.Fatalf("took %d, want exactly one", taken)
+	}
+
+	backups, err := m.svc.listIn(ctx, testProject)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("backups = %d", len(backups))
+	}
+	if backups[0].ScheduleID == "" {
+		t.Fatal("the backup does not name the schedule that made it, so retention " +
+			"cannot tell it apart from one an operator took")
+	}
+}
+
+func TestASweepDoesNotPileUpBehindAStuckNode(t *testing.T) {
+	h, m, _ := newTestModule(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	m.svc.now = func() time.Time { return now }
+	setSchedule(t, h, "1h", 5)
+
+	for range 4 {
+		now = now.Add(time.Hour + time.Second)
+		if _, _, err := m.svc.sweep(ctx); err != nil {
+			t.Fatalf("sweep: %v", err)
+		}
+	}
+
+	backups, err := m.svc.listIn(ctx, testProject)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(backups) != 1 {
+		t.Fatalf("backups = %d, want one: a node that never uploads must not collect a "+
+			"queue of copies nobody can finish", len(backups))
+	}
+}
+
+func TestRetentionDropsTheOldestCopiesItMade(t *testing.T) {
+	h, m, dir := newTestModule(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	m.svc.now = func() time.Time { return now }
+	setSchedule(t, h, "1h", 2)
+
+	ids := make([]string, 0, 4)
+	for range 4 {
+		now = now.Add(time.Hour + time.Second)
+		if _, _, err := m.svc.sweep(ctx); err != nil {
+			t.Fatalf("sweep: %v", err)
+		}
+
+		backups, err := m.svc.listIn(ctx, testProject)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, b := range backups {
+			if b.State != StatePending {
+				continue
+			}
+			upload(t, h, b.ID, "bytes-"+b.Name)
+			ids = append(ids, b.ID)
+		}
+	}
+
+	backups, err := m.svc.listIn(ctx, testProject)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(backups) != 2 {
+		names := make([]string, 0, len(backups))
+		for _, b := range backups {
+			names = append(names, b.Name)
+		}
+		t.Fatalf("kept %v, want the newest two", names)
+	}
+
+	kept := map[string]bool{}
+	for _, b := range backups {
+		kept[b.ID] = true
+	}
+	for _, id := range ids {
+		_, err := os.Stat(filepath.Join(dir, DirName, id))
+		if kept[id] && err != nil {
+			t.Fatalf("a kept backup lost its bytes: %v", err)
+		}
+		if !kept[id] && !os.IsNotExist(err) {
+			t.Fatal("a pruned backup left its bytes behind, so the disk fills up with " +
+				"copies no record points at")
+		}
+	}
+}
+
+func TestRetentionLeavesAManualBackupAlone(t *testing.T) {
+	h, m, _ := newTestModule(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	m.svc.now = func() time.Time { return now }
+
+	manual := newBackup(t, h, "before-upgrade")
+	upload(t, h, manual.ID, "precious")
+
+	setSchedule(t, h, "1h", 1)
+	for range 3 {
+		now = now.Add(time.Hour + time.Second)
+		if _, _, err := m.svc.sweep(ctx); err != nil {
+			t.Fatalf("sweep: %v", err)
+		}
+		backups, err := m.svc.listIn(ctx, testProject)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, b := range backups {
+			if b.State == StatePending {
+				upload(t, h, b.ID, "bytes")
+			}
+		}
+	}
+
+	if _, err := m.svc.getIn(ctx, manual.ID, testProject); err != nil {
+		t.Fatalf("the manual backup was pruned by a schedule that did not make it: %v", err)
+	}
+}
+
+func TestAScheduleIsReplacedRatherThanDuplicated(t *testing.T) {
+	h, m, _ := newTestModule(t)
+
+	first := setSchedule(t, h, "1h", 3)
+	second := setSchedule(t, h, "6h", 7)
+
+	if first.ID != second.ID {
+		t.Fatalf("ids %s and %s: a volume carries one schedule", first.ID, second.ID)
+	}
+	if second.Keep != 7 || second.Every != "6h0m0s" {
+		t.Fatalf("schedule = %+v, want the new terms", second)
+	}
+
+	schedules, err := m.svc.schedulesIn(context.Background(), testProject)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(schedules) != 1 {
+		t.Fatalf("schedules = %d, want one", len(schedules))
+	}
+}
+
+func TestAScheduleOnAnotherProjectsVolumeIsOutOfReach(t *testing.T) {
+	h, _, _ := newTestModule(t)
+
+	req := httptest.NewRequest(http.MethodPut, "/v1/volumes/"+testVolume+"/schedule",
+		strings.NewReader(`{"every":"1h","keep":3}`))
+	req = req.WithContext(scope.With(req.Context(), scope.Scope{ProjectID: "prj-other"}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }

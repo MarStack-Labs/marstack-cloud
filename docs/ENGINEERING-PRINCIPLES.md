@@ -114,6 +114,9 @@ make check      # vet + test + security scans
   duplicated on purpose: importing the project module from every other module to share a constant
   would break the rule that modules do not depend on each other. Never change the literal - a
   shipped migration is history.
+- Backup retention runs in two places on purpose: when a backup becomes ready, and on every sweep.
+  The first is when the count actually changes; the second is what makes a lowered `keep` take
+  effect without waiting for the next copy. Removing either leaves a real gap.
 - A snapshot and a backup protect against different things. A snapshot is internal to the qcow2
   file on the node, so it survives a bad write but dies with the disk. A backup is a copy held by
   the control plane. Do not "simplify" one into the other; the whole point is that they fail

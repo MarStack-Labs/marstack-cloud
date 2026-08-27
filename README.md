@@ -252,6 +252,34 @@ The agent notices the volume names a backup, fetches the bytes before anything
 starts, and writes them as the volume file. Recovering from a node that is gone
 for good works the same way, because the bytes never lived only on that node.
 
+A backup somebody has to remember to take is not protection. A volume can carry
+one schedule:
+
+```sh
+marstack backup schedule set data-1 --every 6h --keep 7
+marstack backup schedule list
+```
+
+```
+VOLUME              EVERY     KEEP   NEXT                  LAST
+vol-xr6yrzzt4paf8   6h0m0s    7      2026-08-27T14:20:14   2026-08-27T08:20:14
+```
+
+The control plane sweeps due schedules every minute, queues a backup named
+`auto-<timestamp>`, and prunes its own older copies down to `keep`. Two things
+it deliberately does not do:
+
+- It never prunes a backup you took by hand. Retention only removes copies
+  carrying the schedule's id, so `before-upgrade` survives any number of
+  automatic ones.
+- It never queues a second copy of a volume while one is still pending. A node
+  that cannot upload — out of disk, partitioned, holding a running guest —
+  would otherwise collect a queue nobody can drain.
+
+Retention runs when a backup becomes ready, not only on the next sweep, because
+the count only changes at that moment. It runs on the sweep as well, so
+lowering `keep` takes effect without waiting for the next copy.
+
 The bytes land in `<data-dir>/backups/` on the control plane. That makes the
 control plane the thing worth protecting — which is honest, and better than
 having no copy off the node at all. Shipping them to object storage instead is
@@ -633,6 +661,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 18  off-node volume backup and restore                done
 19  token lifetimes + TLS on the API                  done
 20  per-project quotas + read-only viewer role        done
+21  scheduled backups + retention                     done
 ```
 
 ## License

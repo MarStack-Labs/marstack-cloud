@@ -16,8 +16,11 @@ var (
 	errNameTaken = errors.New("backup name already exists")
 )
 
-const columns = `id, project_id, volume_id, node_id, name, state, message, size_bytes, ` +
-	`checksum, created_at, updated_at`
+const columns = `id, project_id, schedule_id, volume_id, node_id, name, state, message, ` +
+	`size_bytes, checksum, created_at, updated_at`
+
+const scheduleColumns = `id, project_id, volume_id, every_seconds, keep, next_at, last_at, ` +
+	`created_at, updated_at`
 
 type repository struct {
 	db *sql.DB
@@ -29,8 +32,9 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, b Backup) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO backups (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		b.ID, b.ProjectID, b.VolumeID, b.NodeID, b.Name, b.State, b.Message, b.SizeBytes,
+		`INSERT INTO backups (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		b.ID, b.ProjectID, b.ScheduleID, b.VolumeID, b.NodeID, b.Name, b.State, b.Message,
+		b.SizeBytes,
 		b.Checksum, b.CreatedAt.Format(time.RFC3339Nano), b.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -127,8 +131,8 @@ func scan(row scanner) (Backup, error) {
 		b                Backup
 		created, updated string
 	)
-	if err := row.Scan(&b.ID, &b.ProjectID, &b.VolumeID, &b.NodeID, &b.Name, &b.State,
-		&b.Message, &b.SizeBytes, &b.Checksum, &created, &updated); err != nil {
+	if err := row.Scan(&b.ID, &b.ProjectID, &b.ScheduleID, &b.VolumeID, &b.NodeID, &b.Name,
+		&b.State, &b.Message, &b.SizeBytes, &b.Checksum, &created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Backup{}, err
 		}
@@ -151,4 +155,160 @@ func scan(row scanner) (Backup, error) {
 
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "unique")
+}
+
+func (r *repository) upsertSchedule(ctx context.Context, sc Schedule) error {
+	_, err := r.db.ExecContext(ctx,
+		`INSERT INTO backup_schedules (`+scheduleColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT (volume_id) DO UPDATE SET
+		   every_seconds = excluded.every_seconds,
+		   keep = excluded.keep,
+		   next_at = excluded.next_at,
+		   updated_at = excluded.updated_at`,
+		sc.ID, sc.ProjectID, sc.VolumeID, int64(sc.Every.Seconds()), sc.Keep,
+		sc.NextAt.Format(time.RFC3339Nano), stampOf(sc.LastAt),
+		sc.CreatedAt.Format(time.RFC3339Nano), sc.UpdatedAt.Format(time.RFC3339Nano),
+	)
+	if err != nil {
+		return fmt.Errorf("write backup schedule: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) scheduleOf(ctx context.Context, volumeID string) (Schedule, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+scheduleColumns+` FROM backup_schedules WHERE volume_id = ?`, volumeID)
+
+	sc, err := scanSchedule(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Schedule{}, errNotFound
+	}
+	if err != nil {
+		return Schedule{}, fmt.Errorf("read backup schedule: %w", err)
+	}
+	return sc, nil
+}
+
+func (r *repository) schedulesIn(ctx context.Context, projectID string) ([]Schedule, error) {
+	return r.querySchedules(ctx,
+		`SELECT `+scheduleColumns+` FROM backup_schedules WHERE project_id = ? ORDER BY next_at`,
+		projectID)
+}
+
+func (r *repository) schedulesDue(ctx context.Context, at time.Time) ([]Schedule, error) {
+	return r.querySchedules(ctx,
+		`SELECT `+scheduleColumns+` FROM backup_schedules WHERE next_at <= ? ORDER BY next_at`,
+		at.Format(time.RFC3339Nano))
+}
+
+func (r *repository) querySchedules(ctx context.Context, query string, args ...any) ([]Schedule, error) {
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list backup schedules: %w", err)
+	}
+	defer rows.Close()
+
+	schedules := make([]Schedule, 0, 4)
+	for rows.Next() {
+		sc, scanErr := scanSchedule(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		schedules = append(schedules, sc)
+	}
+	return schedules, rows.Err()
+}
+
+func (r *repository) markScheduleFired(ctx context.Context, id string, last, next time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE backup_schedules SET last_at = ?, next_at = ?, updated_at = ? WHERE id = ?`,
+		last.Format(time.RFC3339Nano), next.Format(time.RFC3339Nano),
+		last.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("record the schedule firing: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) deleteSchedule(ctx context.Context, volumeID string) error {
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM backup_schedules WHERE volume_id = ?`, volumeID)
+	if err != nil {
+		return fmt.Errorf("delete backup schedule: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete backup schedule: %w", err)
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func (r *repository) madeBySchedule(ctx context.Context, scheduleID string) ([]Backup, error) {
+	return r.query(ctx,
+		`SELECT `+columns+` FROM backups WHERE schedule_id = ? ORDER BY created_at DESC`,
+		scheduleID)
+}
+
+func (r *repository) pendingForVolume(ctx context.Context, volumeID string) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM backups WHERE volume_id = ? AND state = ?`,
+		volumeID, StatePending).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count pending backups: %w", err)
+	}
+	return count, nil
+}
+
+func stampOf(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	return at.Format(time.RFC3339Nano)
+}
+
+func parseStamp(text string) (time.Time, error) {
+	if text == "" {
+		return time.Time{}, nil
+	}
+	at, err := time.Parse(time.RFC3339Nano, text)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse a timestamp: %w", err)
+	}
+	return at, nil
+}
+
+func scanSchedule(row scanner) (Schedule, error) {
+	var (
+		sc      Schedule
+		seconds int64
+		next    string
+		last    string
+		created string
+		updated string
+	)
+	if err := row.Scan(&sc.ID, &sc.ProjectID, &sc.VolumeID, &seconds, &sc.Keep,
+		&next, &last, &created, &updated); err != nil {
+		return Schedule{}, err
+	}
+	sc.Every = time.Duration(seconds) * time.Second
+
+	stamps := []struct {
+		raw    string
+		target *time.Time
+	}{
+		{next, &sc.NextAt}, {last, &sc.LastAt}, {created, &sc.CreatedAt}, {updated, &sc.UpdatedAt},
+	}
+	for _, stamp := range stamps {
+		at, err := parseStamp(stamp.raw)
+		if err != nil {
+			return Schedule{}, err
+		}
+		*stamp.target = at
+	}
+	return sc, nil
 }

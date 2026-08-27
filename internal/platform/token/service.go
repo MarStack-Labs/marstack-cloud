@@ -12,6 +12,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/interval"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -55,7 +56,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Token, strin
 		return Token{}, "", err
 	}
 
-	lifetime, err := ParseLifetime(params.ExpiresIn)
+	lifetime, err := interval.Parse(params.ExpiresIn)
 	if err != nil {
 		return Token{}, "", fault.Invalid("invalid_lifetime", err.Error())
 	}

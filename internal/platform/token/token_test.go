@@ -182,30 +182,6 @@ func TestTwoTokensNeverShareASecret(t *testing.T) {
 	}
 }
 
-func TestALifetimeIsReadInDaysAndWeeksAsWellAsHours(t *testing.T) {
-	for text, want := range map[string]time.Duration{
-		"":    0,
-		"12h": 12 * time.Hour,
-		"90m": 90 * time.Minute,
-		"30d": 30 * 24 * time.Hour,
-		"4w":  4 * 7 * 24 * time.Hour,
-	} {
-		got, err := ParseLifetime(text)
-		if err != nil {
-			t.Fatalf("%q: %v", text, err)
-		}
-		if got != want {
-			t.Fatalf("%q = %v, want %v", text, got, want)
-		}
-	}
-
-	for _, text := range []string{"soon", "30 days", "1y", "d"} {
-		if _, err := ParseLifetime(text); err == nil {
-			t.Fatalf("%q was accepted", text)
-		}
-	}
-}
-
 func TestAnExpiredTokenIsRefused(t *testing.T) {
 	m, _ := newTestModule(t)
 	ctx := context.Background()

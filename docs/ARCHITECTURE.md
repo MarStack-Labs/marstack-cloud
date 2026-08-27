@@ -170,6 +170,15 @@ records the size and a sha256 of the bytes that actually arrived. Restoring neve
 volume: a new volume is created naming the backup, and the agent fetches the content before
 anything starts.
 
+Schedules live in the backup module rather than a module of their own. A schedule produces backups
+and needs nothing the backup module does not already have, so splitting it would mean one of them
+importing the other or a third adapter in `app` to carry creation across the boundary. It is one
+resource’s lifecycle, not two resources.
+
+The sweep is a ticker started from `App.Run` alongside the scheduler, and it marks a schedule fired
+before creating the backup. Marking first means a failure loses one cycle; marking after would risk
+a schedule that never advances and fires forever.
+
 The runtime exposes this through `workload.VolumeArchiver`, a capability interface alongside
 `VolumeKeeper`. A runtime that has no volumes simply does not implement it, and the agent skips it.
 

@@ -20,16 +20,17 @@ type failRequest struct {
 }
 
 type response struct {
-	ID        string `json:"id"`
-	VolumeID  string `json:"volume_id"`
-	NodeID    string `json:"node_id"`
-	Name      string `json:"name"`
-	State     string `json:"state"`
-	Message   string `json:"message,omitempty"`
-	SizeBytes int64  `json:"size_bytes"`
-	Checksum  string `json:"checksum,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID         string `json:"id"`
+	VolumeID   string `json:"volume_id"`
+	NodeID     string `json:"node_id"`
+	ScheduleID string `json:"schedule_id,omitempty"`
+	Name       string `json:"name"`
+	State      string `json:"state"`
+	Message    string `json:"message,omitempty"`
+	SizeBytes  int64  `json:"size_bytes"`
+	Checksum   string `json:"checksum,omitempty"`
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
 }
 
 type listResponse struct {
@@ -38,16 +39,17 @@ type listResponse struct {
 
 func toResponse(b Backup) response {
 	return response{
-		ID:        b.ID,
-		VolumeID:  b.VolumeID,
-		NodeID:    b.NodeID,
-		Name:      b.Name,
-		State:     b.State,
-		Message:   b.Message,
-		SizeBytes: b.SizeBytes,
-		Checksum:  b.Checksum,
-		CreatedAt: b.CreatedAt.Format(time.RFC3339Nano),
-		UpdatedAt: b.UpdatedAt.Format(time.RFC3339Nano),
+		ID:         b.ID,
+		VolumeID:   b.VolumeID,
+		NodeID:     b.NodeID,
+		ScheduleID: b.ScheduleID,
+		Name:       b.Name,
+		State:      b.State,
+		Message:    b.Message,
+		SizeBytes:  b.SizeBytes,
+		Checksum:   b.Checksum,
+		CreatedAt:  b.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt:  b.UpdatedAt.Format(time.RFC3339Nano),
 	}
 }
 
@@ -169,6 +171,94 @@ func (h *handler) download(w http.ResponseWriter, r *http.Request) error {
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
 	if err := h.svc.remove(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+type scheduleRequest struct {
+	Every string `json:"every"`
+	Keep  int    `json:"keep"`
+}
+
+type scheduleResponse struct {
+	ID        string `json:"id"`
+	VolumeID  string `json:"volume_id"`
+	Every     string `json:"every"`
+	Keep      int    `json:"keep"`
+	NextAt    string `json:"next_at"`
+	LastAt    string `json:"last_at,omitempty"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type scheduleListResponse struct {
+	Schedules []scheduleResponse `json:"schedules"`
+}
+
+func toScheduleResponse(sc Schedule) scheduleResponse {
+	body := scheduleResponse{
+		ID:        sc.ID,
+		VolumeID:  sc.VolumeID,
+		Every:     sc.Every.String(),
+		Keep:      sc.Keep,
+		NextAt:    sc.NextAt.Format(time.RFC3339Nano),
+		UpdatedAt: sc.UpdatedAt.Format(time.RFC3339Nano),
+	}
+	if !sc.LastAt.IsZero() {
+		body.LastAt = sc.LastAt.Format(time.RFC3339Nano)
+	}
+	return body
+}
+
+func (h *handler) setSchedule(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[scheduleRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	sc, err := h.svc.setSchedule(r.Context(), ScheduleParams{
+		ProjectID: scope.From(r.Context()).ProjectID,
+		VolumeID:  r.PathValue("id"),
+		Every:     req.Every,
+		Keep:      req.Keep,
+	})
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toScheduleResponse(sc))
+	return nil
+}
+
+func (h *handler) getSchedule(w http.ResponseWriter, r *http.Request) error {
+	sc, err := h.svc.scheduleOf(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID)
+	if err != nil {
+		return err
+	}
+	httpx.Write(w, http.StatusOK, toScheduleResponse(sc))
+	return nil
+}
+
+func (h *handler) listSchedules(w http.ResponseWriter, r *http.Request) error {
+	schedules, err := h.svc.schedulesIn(r.Context(), scope.From(r.Context()).ProjectID)
+	if err != nil {
+		return err
+	}
+
+	body := scheduleListResponse{Schedules: make([]scheduleResponse, 0, len(schedules))}
+	for _, sc := range schedules {
+		body.Schedules = append(body.Schedules, toScheduleResponse(sc))
+	}
+
+	httpx.Write(w, http.StatusOK, body)
+	return nil
+}
+
+func (h *handler) deleteSchedule(w http.ResponseWriter, r *http.Request) error {
+	if err := h.svc.removeSchedule(r.Context(), r.PathValue("id"),
 		scope.From(r.Context()).ProjectID); err != nil {
 		return err
 	}
