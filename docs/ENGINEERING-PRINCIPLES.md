@@ -170,6 +170,9 @@ make check      # vet + test + security scans
 - `qemu-img` cannot read a volume that a running qemu holds. Snapshots, backups and restores all
   skip a volume whose instance the runtime reports as running, and that check must stay in front of
   every one of them.
+- `make check` on macOS does not compile a single `_linux.go` file, so it will happily pass on code
+  that does not build on a node. `make cross` is part of `check` for that reason - it builds and
+  vets for linux and builds for darwin. A green local run without it means nothing for the agent.
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead

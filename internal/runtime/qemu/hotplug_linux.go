@@ -5,7 +5,6 @@ package qemu
 import (
 	"fmt"
 	"os"
-	"strconv"
 
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )

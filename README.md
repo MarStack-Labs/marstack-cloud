@@ -812,6 +812,9 @@ Three jobs on every push and pull request: build, vet, race tests and a gofmt
 check; a cross-compile for darwin/arm64 and linux/amd64; and the same security
 scans the pre-commit hook runs.
 
+`make check` runs the same cross-compile locally, because on macOS every other
+check is blind to the Linux-only half of the runtime.
+
 The cross-compile job earns its place. Runtime packages are split by build tag,
 so a check run on one platform never compiles the other's files — `_linux.go`
 code is invisible to a macOS `go vet`, and the non-Linux stubs are invisible on

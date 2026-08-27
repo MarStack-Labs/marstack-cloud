@@ -6,7 +6,7 @@ LDFLAGS := -X github.com/marstack-labs/marstack-cloud/internal/version.Version=$
 GOBIN  ?= $(shell go env GOPATH)/bin
 PREFIX ?= /usr/local
 
-.PHONY: build install uninstall test vet fmt staticcheck vuln gosec secrets security check tools hooks run stage-images dev-up dev-down dev-logs dev-reset clean
+.PHONY: build install uninstall test vet cross fmt staticcheck vuln gosec secrets security check tools hooks run stage-images dev-up dev-down dev-logs dev-reset clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/marstack ./cmd/marstack
@@ -41,7 +41,12 @@ secrets:
 
 security: vuln gosec
 
-check: vet test staticcheck security
+check: vet cross test staticcheck security
+
+cross:
+	GOOS=linux GOARCH=arm64 go build ./...
+	GOOS=linux GOARCH=arm64 go vet ./...
+	GOOS=darwin GOARCH=arm64 go build ./...
 
 tools:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
