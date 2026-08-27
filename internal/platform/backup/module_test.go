@@ -786,3 +786,37 @@ func TestABackupWhoseKeyIsGoneSaysSoInsteadOfServingRubbish(t *testing.T) {
 		t.Fatalf("body = %q, want it to name the key that is missing", back.Body.String())
 	}
 }
+
+func TestAnEncryptedVolumeIsRefusedUpFrontNotOncePerCycle(t *testing.T) {
+	h, m, _ := newTestModule(t)
+	m.UseVolumes(encryptedVolume{})
+
+	for name, call := range map[string]struct{ method, path, body string }{
+		"backup": {http.MethodPost, "/v1/volumes/" + testVolume + "/backups", `{"name":"x"}`},
+		"schedule": {http.MethodPut, "/v1/volumes/" + testVolume + "/schedule",
+			`{"every":"1d","keep":3}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := request(t, h, call.method, call.path, call.body)
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("status = %d, want %d: a schedule that can only ever fail is worse "+
+					"than no schedule", rec.Code, http.StatusConflict)
+			}
+		})
+	}
+}
+
+type encryptedVolume struct{}
+
+func (encryptedVolume) Source(_ context.Context, volumeID, projectID string) (Source, error) {
+	if volumeID != testVolume || projectID != testProject {
+		return Source{}, fault.NotFound("volume_not_found", "no volume with that id exists")
+	}
+	return Source{
+		ID:        testVolume,
+		ProjectID: projectID,
+		NodeID:    testNode,
+		Name:      testVolumeAka,
+		Encrypted: true,
+	}, nil
+}

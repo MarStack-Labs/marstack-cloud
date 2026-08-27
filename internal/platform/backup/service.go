@@ -259,6 +259,11 @@ func (s *service) setSchedule(ctx context.Context, params ScheduleParams) (Sched
 	if err != nil {
 		return Schedule{}, err
 	}
+	if source.Encrypted {
+		return Schedule{}, fault.Conflict("volume_encrypted",
+			"an encrypted volume cannot be copied off its node yet, so a schedule would only "+
+				"fail once a day")
+	}
 
 	now := s.now()
 	sc := Schedule{
