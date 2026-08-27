@@ -10,6 +10,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/quota"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
@@ -181,11 +182,74 @@ func (s dnsInstances) AllInstances(ctx context.Context) ([]dns.InstanceRef, erro
 }
 
 type projectOccupancy struct {
-	tokens *token.Module
+	tokens    *token.Module
+	instances *instance.Module
+	volumes   *volume.Module
 }
 
 func (o projectOccupancy) ResourcesIn(ctx context.Context, projectID string) (int, error) {
-	return o.tokens.CountIn(ctx, projectID)
+	held, err := o.tokens.CountIn(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+
+	running, err := o.instances.FootprintIn(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+
+	stored, err := o.volumes.FootprintIn(ctx, projectID)
+	if err != nil {
+		return 0, err
+	}
+	return held + running.Instances + stored.Volumes, nil
+}
+
+type projectUsage struct {
+	instances *instance.Module
+	volumes   *volume.Module
+}
+
+func (u projectUsage) InProject(ctx context.Context, projectID string) (quota.Consumed, error) {
+	running, err := u.instances.FootprintIn(ctx, projectID)
+	if err != nil {
+		return quota.Consumed{}, err
+	}
+
+	stored, err := u.volumes.FootprintIn(ctx, projectID)
+	if err != nil {
+		return quota.Consumed{}, err
+	}
+
+	return quota.Consumed{
+		Instances: running.Instances,
+		VCPU:      running.VCPU,
+		MemoryMiB: running.MemoryMiB,
+		Volumes:   stored.Volumes,
+		VolumeGiB: stored.SizeGiB,
+	}, nil
+}
+
+type instanceQuota struct {
+	quotas *quota.Module
+}
+
+func (q instanceQuota) AdmitInstance(
+	ctx context.Context, projectID string, vcpu, memoryMiB int,
+) error {
+	return q.quotas.Admit(ctx, projectID, quota.Claim{
+		Instances: 1,
+		VCPU:      vcpu,
+		MemoryMiB: memoryMiB,
+	})
+}
+
+type volumeQuota struct {
+	quotas *quota.Module
+}
+
+func (q volumeQuota) AdmitVolume(ctx context.Context, projectID string, sizeGiB int) error {
+	return q.quotas.Admit(ctx, projectID, quota.Claim{Volumes: 1, VolumeGiB: sizeGiB})
 }
 
 type backupVolumes struct {

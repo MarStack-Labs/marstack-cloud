@@ -56,6 +56,11 @@ func (v Volume) State() string {
 	return StateFree
 }
 
+type Footprint struct {
+	Volumes int
+	SizeGiB int
+}
+
 type CreateParams struct {
 	ProjectID string
 	Name      string

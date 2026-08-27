@@ -99,6 +99,12 @@ type Instance struct {
 	UpdatedAt       time.Time
 }
 
+type Footprint struct {
+	Instances int
+	VCPU      int
+	MemoryMiB int
+}
+
 type CreateParams struct {
 	ProjectID     string
 	Name          string

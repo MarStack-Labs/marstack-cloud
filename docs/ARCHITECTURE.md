@@ -141,6 +141,20 @@ answers with the caller's project. One path, one audience.
 Modules never learn about roles. `/v1/projects` is administrative in its entirety, so the project
 module has no role check inside it — the composition root simply keeps members off those routes.
 
+## Quotas
+
+The quota module owns the limits and nothing else. It cannot see instances or
+volumes, so it declares what it needs — `Usage.InProject` — and `app` implements it by adding up
+the footprints the instance and volume modules report. In the other direction those two modules
+declare their own narrow admission interface (`AdmitInstance`, `AdmitVolume`) taking plain numbers
+rather than a shared claim type, because a shared type would mean importing each other.
+
+Enforcement therefore lives at create time in the module that owns the resource, and the arithmetic
+lives in one place. The cost is that the read and the write are not one transaction: two
+simultaneous creates can both pass. That is stated in the README rather than papered over, because
+the fix would be a cross-module transaction and the boundary is worth more than the last percent of
+strictness here.
+
 ## Data protection
 
 Two mechanisms with different failure domains, deliberately not merged:

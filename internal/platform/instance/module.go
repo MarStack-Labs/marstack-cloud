@@ -28,6 +28,10 @@ type Forwards interface {
 	ReleaseInstance(ctx context.Context, instanceID string) error
 }
 
+type Quota interface {
+	AdmitInstance(ctx context.Context, projectID string, vcpu, memoryMiB int) error
+}
+
 type Firewalls interface {
 	ExistsIn(ctx context.Context, id, projectID string) (bool, error)
 }
@@ -48,6 +52,14 @@ func (m *Module) UseVolumes(volumes Volumes) {
 
 func (m *Module) UseForwards(forwards Forwards) {
 	m.svc.forwards = forwards
+}
+
+func (m *Module) UseQuota(q Quota) {
+	m.svc.quota = q
+}
+
+func (m *Module) FootprintIn(ctx context.Context, projectID string) (Footprint, error) {
+	return m.svc.footprintIn(ctx, projectID)
 }
 
 func (m *Module) UseFirewalls(firewalls Firewalls) {

@@ -180,6 +180,43 @@ The default project, `prj-default`, exists from the first start and cannot be
 deleted — every migration backfills existing rows against that id. A project
 holding anything cannot be deleted either.
 
+## Quotas
+
+A project could consume the whole fleet. Limits cap what it may hold, and a
+limit of zero means no limit:
+
+```sh
+marstack quota set prj-6x45b0a054caa --instances 20 --vcpu 40 --memory-mib 65536   --volumes 10 --volume-gib 500
+marstack quota show
+```
+
+```
+PROJECT             INSTANCES   VCPU     MEMORY MiB     VOLUMES   VOLUME GiB
+prj-6x45b0a054caa   3 / 20      3 / 40   1536 / 65536   1 / 10    3 / 500
+```
+
+Limits are checked when work is created, against what the project already
+holds. Lowering a limit below current usage deletes nothing — it stops the
+project growing until it fits again, which is the behaviour an operator wants
+when they realise a tenant is too large. Deleting an instance or a volume gives
+the room straight back.
+
+A refusal names the number it hit rather than saying no:
+
+```
+error: quota_exceeded: the project is limited to 2 of instances and already
+holds 2, so 1 more would not fit
+```
+
+A member sees the limits binding it through `marstack quota show`, and cannot
+change them. Only an admin sets them.
+
+One honest limitation: the check reads current usage and then writes, without
+holding a lock across both. Two creates racing at the same instant can both
+pass a limit they would individually respect. SQLite runs one writer at a time
+so the window is small, and closing it properly needs a transaction spanning
+two modules, which this architecture deliberately does not allow.
+
 ## Backups
 
 A snapshot lives inside the volume file, on the node that holds it. That
@@ -595,6 +632,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 17  projects and per-project scoping                  done
 18  off-node volume backup and restore                done
 19  token lifetimes + TLS on the API                  done
+20  per-project quotas + read-only viewer role        done
 ```
 
 ## License

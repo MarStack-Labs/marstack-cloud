@@ -118,6 +118,10 @@ make check      # vet + test + security scans
   file on the node, so it survives a bad write but dies with the disk. A backup is a copy held by
   the control plane. Do not "simplify" one into the other; the whole point is that they fail
   independently.
+- A quota check is not a transaction. `admit` reads usage then the caller writes, so two
+  simultaneous creates can both pass a limit. Do not "fix" this by reaching into another module's
+  tables from the quota service; the honest options are a cross-module transaction or the current
+  documented looseness.
 - There is no flag to skip certificate verification, and there must not be one. An encrypted
   channel to a server nobody authenticated proves nothing, and such a flag is always found by
   somebody in a hurry. Point `--ca-file` at the authority instead.

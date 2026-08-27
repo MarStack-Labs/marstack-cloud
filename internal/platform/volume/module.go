@@ -24,6 +24,14 @@ func New(st *store.Store, instances Instances, log *slog.Logger) *Module {
 	}
 }
 
+func (m *Module) UseQuota(q Quota) {
+	m.svc.quota = q
+}
+
+func (m *Module) FootprintIn(ctx context.Context, projectID string) (Footprint, error) {
+	return m.svc.footprintIn(ctx, projectID)
+}
+
 func (m *Module) UseBackups(b Backups) {
 	m.svc.backups = b
 }

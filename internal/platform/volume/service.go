@@ -15,6 +15,10 @@ type Instances interface {
 	Placement(ctx context.Context, instanceID string) (Placement, error)
 }
 
+type Quota interface {
+	AdmitVolume(ctx context.Context, projectID string, sizeGiB int) error
+}
+
 type Backups interface {
 	Restorable(ctx context.Context, id, projectID string) (int64, error)
 }
@@ -23,6 +27,7 @@ type clock func() time.Time
 
 type service struct {
 	repo      *repository
+	quota     Quota
 	backups   Backups
 	instances Instances
 	now       clock
@@ -43,6 +48,12 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 		return Volume{}, fault.Invalid("invalid_size", fmt.Sprintf(
 			"size_gib must be between %d and %d", MinSizeGiB, MaxSizeGiB,
 		))
+	}
+
+	if s.quota != nil {
+		if err := s.quota.AdmitVolume(ctx, params.ProjectID, params.SizeGiB); err != nil {
+			return Volume{}, err
+		}
 	}
 
 	if params.BackupID != "" {
@@ -89,6 +100,14 @@ func (s *service) resolveIn(ctx context.Context, nameOrID, projectID string) (Vo
 		return Volume{}, fault.NotFound("volume_not_found", "no volume with that name or id exists")
 	}
 	return v, nil
+}
+
+func (s *service) footprintIn(ctx context.Context, projectID string) (Footprint, error) {
+	footprint, err := s.repo.footprintIn(ctx, projectID)
+	if err != nil {
+		return Footprint{}, translate(err)
+	}
+	return footprint, nil
 }
 
 func (s *service) listIn(ctx context.Context, projectID string) ([]Volume, error) {

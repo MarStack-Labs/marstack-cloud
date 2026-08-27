@@ -87,6 +87,18 @@ func (r *repository) get(ctx context.Context, id string) (Instance, error) {
 	return in, nil
 }
 
+func (r *repository) footprintIn(ctx context.Context, projectID string) (Footprint, error) {
+	var f Footprint
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(SUM(vcpu), 0), COALESCE(SUM(memory_mib), 0)
+		 FROM instances WHERE project_id = ?`, projectID,
+	).Scan(&f.Instances, &f.VCPU, &f.MemoryMiB)
+	if err != nil {
+		return Footprint{}, fmt.Errorf("measure the project: %w", err)
+	}
+	return f, nil
+}
+
 func (r *repository) listIn(ctx context.Context, projectID string) ([]Instance, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT `+columns+` FROM instances WHERE project_id = ? ORDER BY created_at`, projectID)

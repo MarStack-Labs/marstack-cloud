@@ -20,6 +20,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/project"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/quota"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
@@ -99,14 +100,24 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		st.Close()
 		return nil, err
 	}
-	backups.UseVolumes(backupVolumes{volumes: volumes})
-	volumes.UseBackups(backups)
 	forwards := forward.New(st, forwardAddresses{networks: networks, instances: instances}, log)
 	firewalls := firewall.New(st, log)
 	projects := project.New(st, log)
+	quotas := quota.New(st, log)
 	tokens := token.New(st, log, cfg.Now)
+
+	backups.UseVolumes(backupVolumes{volumes: volumes})
+	volumes.UseBackups(backups)
 	tokens.UseProjects(projects)
-	projects.UseOccupancy(projectOccupancy{tokens: tokens})
+	quotas.UseProjects(projects)
+	quotas.UseUsage(projectUsage{instances: instances, volumes: volumes})
+	instances.UseQuota(instanceQuota{quotas: quotas})
+	volumes.UseQuota(volumeQuota{quotas: quotas})
+	projects.UseOccupancy(projectOccupancy{
+		tokens:    tokens,
+		instances: instances,
+		volumes:   volumes,
+	})
 	usages := usage.New(st, log)
 	trail := audit.New(st, log)
 	a.trail = trail
@@ -128,6 +139,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		usages,
 		trail,
 		projects,
+		quotas,
 		tokens,
 	}
 	instances.UseVolumes(volumes)

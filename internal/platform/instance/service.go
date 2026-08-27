@@ -17,6 +17,7 @@ type service struct {
 	repo      *repository
 	now       clock
 	networks  Networks
+	quota     Quota
 	volumes   Volumes
 	forwards  Forwards
 	firewalls Firewalls
@@ -33,6 +34,13 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 	normalized, err := normalize(params)
 	if err != nil {
 		return Instance{}, err
+	}
+
+	if s.quota != nil {
+		if err := s.quota.AdmitInstance(ctx, params.ProjectID,
+			normalized.VCPU, normalized.MemoryMiB); err != nil {
+			return Instance{}, err
+		}
 	}
 
 	networkID := normalized.NetworkID
@@ -97,6 +105,14 @@ func (s *service) list(ctx context.Context) ([]Instance, error) {
 		return nil, translate(err)
 	}
 	return instances, nil
+}
+
+func (s *service) footprintIn(ctx context.Context, projectID string) (Footprint, error) {
+	footprint, err := s.repo.footprintIn(ctx, projectID)
+	if err != nil {
+		return Footprint{}, translate(err)
+	}
+	return footprint, nil
 }
 
 func (s *service) listIn(ctx context.Context, projectID string) ([]Instance, error) {

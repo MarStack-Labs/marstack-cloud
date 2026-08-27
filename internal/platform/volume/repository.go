@@ -48,6 +48,17 @@ func (r *repository) byID(ctx context.Context, id string) (Volume, error) {
 	return scanRow(r.db.QueryRowContext(ctx, `SELECT `+columns+` FROM volumes WHERE id = ?`, id))
 }
 
+func (r *repository) footprintIn(ctx context.Context, projectID string) (Footprint, error) {
+	var f Footprint
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(SUM(size_gib), 0) FROM volumes WHERE project_id = ?`, projectID,
+	).Scan(&f.Volumes, &f.SizeGiB)
+	if err != nil {
+		return Footprint{}, fmt.Errorf("measure the project: %w", err)
+	}
+	return f, nil
+}
+
 func (r *repository) listIn(ctx context.Context, projectID string) ([]Volume, error) {
 	return r.query(ctx,
 		`SELECT `+columns+` FROM volumes WHERE project_id = ? ORDER BY name`, projectID)

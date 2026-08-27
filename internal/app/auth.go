@@ -62,6 +62,7 @@ var streamingPaths = []string{
 var memberPaths = []string{
 	"GET /v1/version",
 	"GET /v1/usage",
+	"GET /v1/quota",
 	"GET /v1/dns/records",
 
 	"GET /v1/instances",
