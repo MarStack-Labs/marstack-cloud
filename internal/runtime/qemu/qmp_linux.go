@@ -117,3 +117,45 @@ func (q *qmpConn) attached() (map[string]bool, error) {
 	}
 	return present, nil
 }
+
+func (q *qmpConn) freePort() (string, error) {
+	raw, err := q.run("query-pci", nil)
+	if err != nil {
+		return "", err
+	}
+
+	var buses []struct {
+		Devices []struct {
+			QdevID string `json:"qdev_id"`
+			Bridge struct {
+				Devices []struct {
+					QdevID string `json:"qdev_id"`
+				} `json:"devices"`
+			} `json:"pci_bridge"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(raw, &buses); err != nil {
+		return "", fmt.Errorf("decode the pci list: %w", err)
+	}
+
+	occupied := map[string]bool{}
+	for _, bus := range buses {
+		for _, device := range bus.Devices {
+			if device.QdevID == "" {
+				continue
+			}
+			if len(device.Bridge.Devices) > 0 {
+				occupied[device.QdevID] = true
+			}
+		}
+	}
+
+	for port := range hotplugPorts {
+		id := portID(port)
+		if !occupied[id] {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("all %d hotplug ports are taken; the guest needs a restart to "+
+		"get more", hotplugPorts)
+}

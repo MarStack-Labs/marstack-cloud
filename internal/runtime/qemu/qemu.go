@@ -1,6 +1,9 @@
 package qemu
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 const DefaultRoot = "/var/lib/marstack"
 
@@ -13,4 +16,10 @@ func diskDeviceID(volumeID string) string {
 		suffix = suffix[:12]
 	}
 	return "vol" + suffix
+}
+
+const hotplugPorts = 8
+
+func portID(index int) string {
+	return "rp" + strconv.Itoa(index)
 }

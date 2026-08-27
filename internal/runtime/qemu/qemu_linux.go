@@ -269,6 +269,11 @@ func (r *Runtime) arguments(
 		"-device", "virtio-blk-pci,drive=root,bootindex=1",
 	}
 
+	for port := range hotplugPorts {
+		args = append(args, "-device",
+			"pcie-root-port,id="+portID(port)+",chassis="+strconv.Itoa(port+1))
+	}
+
 	for index, path := range volumes {
 		disk := spec.Volumes[index]
 		id := diskDeviceID(disk.ID)

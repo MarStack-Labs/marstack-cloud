@@ -86,6 +86,11 @@ func (r *Runtime) plug(monitor *qmpConn, id, file string, disk workload.Disk) er
 		}
 	}
 
+	port, err := monitor.freePort()
+	if err != nil {
+		return err
+	}
+
 	if _, err := monitor.run("blockdev-add", node); err != nil {
 		return err
 	}
@@ -95,6 +100,14 @@ func (r *Runtime) plug(monitor *qmpConn, id, file string, disk workload.Disk) er
 		"id":     id + "dev",
 		"drive":  id,
 		"serial": disk.Name,
+		"bus":    port,
 	})
+	if err == nil {
+		return nil
+	}
+
+	if _, undo := monitor.run("blockdev-del", map[string]any{"node-name": id}); undo != nil {
+		return fmt.Errorf("%w, and the block node could not be removed either: %w", err, undo)
+	}
 	return err
 }
