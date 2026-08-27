@@ -269,5 +269,25 @@ func (s backupVolumes) Source(
 		NodeID:    v.NodeID,
 		Name:      v.Name,
 		Encrypted: v.Encrypted,
+		KeySealed: v.KeySealed,
+		KeyID:     v.KeyID,
+	}, nil
+}
+
+type volumeBackups struct {
+	backups *backup.Module
+}
+
+func (s volumeBackups) Restorable(
+	ctx context.Context, id, projectID string,
+) (volume.Restorable, error) {
+	envelope, err := s.backups.Restorable(ctx, id, projectID)
+	if err != nil {
+		return volume.Restorable{}, err
+	}
+	return volume.Restorable{
+		SizeBytes: envelope.SizeBytes,
+		KeySealed: envelope.KeySealed,
+		KeyID:     envelope.KeyID,
 	}, nil
 }

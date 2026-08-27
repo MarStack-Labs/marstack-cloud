@@ -118,6 +118,12 @@ make check      # vet + test + security scans
   `Volumes.Source` resolves - never the string the caller typed. The agent matches its volumes by
   id; a name stored in `backups.volume_id` is a backup no node ever picks up, and it fails silently
   because the pending guard then blocks every retry.
+- A backup carries the volume key as a sealed envelope. The backup module never opens it and never
+  serves it, and the volume module adopts it on restore instead of minting a new one. Minting a new
+  key for a restore produces a disk that nothing can open, and the failure looks like a corrupt
+  backup rather than a wrong key.
+- Exporting an encrypted volume creates the target first and converts with `-n`, because
+  `--target-image-opts` requires it. That also means no `-c`, so those exports are uncompressed.
 - An encrypted volume's key reaches the node over the API and is written to `/run/marstack/keys`,
   which must stay tmpfs. Writing it under the state dir or the runtime root would put the key on
   the same disk as the ciphertext and make the whole feature pointless.

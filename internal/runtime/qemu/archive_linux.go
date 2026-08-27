@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -27,17 +28,19 @@ func (r *Runtime) HasVolume(volumeID string) bool {
 	return err == nil
 }
 
-func (r *Runtime) ExportVolume(volumeID string) (io.ReadCloser, error) {
+func (r *Runtime) ExportVolume(volumeID, keyFile string) (io.ReadCloser, error) {
 	source, err := r.volumeFile(volumeID)
 	if err != nil {
 		return nil, fmt.Errorf("read volume %s: %w", volumeID, err)
 	}
 
-	if encrypted, err := isEncrypted(source); err != nil {
+	encrypted, err := isEncrypted(source)
+	if err != nil {
 		return nil, err
-	} else if encrypted {
-		return nil, fmt.Errorf("volume %s is encrypted, and copying it out would write its "+
-			"plaintext to this node", volumeID)
+	}
+	if encrypted && keyFile == "" {
+		return nil, fmt.Errorf("volume %s is encrypted and no key was given, and copying it "+
+			"without one would write its plaintext to this node", volumeID)
 	}
 
 	target, err := os.CreateTemp(r.volumeDir(), "export-*.qcow2")
@@ -47,11 +50,9 @@ func (r *Runtime) ExportVolume(volumeID string) (io.ReadCloser, error) {
 	path := target.Name()
 	target.Close()
 
-	convert := exec.Command("qemu-img", "convert", "-O", "qcow2", "-c", source, path)
-	if out, err := convert.CombinedOutput(); err != nil {
+	if err := r.copyOut(source, path, keyFile, encrypted); err != nil {
 		os.Remove(path)
-		return nil, fmt.Errorf("copy volume %s: %w: %s",
-			volumeID, err, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("copy volume %s: %w", volumeID, err)
 	}
 
 	file, err := os.Open(path)
@@ -112,4 +113,57 @@ func isEncrypted(path string) (bool, error) {
 		return false, fmt.Errorf("decode the volume info: %w", err)
 	}
 	return info.Encrypted, nil
+}
+
+func (r *Runtime) copyOut(source, target, keyFile string, encrypted bool) error {
+	if !encrypted {
+		out, err := exec.Command("qemu-img", "convert", "-O", "qcow2", "-c",
+			source, target).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+
+	size, err := virtualSize(source, keyFile)
+	if err != nil {
+		return err
+	}
+
+	secret := "secret,id=vkey,file=" + keyFile
+	create := exec.Command("qemu-img", "create", "--object", secret, "-f", "qcow2",
+		"-o", "encrypt.format=luks,encrypt.key-secret=vkey", target, strconv.FormatInt(size, 10))
+	if out, err := create.CombinedOutput(); err != nil {
+		return fmt.Errorf("prepare the encrypted export: %w: %s",
+			err, strings.TrimSpace(string(out)))
+	}
+
+	convert := exec.Command("qemu-img", "convert", "--object", secret,
+		"--image-opts", "driver=qcow2,file.filename="+source+",encrypt.key-secret=vkey",
+		"-n", "--target-image-opts",
+		"driver=qcow2,file.filename="+target+",encrypt.key-secret=vkey")
+	if out, err := convert.CombinedOutput(); err != nil {
+		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+func virtualSize(path, keyFile string) (int64, error) {
+	args := append([]string{"info", "--output=json"}, imageArgs(path, keyFile)...)
+
+	out, err := exec.Command("qemu-img", args...).Output()
+	if err != nil {
+		return 0, fmt.Errorf("read the volume: %w", err)
+	}
+
+	var info struct {
+		VirtualSize int64 `json:"virtual-size"`
+	}
+	if err := json.Unmarshal(out, &info); err != nil {
+		return 0, fmt.Errorf("decode the volume info: %w", err)
+	}
+	if info.VirtualSize <= 0 {
+		return 0, fmt.Errorf("the volume reports a virtual size of %d", info.VirtualSize)
+	}
+	return info.VirtualSize, nil
 }

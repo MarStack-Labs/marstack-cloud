@@ -109,7 +109,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	tokens := token.New(st, log, cfg.Now)
 
 	backups.UseVolumes(backupVolumes{volumes: volumes})
-	volumes.UseBackups(backups)
+	volumes.UseBackups(volumeBackups{backups: backups})
 	volumes.UseKeys(sealed.NewKeyring(cfg.BackupKeys))
 	tokens.UseProjects(projects)
 	quotas.UseProjects(projects)

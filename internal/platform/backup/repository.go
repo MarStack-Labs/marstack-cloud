@@ -17,7 +17,7 @@ var (
 )
 
 const columns = `id, project_id, schedule_id, volume_id, node_id, name, state, message, ` +
-	`size_bytes, checksum, key_id, created_at, updated_at`
+	`size_bytes, checksum, key_id, volume_key_sealed, volume_key_id, created_at, updated_at`
 
 const scheduleColumns = `id, project_id, volume_id, every_seconds, keep, next_at, last_at, ` +
 	`created_at, updated_at`
@@ -32,9 +32,10 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, b Backup) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO backups (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO backups (`+columns+`) VALUES `+
+			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		b.ID, b.ProjectID, b.ScheduleID, b.VolumeID, b.NodeID, b.Name, b.State, b.Message,
-		b.SizeBytes, b.Checksum, b.KeyID,
+		b.SizeBytes, b.Checksum, b.KeyID, b.VolumeKeySealed, b.VolumeKeyID,
 		b.CreatedAt.Format(time.RFC3339Nano), b.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -133,7 +134,7 @@ func scan(row scanner) (Backup, error) {
 	)
 	if err := row.Scan(&b.ID, &b.ProjectID, &b.ScheduleID, &b.VolumeID, &b.NodeID, &b.Name,
 		&b.State, &b.Message, &b.SizeBytes, &b.Checksum, &b.KeyID,
-		&created, &updated); err != nil {
+		&b.VolumeKeySealed, &b.VolumeKeyID, &created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Backup{}, err
 		}

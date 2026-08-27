@@ -303,16 +303,40 @@ encrypted: yes
 Guests need no cooperation; QEMU does the crypto and the guest sees an ordinary
 virtio disk. Snapshots work as before, with the key passed alongside.
 
-Two limits, both deliberate:
+Backups work, and plaintext never touches the node on the way out. The node
+creates an encrypted target with the same volume key and converts straight into
+it, so the export is a LUKS qcow2 from the first byte. The vault then seals that
+with the operator key as it does any other backup.
 
-- **An encrypted volume cannot be backed up yet.** Copying it out means
-  `qemu-img convert`, which writes plaintext to the node's disk on the way — the
-  one thing encrypting it was meant to prevent. Both the control plane and the
-  node refuse rather than do it quietly. Converting straight to an encrypted
-  target is the fix, and it needs the restore path to carry the volume key too.
-- **Without `--backup-key-file` the control plane refuses to create one.** A
-  volume key stored beside the data it protects is not encryption, so it says so
-  instead of pretending.
+Restoring adopts the key rather than minting one. Each backup carries the
+volume key as a sealed envelope, and a volume created from it inherits that
+envelope — the node writes the bytes verbatim and the volume's own key opens
+them:
+
+```sh
+marstack backup create secrets --name nightly
+marstack volume create --name secrets-restored --size-gib 10 --from-backup bkp-...
+marstack volume attach secrets-restored --instance i-...
+```
+
+The backup module never opens that envelope; it stores and returns it. And it is
+never served to an operator — a key that travels on every listing is a key that
+ends up in a log.
+
+Three things this refuses, each for a reason:
+
+- **Restoring a plaintext backup into an encrypted volume.** The node writes a
+  restore byte for byte, so the result would be a plaintext disk claiming to be
+  encrypted.
+- **Restoring when the key that wrapped the backup's volume key is gone.** It
+  names the missing key rather than producing a disk nobody can read.
+- **Creating an encrypted volume without `--backup-key-file`.** A volume key
+  stored beside the data it protects is not encryption, so it says so instead of
+  pretending.
+
+One cost: the export of an encrypted volume is not compressed, because
+`qemu-img` cannot compress into a pre-created target. An encrypted volume's
+backups are therefore larger than a plaintext volume's.
 
 ### Encryption at rest
 
@@ -739,6 +763,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 21  scheduled backups + retention                     done
 22  backup encryption at rest                         done
 23  encrypted volumes on the node                     done
+24  backup and restore of encrypted volumes           done
 ```
 
 ## License

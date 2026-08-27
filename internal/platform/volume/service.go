@@ -23,7 +23,7 @@ type Quota interface {
 }
 
 type Backups interface {
-	Restorable(ctx context.Context, id, projectID string) (int64, error)
+	Restorable(ctx context.Context, id, projectID string) (Restorable, error)
 }
 
 type clock func() time.Time
@@ -60,19 +60,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 		}
 	}
 
-	guard, err := s.mintKey(params.Encrypted)
+	guard, err := s.guardFor(ctx, params)
 	if err != nil {
 		return Volume{}, err
-	}
-
-	if params.BackupID != "" {
-		if s.backups == nil {
-			return Volume{}, fault.Unavailable("backups_unavailable",
-				"the platform cannot look up backups")
-		}
-		if _, err := s.backups.Restorable(ctx, params.BackupID, params.ProjectID); err != nil {
-			return Volume{}, err
-		}
 	}
 
 	now := s.now()
@@ -81,7 +71,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 		ProjectID: params.ProjectID,
 		Name:      params.Name,
 		BackupID:  params.BackupID,
-		Encrypted: params.Encrypted,
+		Encrypted: guard.encrypts(),
 		KeySealed: guard.sealedKey,
 		KeyID:     guard.keyID,
 		SizeGiB:   params.SizeGiB,
@@ -415,6 +405,49 @@ func translate(err error) error {
 type volumeKey struct {
 	sealedKey string
 	keyID     string
+	adopted   bool
+}
+
+func (k volumeKey) encrypts() bool {
+	return k.sealedKey != ""
+}
+
+type Restorable struct {
+	SizeBytes int64
+	KeySealed string
+	KeyID     string
+}
+
+func (s *service) guardFor(ctx context.Context, params CreateParams) (volumeKey, error) {
+	if params.BackupID == "" {
+		return s.mintKey(params.Encrypted)
+	}
+
+	if s.backups == nil {
+		return volumeKey{}, fault.Unavailable("backups_unavailable",
+			"the platform cannot look up backups")
+	}
+
+	envelope, err := s.backups.Restorable(ctx, params.BackupID, params.ProjectID)
+	if err != nil {
+		return volumeKey{}, err
+	}
+
+	if envelope.KeySealed == "" {
+		if params.Encrypted {
+			return volumeKey{}, fault.Conflict("backup_not_encrypted",
+				"that backup holds a plaintext volume, and the node writes a restore byte for "+
+					"byte, so the result would be a plaintext disk claiming to be encrypted")
+		}
+		return volumeKey{}, nil
+	}
+
+	if _, held := s.keys.Find(envelope.KeyID); !held {
+		return volumeKey{}, fault.Unavailable("key_missing",
+			"that backup's volume key was sealed with key "+envelope.KeyID+
+				", which this control plane does not hold")
+	}
+	return volumeKey{sealedKey: envelope.KeySealed, keyID: envelope.KeyID, adopted: true}, nil
 }
 
 func (s *service) mintKey(wanted bool) (volumeKey, error) {

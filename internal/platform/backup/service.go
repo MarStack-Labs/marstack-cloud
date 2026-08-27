@@ -50,11 +50,6 @@ func (s *service) create(ctx context.Context, params CreateParams) (Backup, erro
 		return Backup{}, fault.Conflict("volume_empty",
 			"the volume has never been attached, so no node holds anything to copy")
 	}
-	if source.Encrypted {
-		return Backup{}, fault.Conflict("volume_encrypted",
-			"copying an encrypted volume would write its plaintext to the node's disk on the "+
-				"way out, which is the one thing encrypting it was meant to prevent")
-	}
 
 	now := s.now()
 	b := Backup{
@@ -67,6 +62,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Backup, erro
 		State:      StatePending,
 		CreatedAt:  now,
 		UpdatedAt:  now,
+
+		VolumeKeySealed: source.KeySealed,
+		VolumeKeyID:     source.KeyID,
 	}
 
 	if err := s.repo.insert(ctx, b); err != nil {
@@ -198,16 +196,21 @@ func (s *service) content(ctx context.Context, id string) (io.ReadCloser, int64,
 	return reader, b.SizeBytes, nil
 }
 
-func (s *service) restorable(ctx context.Context, id, projectID string) (int64, error) {
+func (s *service) restorable(ctx context.Context, id, projectID string) (Envelope, error) {
 	b, err := s.getIn(ctx, id, projectID)
 	if err != nil {
-		return 0, err
+		return Envelope{}, err
 	}
 	if b.State != StateReady {
-		return 0, fault.Conflict("backup_not_ready",
+		return Envelope{}, fault.Conflict("backup_not_ready",
 			"the backup is "+b.State+" and cannot be restored yet")
 	}
-	return b.SizeBytes, nil
+
+	return Envelope{
+		SizeBytes: b.SizeBytes,
+		KeySealed: b.VolumeKeySealed,
+		KeyID:     b.VolumeKeyID,
+	}, nil
 }
 
 func (s *service) remove(ctx context.Context, id, projectID string) error {
@@ -258,11 +261,6 @@ func (s *service) setSchedule(ctx context.Context, params ScheduleParams) (Sched
 	source, err := s.volumes.Source(ctx, params.VolumeID, params.ProjectID)
 	if err != nil {
 		return Schedule{}, err
-	}
-	if source.Encrypted {
-		return Schedule{}, fault.Conflict("volume_encrypted",
-			"an encrypted volume cannot be copied off its node yet, so a schedule would only "+
-				"fail once a day")
 	}
 
 	now := s.now()

@@ -91,19 +91,31 @@ func (a *Agent) runBackups(
 		if a.volumeIsBusy(ctx, v, assigned) {
 			continue
 		}
-		a.runBackup(ctx, nodeID, b, archivers)
+
+		keyFile := ""
+		if v.Encrypted {
+			path, err := a.volumeKeyFile(ctx, v.ID)
+			if err != nil {
+				a.reportBackupFailure(ctx, nodeID, b,
+					"the key of this encrypted volume could not be placed: "+err.Error())
+				continue
+			}
+			keyFile = path
+		}
+		a.runBackup(ctx, nodeID, b, keyFile, archivers)
 	}
 }
 
 func (a *Agent) runBackup(
-	ctx context.Context, nodeID string, b backupView, archivers []workload.VolumeArchiver,
+	ctx context.Context, nodeID string, b backupView, keyFile string,
+	archivers []workload.VolumeArchiver,
 ) {
 	for _, archiver := range archivers {
 		if !archiver.HasVolume(b.VolumeID) {
 			continue
 		}
 
-		content, err := archiver.ExportVolume(b.VolumeID)
+		content, err := archiver.ExportVolume(b.VolumeID, keyFile)
 		if err != nil {
 			a.reportBackupFailure(ctx, nodeID, b, err.Error())
 			return

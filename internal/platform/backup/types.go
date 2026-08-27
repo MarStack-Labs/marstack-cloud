@@ -18,19 +18,21 @@ const (
 )
 
 type Backup struct {
-	ID         string
-	ProjectID  string
-	ScheduleID string
-	VolumeID   string
-	NodeID     string
-	Name       string
-	State      string
-	Message    string
-	SizeBytes  int64
-	Checksum   string
-	KeyID      string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID              string
+	ProjectID       string
+	ScheduleID      string
+	VolumeID        string
+	NodeID          string
+	Name            string
+	State           string
+	Message         string
+	SizeBytes       int64
+	Checksum        string
+	KeyID           string
+	VolumeKeySealed string
+	VolumeKeyID     string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type CreateParams struct {
@@ -39,6 +41,12 @@ type CreateParams struct {
 	NodeID     string
 	Name       string
 	ScheduleID string
+}
+
+type Envelope struct {
+	SizeBytes int64
+	KeySealed string
+	KeyID     string
 }
 
 type Schedule struct {
@@ -66,6 +74,8 @@ type Source struct {
 	NodeID    string
 	Name      string
 	Encrypted bool
+	KeySealed string
+	KeyID     string
 }
 
 func States() []string {

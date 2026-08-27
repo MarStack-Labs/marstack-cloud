@@ -103,6 +103,16 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  8,
 			SQL:    `ALTER TABLE backups ADD COLUMN key_id TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "backup",
+			Index:  9,
+			SQL:    `ALTER TABLE backups ADD COLUMN volume_key_sealed TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "backup",
+			Index:  10,
+			SQL:    `ALTER TABLE backups ADD COLUMN volume_key_id TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -128,7 +138,7 @@ func (m *Module) UseVolumes(v Volumes) {
 	m.svc.volumes = v
 }
 
-func (m *Module) Restorable(ctx context.Context, id, projectID string) (int64, error) {
+func (m *Module) Restorable(ctx context.Context, id, projectID string) (Envelope, error) {
 	return m.svc.restorable(ctx, id, projectID)
 }
 

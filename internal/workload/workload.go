@@ -140,7 +140,7 @@ type VolumeKeeper interface {
 
 type VolumeArchiver interface {
 	HasVolume(volumeID string) bool
-	ExportVolume(volumeID string) (io.ReadCloser, error)
+	ExportVolume(volumeID, keyFile string) (io.ReadCloser, error)
 	ImportVolume(volumeID string, content io.Reader) error
 }
 

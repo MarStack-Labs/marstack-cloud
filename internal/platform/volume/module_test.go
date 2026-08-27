@@ -581,3 +581,107 @@ func TestAKeySealedWithAKeyNoLongerHeldIsNotGuessed(t *testing.T) {
 		t.Fatalf("err = %v, want it to name the missing key", err)
 	}
 }
+
+type envelopeBackups struct {
+	restorable Restorable
+	err        error
+}
+
+func (b envelopeBackups) Restorable(context.Context, string, string) (Restorable, error) {
+	return b.restorable, b.err
+}
+
+func TestAVolumeRestoredFromAnEncryptedBackupAdoptsItsKey(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+
+	operator, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{operator}))
+
+	wrapped, err := sealed.SealBytes(make([]byte, sealed.KeyBytes), operator)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	m.UseBackups(envelopeBackups{restorable: Restorable{
+		SizeBytes: 1024, KeySealed: wrapped, KeyID: operator.ID(),
+	}})
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes",
+		`{"name":"restored","size_gib":1,"from_backup":"bkp-1"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !created.Encrypted {
+		t.Fatal("the restored volume is not marked encrypted, so the node would write a " +
+			"plain disk over an encrypted qcow2 and the guest would see nothing")
+	}
+
+	stored, err := m.svc.repo.byID(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if stored.KeySealed != wrapped {
+		t.Fatal("the restored volume did not adopt the backup's key, so nothing could " +
+			"open the bytes it is about to be filled with")
+	}
+}
+
+func TestRestoringAPlaintextBackupIntoAnEncryptedVolumeIsRefused(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+
+	operator, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{operator}))
+	m.UseBackups(envelopeBackups{restorable: Restorable{SizeBytes: 1024}})
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes",
+		`{"name":"restored","size_gib":1,"from_backup":"bkp-1","encrypted":true}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: the node writes a restore byte for byte, so this "+
+			"would be a plaintext disk claiming to be encrypted", rec.Code, http.StatusConflict)
+	}
+}
+
+func TestRestoringNeedsTheKeyThatWrappedTheBackupsVolumeKey(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+
+	operator, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{operator}))
+	m.UseBackups(envelopeBackups{restorable: Restorable{
+		SizeBytes: 1024, KeySealed: "whatever", KeyID: "a-key-nobody-holds",
+	}})
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes",
+		`{"name":"restored","size_gib":1,"from_backup":"bkp-1"}`)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusServiceUnavailable)
+	}
+	if !strings.Contains(rec.Body.String(), "a-key-nobody-holds") {
+		t.Fatalf("body = %q, want it to name the key", rec.Body.String())
+	}
+}
+
+func TestAPlaintextRestoreStaysPlaintext(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+
+	operator, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{operator}))
+	m.UseBackups(envelopeBackups{restorable: Restorable{SizeBytes: 1024}})
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes",
+		`{"name":"restored","size_gib":1,"from_backup":"bkp-1"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.Encrypted {
+		t.Fatal("a plaintext backup produced a volume claiming encryption")
+	}
+}

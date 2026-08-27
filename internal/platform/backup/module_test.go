@@ -266,12 +266,15 @@ func TestOnlyAReadyBackupCanBeRestoredFrom(t *testing.T) {
 	}
 
 	upload(t, h, created.ID, "volume-bytes")
-	size, err := m.Restorable(ctx, created.ID, testProject)
+	envelope, err := m.Restorable(ctx, created.ID, testProject)
 	if err != nil {
 		t.Fatalf("restorable: %v", err)
 	}
-	if size != int64(len("volume-bytes")) {
-		t.Fatalf("size = %d", size)
+	if envelope.SizeBytes != int64(len("volume-bytes")) {
+		t.Fatalf("size = %d", envelope.SizeBytes)
+	}
+	if envelope.KeySealed != "" {
+		t.Fatal("a plaintext volume's backup carries a key envelope")
 	}
 }
 
@@ -787,25 +790,6 @@ func TestABackupWhoseKeyIsGoneSaysSoInsteadOfServingRubbish(t *testing.T) {
 	}
 }
 
-func TestAnEncryptedVolumeIsRefusedUpFrontNotOncePerCycle(t *testing.T) {
-	h, m, _ := newTestModule(t)
-	m.UseVolumes(encryptedVolume{})
-
-	for name, call := range map[string]struct{ method, path, body string }{
-		"backup": {http.MethodPost, "/v1/volumes/" + testVolume + "/backups", `{"name":"x"}`},
-		"schedule": {http.MethodPut, "/v1/volumes/" + testVolume + "/schedule",
-			`{"every":"1d","keep":3}`},
-	} {
-		t.Run(name, func(t *testing.T) {
-			rec := request(t, h, call.method, call.path, call.body)
-			if rec.Code != http.StatusConflict {
-				t.Fatalf("status = %d, want %d: a schedule that can only ever fail is worse "+
-					"than no schedule", rec.Code, http.StatusConflict)
-			}
-		})
-	}
-}
-
 type encryptedVolume struct{}
 
 func (encryptedVolume) Source(_ context.Context, volumeID, projectID string) (Source, error) {
@@ -818,5 +802,46 @@ func (encryptedVolume) Source(_ context.Context, volumeID, projectID string) (So
 		NodeID:    testNode,
 		Name:      testVolumeAka,
 		Encrypted: true,
+		KeySealed: "sealed-volume-key",
+		KeyID:     "opkey",
 	}, nil
+}
+
+func TestABackupOfAnEncryptedVolumeCarriesItsKeyEnvelope(t *testing.T) {
+	h, m, _ := newTestModule(t)
+	m.UseVolumes(encryptedVolume{})
+	ctx := context.Background()
+
+	created := newBackup(t, h, "sealed-volume")
+	upload(t, h, created.ID, "already-encrypted-qcow2-bytes")
+
+	envelope, err := m.Restorable(ctx, created.ID, testProject)
+	if err != nil {
+		t.Fatalf("restorable: %v", err)
+	}
+	if envelope.KeySealed != "sealed-volume-key" || envelope.KeyID != "opkey" {
+		t.Fatalf("envelope = %+v, want the volume key carried through so a restore can "+
+			"open the disk it writes", envelope)
+	}
+}
+
+func TestTheBackupModuleNeverOpensTheEnvelopeItCarries(t *testing.T) {
+	h, m, _ := newTestModule(t)
+	m.UseVolumes(encryptedVolume{})
+
+	created := newBackup(t, h, "sealed-volume")
+
+	stored, err := m.svc.repo.byID(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if stored.VolumeKeySealed != "sealed-volume-key" {
+		t.Fatalf("stored %q, want the envelope kept verbatim", stored.VolumeKeySealed)
+	}
+
+	body := request(t, h, http.MethodGet, "/v1/backups/"+created.ID, "").Body.String()
+	if strings.Contains(body, "sealed-volume-key") {
+		t.Fatal("the wrapped volume key is served to operators, and a key that travels on " +
+			"every list is a key that ends up in a log")
+	}
 }
