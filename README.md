@@ -217,6 +217,33 @@ pass a limit they would individually respect. SQLite runs one writer at a time
 so the window is small, and closing it properly needs a transaction spanning
 two modules, which this architecture deliberately does not allow.
 
+### Attaching to a running guest
+
+A volume attached to a running instance used to wait for a restart. The node
+plugs it in now, through a QMP socket QEMU is started with:
+
+```sh
+marstack volume create --name extra --size-gib 5
+marstack volume attach extra --instance i-7dn7y7vsn7218
+```
+
+The agent asks the guest what it already has and adds what is missing, so the
+same reconcile that survives a node restart also covers a plug that failed once.
+An encrypted volume is plugged with its key as a QMP `secret` object, and the
+key still never reaches the node's persistent storage.
+
+Two things this does not do:
+
+- **Detaching still waits for the next start.** Pulling a disk a guest is
+  writing to can hang the guest or lose what was in flight, and nothing on the
+  platform side can tell whether the guest has released it. Deferring is the
+  honest answer.
+- **A guest started before this existed has no QMP socket**, so it needs one
+  restart before it can be hot-plugged.
+
+The guest still has to notice the new device and mount it. The platform hands it
+a disk.
+
 ### Growing a volume
 
 ```sh

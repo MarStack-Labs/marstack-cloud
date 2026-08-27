@@ -127,6 +127,12 @@ make check      # vet + test + security scans
 - An encrypted volume's key reaches the node over the API and is written to `/run/marstack/keys`,
   which must stay tmpfs. Writing it under the state dir or the runtime root would put the key on
   the same disk as the ciphertext and make the whole feature pointless.
+- QEMU is started with `-qmp` as well as `-monitor none`; those are different channels and both
+  are wanted. Removing the QMP socket silently turns hot-plug back into "wait for a restart", with
+  no error anywhere - `SyncDisks` returns zero when the socket is absent, on purpose, because a
+  guest started by an older build genuinely has none.
+- Hot-plug adds disks and never removes them. A guest cannot be asked to release a disk it is
+  writing to, and unplugging behind its back loses whatever was in flight. Detach stays deferred.
 - Every `qemu-img` call against an encrypted volume needs `--object secret` plus `--image-opts`
   with `encrypt.key-secret`; the plain `qemu-img verb file` form cannot open one. `imageArgs` in
   `runtime/qemu/snapshots_linux.go` builds both shapes - use it rather than adding a third.

@@ -145,6 +145,10 @@ type GrowPlan struct {
 	KeyFile  string
 }
 
+type HotPlugger interface {
+	SyncDisks(instanceID string, disks []Disk) (int, error)
+}
+
 type VolumeArchiver interface {
 	HasVolume(volumeID string) bool
 	ExportVolume(volumeID, keyFile string) (io.ReadCloser, error)

@@ -62,6 +62,10 @@ func (r *Runtime) consoleFile(instanceID string) string {
 	return filepath.Join(r.instanceDir(instanceID), console.LogName)
 }
 
+func (r *Runtime) monitorSocket(instanceID string) string {
+	return filepath.Join(r.instanceDir(instanceID), "qmp.sock")
+}
+
 func (r *Runtime) serialSocket(instanceID string) string {
 	return filepath.Join(r.instanceDir(instanceID), console.UpstreamName)
 }
@@ -253,6 +257,7 @@ func (r *Runtime) arguments(
 		"-drive", "if=pflash,format=raw,unit=0,readonly=on,file=" + firmware,
 		"-drive", "if=pflash,format=raw,unit=1,file=" + vars,
 		"-serial", "unix:" + r.serialSocket(spec.InstanceID) + ",server=on,wait=off",
+		"-qmp", "unix:" + r.monitorSocket(spec.InstanceID) + ",server=on,wait=off",
 		"-pidfile", r.pidFile(spec.InstanceID),
 		"-daemonize",
 		"-drive", "id=root,if=none,format=qcow2,file=" + r.diskFile(spec.InstanceID),

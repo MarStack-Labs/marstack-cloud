@@ -129,6 +129,8 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	a.applyGuards(ctx, state.Instances, state.Networks, state.Firewalls)
 
 	for _, in := range state.Instances {
+		a.plugDisks(ctx, in, disks[in.ID])
+
 		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID], disks[in.ID])
 		restarts := a.restartAttempts(in.ID)
 
