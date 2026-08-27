@@ -6,12 +6,14 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type response struct {
 	At        string `json:"at"`
 	Actor     string `json:"actor"`
 	Role      string `json:"role"`
+	ProjectID string `json:"project_id,omitempty"`
 	Method    string `json:"method"`
 	Path      string `json:"path"`
 	Status    int    `json:"status"`
@@ -35,7 +37,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 
-	entries, err := h.svc.list(r.Context(), limit)
+	entries, err := h.svc.list(r.Context(), limit, scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -46,6 +48,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 			At:        entry.At.Format(time.RFC3339Nano),
 			Actor:     entry.Actor,
 			Role:      entry.Role,
+			ProjectID: entry.ProjectID,
 			Method:    entry.Method,
 			Path:      entry.Path,
 			Status:    entry.Status,

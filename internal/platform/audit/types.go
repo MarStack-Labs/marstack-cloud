@@ -13,6 +13,7 @@ type Entry struct {
 	At        time.Time
 	Actor     string
 	Role      string
+	ProjectID string
 	Method    string
 	Path      string
 	Status    int
@@ -22,6 +23,7 @@ type Entry struct {
 type Record struct {
 	Actor     string
 	Role      string
+	ProjectID string
 	Method    string
 	Path      string
 	Status    int

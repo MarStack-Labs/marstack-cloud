@@ -49,6 +49,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  2,
 			SQL:    `CREATE INDEX audit_at ON audit (at)`,
 		},
+		{
+			Module: "audit",
+			Index:  3,
+			SQL:    `ALTER TABLE audit ADD COLUMN project_id TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 

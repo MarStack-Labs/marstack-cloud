@@ -438,3 +438,94 @@ func TestMovingABackupIsNotBoundByTheRequestTimeout(t *testing.T) {
 		t.Fatalf("status = %d, want the handler to have actually run", rec.Code)
 	}
 }
+
+func TestTheTrailOfOneProjectDoesNotShowAnother(t *testing.T) {
+	a := newTestApp(t)
+
+	other := newProject(t, a, "tenant-b")
+	theirsAdmin := adminTokenIn(t, a, "b-admin", other)
+
+	newInstance(t, a, a.secret, "ours")
+
+	for _, entry := range trailAs(t, a, theirsAdmin) {
+		if entry.Method == http.MethodPost && entry.Path == "/v1/instances" {
+			t.Fatalf("tenant-b can read that the default project created an instance: %+v", entry)
+		}
+	}
+
+	found := false
+	for _, entry := range trailAs(t, a, a.secret) {
+		if entry.Method == http.MethodPost && entry.Path == "/v1/instances" {
+			found = true
+			if entry.ProjectID == "" {
+				t.Fatal("the entry names no project, so the trail cannot be read per tenant")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the owner cannot see its own create")
+	}
+}
+
+func TestUnauthenticatedRefusalsStayVisibleToEveryAdmin(t *testing.T) {
+	a := newTestApp(t)
+
+	other := newProject(t, a, "tenant-b")
+	theirsAdmin := adminTokenIn(t, a, "b-admin", other)
+
+	doAs(t, a, "", http.MethodPost, "/v1/instances", strings.NewReader(`{}`))
+
+	for _, entry := range trailAs(t, a, theirsAdmin) {
+		if entry.Status == http.StatusUnauthorized {
+			return
+		}
+	}
+	t.Fatal("a refused request with no proven identity belongs to no project, so hiding it " +
+		"from every project hides it from everyone")
+}
+
+func adminTokenIn(t *testing.T, a *testApp, name, projectID string) string {
+	t.Helper()
+
+	rec := do(t, a, http.MethodPost, "/v1/tokens",
+		strings.NewReader(`{"name":"`+name+`","role":"admin","project_id":"`+projectID+`"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create token: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return created.Secret
+}
+
+func trailAs(t *testing.T, a *testApp, secret string) []struct {
+	Actor     string `json:"actor"`
+	ProjectID string `json:"project_id"`
+	Method    string `json:"method"`
+	Path      string `json:"path"`
+	Status    int    `json:"status"`
+} {
+	t.Helper()
+
+	var body struct {
+		Entries []struct {
+			Actor     string `json:"actor"`
+			ProjectID string `json:"project_id"`
+			Method    string `json:"method"`
+			Path      string `json:"path"`
+			Status    int    `json:"status"`
+		} `json:"entries"`
+	}
+	rec := doAs(t, a, secret, http.MethodGet, "/v1/audit", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("read the trail: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return body.Entries
+}

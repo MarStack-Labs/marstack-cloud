@@ -127,6 +127,11 @@ The role vocabulary lives in `platform/token`; the policy of which role reaches 
 rather than deny-lists: a route added without a policy entry fails closed with a `403` instead of
 being silently reachable.
 
+The trail carries the project too, and reading it is scoped the same way as everything else: an
+admin sees its own project's entries plus the ones that belong to no project at all. Those are
+infrastructure traffic and refusals where the caller never proved who they were - hiding them from
+every project would hide them from everyone.
+
 Two routes used to serve both an agent and an operator: `GET /v1/images` and
 `GET /v1/firewalls`. Scoping them to the caller's project would have blinded every agent, since a
 node token carries no project worth honouring. They are now split along the existing

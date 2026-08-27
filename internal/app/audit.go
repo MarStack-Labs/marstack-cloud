@@ -29,6 +29,7 @@ func auditTrail(trail recorder) httpx.Middleware {
 			trail.Record(r.Context(), audit.Record{
 				Actor:     identity.Name,
 				Role:      identity.Role,
+				ProjectID: identity.ProjectID,
 				Method:    r.Method,
 				Path:      r.URL.Path,
 				Status:    status,
