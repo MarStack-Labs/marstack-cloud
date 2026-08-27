@@ -16,6 +16,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -39,6 +40,10 @@ func (s stubVolumes) Source(_ context.Context, volumeID, projectID string) (Sour
 }
 
 func newTestModule(t *testing.T) (http.Handler, *Module, string) {
+	return newModuleWithKeys(t, nil)
+}
+
+func newModuleWithKeys(t *testing.T, keys []sealed.Key) (http.Handler, *Module, string) {
 	t.Helper()
 
 	ctx := context.Background()
@@ -50,7 +55,7 @@ func newTestModule(t *testing.T) (http.Handler, *Module, string) {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	m, err := New(st, dir, logging.New("error", io.Discard))
+	m, err := New(st, dir, NewKeyring(keys), logging.New("error", io.Discard))
 	if err != nil {
 		t.Fatalf("new module: %v", err)
 	}
@@ -629,5 +634,155 @@ func TestRetentionFollowsTheScheduleThatMadeTheCopy(t *testing.T) {
 		}
 		t.Fatalf("kept %v, want one: retention must follow the schedule that made a copy, "+
 			"not whichever schedule the volume happens to carry now", names)
+	}
+}
+
+func fetchContent(t *testing.T, h http.Handler, id string) *httptest.ResponseRecorder {
+	t.Helper()
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/v1/nodes/"+testNode+"/backups/"+id+"/content", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestASealedBackupIsUnreadableOnDiskAndWholeOverTheWire(t *testing.T) {
+	key, _ := sealed.NewKey()
+	h, _, dir := newModuleWithKeys(t, []sealed.Key{key})
+
+	secret := strings.Repeat("volume bytes nobody else should read ", 4096)
+	created := newBackup(t, h, "nightly")
+	if rec := upload(t, h, created.ID, secret); rec.Code != http.StatusOK {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+
+	onDisk, err := os.ReadFile(filepath.Join(dir, DirName, created.ID))
+	if err != nil {
+		t.Fatalf("read the vault: %v", err)
+	}
+	if strings.Contains(string(onDisk), "volume bytes nobody") {
+		t.Fatal("the volume is readable in the data directory, so anybody with the disk " +
+			"has the customer's data")
+	}
+
+	rec := request(t, h, http.MethodGet, "/v1/backups/"+created.ID, "")
+	var stored response
+	if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if stored.KeyID != key.ID() {
+		t.Fatalf("key = %q, want %q recorded so rotation does not orphan it",
+			stored.KeyID, key.ID())
+	}
+	if stored.SizeBytes != int64(len(secret)) {
+		t.Fatalf("size = %d, want the plaintext length %d", stored.SizeBytes, len(secret))
+	}
+
+	back := fetchContent(t, h, created.ID)
+	if back.Code != http.StatusOK {
+		t.Fatalf("download: %d %s", back.Code, back.Body.String())
+	}
+	if back.Body.String() != secret {
+		t.Fatalf("read back %d bytes, want %d", back.Body.Len(), len(secret))
+	}
+	if got := back.Header().Get("Content-Length"); got != strconv.Itoa(len(secret)) {
+		t.Fatalf("Content-Length = %q, want the plaintext length: a node sizing the disk "+
+			"from the ciphertext writes the wrong thing", got)
+	}
+}
+
+func TestTheChecksumCoversThePlaintextNotTheCiphertext(t *testing.T) {
+	key, _ := sealed.NewKey()
+	sealedHandler, _, _ := newModuleWithKeys(t, []sealed.Key{key})
+	plainHandler, _, _ := newTestModule(t)
+
+	content := strings.Repeat("same bytes ", 1000)
+
+	sums := make([]string, 0, 2)
+	for _, h := range []http.Handler{sealedHandler, plainHandler} {
+		created := newBackup(t, h, "nightly")
+		upload(t, h, created.ID, content)
+
+		rec := request(t, h, http.MethodGet, "/v1/backups/"+created.ID, "")
+		var stored response
+		if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		sums = append(sums, stored.Checksum)
+	}
+
+	if sums[0] != sums[1] {
+		t.Fatalf("checksums %s and %s differ, so an operator cannot compare a sealed backup "+
+			"with the disk it came from", sums[0], sums[1])
+	}
+}
+
+func TestABackupTakenBeforeEncryptionStaysReadable(t *testing.T) {
+	h, m, _ := newTestModule(t)
+
+	created := newBackup(t, h, "from-the-past")
+	upload(t, h, created.ID, "plain bytes")
+
+	key, _ := sealed.NewKey()
+	m.svc.vault.keys = NewKeyring([]sealed.Key{key})
+
+	back := fetchContent(t, h, created.ID)
+	if back.Code != http.StatusOK {
+		t.Fatalf("download: %d %s: turning encryption on must not orphan what came before",
+			back.Code, back.Body.String())
+	}
+	if back.Body.String() != "plain bytes" {
+		t.Fatalf("body = %q", back.Body.String())
+	}
+}
+
+func TestABackupSealedWithARetiredKeyStaysReadable(t *testing.T) {
+	old, _ := sealed.NewKey()
+	h, m, _ := newModuleWithKeys(t, []sealed.Key{old})
+
+	created := newBackup(t, h, "sealed-with-old")
+	upload(t, h, created.ID, "old bytes")
+
+	fresh, _ := sealed.NewKey()
+	m.svc.vault.keys = NewKeyring([]sealed.Key{fresh, old})
+
+	back := fetchContent(t, h, created.ID)
+	if back.Code != http.StatusOK {
+		t.Fatalf("download: %d %s", back.Code, back.Body.String())
+	}
+	if back.Body.String() != "old bytes" {
+		t.Fatalf("body = %q", back.Body.String())
+	}
+
+	next := newBackup(t, h, "sealed-with-fresh")
+	upload(t, h, next.ID, "new bytes")
+
+	rec := request(t, h, http.MethodGet, "/v1/backups/"+next.ID, "")
+	var stored response
+	if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if stored.KeyID != fresh.ID() {
+		t.Fatalf("key = %q, want the new backup sealed with the active key %q",
+			stored.KeyID, fresh.ID())
+	}
+}
+
+func TestABackupWhoseKeyIsGoneSaysSoInsteadOfServingRubbish(t *testing.T) {
+	key, _ := sealed.NewKey()
+	h, m, _ := newModuleWithKeys(t, []sealed.Key{key})
+
+	created := newBackup(t, h, "orphaned")
+	upload(t, h, created.ID, "bytes")
+
+	m.svc.vault.keys = NewKeyring(nil)
+
+	back := fetchContent(t, h, created.ID)
+	if back.Code == http.StatusOK {
+		t.Fatal("the ciphertext was served as though it were the volume")
+	}
+	if !strings.Contains(back.Body.String(), key.ID()) {
+		t.Fatalf("body = %q, want it to name the key that is missing", back.Body.String())
 	}
 }

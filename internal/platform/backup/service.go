@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
@@ -128,22 +127,25 @@ func (s *service) store(ctx context.Context, id, nodeID string, content io.Reade
 		return b, nil
 	}
 
-	size, checksum, err := s.vault.write(b.ID, content, MaxBytes)
+	stored, err := s.vault.write(b.ID, content, MaxBytes)
 	if err != nil {
-		if markErr := s.repo.mark(ctx, b.ID, StateFailed, err.Error(), 0, "", s.now()); markErr != nil {
+		markErr := s.repo.mark(ctx, b.ID, StateFailed, err.Error(), 0, "", "", s.now())
+		if markErr != nil {
 			return Backup{}, fault.Internal(markErr)
 		}
 		return Backup{}, fault.Internal(err)
 	}
 
 	at := s.now()
-	if err := s.repo.mark(ctx, b.ID, StateReady, "", size, checksum, at); err != nil {
+	if err := s.repo.mark(ctx, b.ID, StateReady, "",
+		stored.Size, stored.Checksum, stored.KeyID, at); err != nil {
 		return Backup{}, translate(err)
 	}
 
 	b.State = StateReady
-	b.SizeBytes = size
-	b.Checksum = checksum
+	b.SizeBytes = stored.Size
+	b.Checksum = stored.Checksum
+	b.KeyID = stored.KeyID
 	b.UpdatedAt = at
 
 	if b.ScheduleID != "" {
@@ -171,10 +173,10 @@ func (s *service) fail(ctx context.Context, id, nodeID, message string) error {
 	if message == "" {
 		message = "the node could not copy the volume"
 	}
-	return translate(s.repo.mark(ctx, b.ID, StateFailed, message, 0, "", s.now()))
+	return translate(s.repo.mark(ctx, b.ID, StateFailed, message, 0, "", "", s.now()))
 }
 
-func (s *service) content(ctx context.Context, id string) (*os.File, int64, error) {
+func (s *service) content(ctx context.Context, id string) (io.ReadCloser, int64, error) {
 	b, err := s.repo.byID(ctx, id)
 	if err != nil {
 		return nil, 0, translate(err)
@@ -184,11 +186,11 @@ func (s *service) content(ctx context.Context, id string) (*os.File, int64, erro
 			"the backup is "+b.State+" and holds no bytes yet")
 	}
 
-	file, size, err := s.vault.open(b.ID)
+	reader, err := s.vault.open(b.ID, b.KeyID)
 	if err != nil {
-		return nil, 0, fault.Internal(err)
+		return nil, 0, fault.Unavailable("backup_unreadable", err.Error())
 	}
-	return file, size, nil
+	return reader, b.SizeBytes, nil
 }
 
 func (s *service) restorable(ctx context.Context, id, projectID string) (int64, error) {

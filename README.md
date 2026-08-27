@@ -280,6 +280,47 @@ Retention runs when a backup becomes ready, not only on the next sweep, because
 the count only changes at that moment. It runs on the sweep as well, so
 lowering `keep` takes effect without waiting for the next copy.
 
+### Encryption at rest
+
+Backup content is a copy of a customer's disk, kept indefinitely. Without a key
+it sits in the data directory in the clear, and the control plane says so on
+every start:
+
+```
+level=WARN msg="backups are stored unencrypted, so a copy of every volume sits
+  in the data directory in the clear" fix="pass --backup-key-file"
+```
+
+```sh
+marstack backup keygen > /etc/marstack/backup.key
+chmod 600 /etc/marstack/backup.key
+marstack server --backup-key-file /etc/marstack/backup.key
+```
+
+AES-256-GCM in 64 KiB frames, each frame authenticated. A per-file salt derives
+the frame key, so two backups of the same bytes look nothing alike and no nonce
+is ever reused. Truncation, appended bytes, a flipped bit and a frame spliced in
+from another backup all fail to decrypt rather than returning a short or wrong
+disk — the tests in `internal/kernel/sealed` check each of those.
+
+The recorded size and checksum describe the **plaintext**, so a backup's
+checksum can still be compared with the volume it came from.
+
+Rotation works by keeping the old key readable. Each backup records which key
+sealed it, and the first `--backup-key-file` seals new ones:
+
+```sh
+marstack server   --backup-key-file /etc/marstack/backup-2026.key   --backup-key-file /etc/marstack/backup-2025.key
+```
+
+Turning encryption on does not touch what came before: a backup taken without a
+key stays readable. A backup whose key is no longer held answers with an error
+naming the key rather than serving ciphertext as though it were a disk.
+
+**Lose the key and the backups it sealed are gone.** There is no recovery path,
+by design — a key escrow the control plane could read would defeat the point.
+Keep it somewhere other than the data directory it protects.
+
 The bytes land in `<data-dir>/backups/` on the control plane. That makes the
 control plane the thing worth protecting — which is honest, and better than
 having no copy off the node at all. Shipping them to object storage instead is
@@ -662,6 +703,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 19  token lifetimes + TLS on the API                  done
 20  per-project quotas + read-only viewer role        done
 21  scheduled backups + retention                     done
+22  backup encryption at rest                         done
 ```
 
 ## License

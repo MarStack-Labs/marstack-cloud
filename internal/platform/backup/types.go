@@ -28,6 +28,7 @@ type Backup struct {
 	Message    string
 	SizeBytes  int64
 	Checksum   string
+	KeyID      string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 }

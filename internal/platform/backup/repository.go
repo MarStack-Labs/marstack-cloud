@@ -17,7 +17,7 @@ var (
 )
 
 const columns = `id, project_id, schedule_id, volume_id, node_id, name, state, message, ` +
-	`size_bytes, checksum, created_at, updated_at`
+	`size_bytes, checksum, key_id, created_at, updated_at`
 
 const scheduleColumns = `id, project_id, volume_id, every_seconds, keep, next_at, last_at, ` +
 	`created_at, updated_at`
@@ -32,10 +32,10 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, b Backup) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO backups (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO backups (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		b.ID, b.ProjectID, b.ScheduleID, b.VolumeID, b.NodeID, b.Name, b.State, b.Message,
-		b.SizeBytes,
-		b.Checksum, b.CreatedAt.Format(time.RFC3339Nano), b.UpdatedAt.Format(time.RFC3339Nano),
+		b.SizeBytes, b.Checksum, b.KeyID,
+		b.CreatedAt.Format(time.RFC3339Nano), b.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -94,12 +94,12 @@ func (r *repository) query(ctx context.Context, sql string, args ...any) ([]Back
 }
 
 func (r *repository) mark(ctx context.Context, id, state, message string,
-	size int64, checksum string, at time.Time,
+	size int64, checksum, keyID string, at time.Time,
 ) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE backups SET state = ?, message = ?, size_bytes = ?, checksum = ?, updated_at = ?
-		 WHERE id = ?`,
-		state, message, size, checksum, at.Format(time.RFC3339Nano), id)
+		`UPDATE backups SET state = ?, message = ?, size_bytes = ?, checksum = ?, key_id = ?,
+		 updated_at = ? WHERE id = ?`,
+		state, message, size, checksum, keyID, at.Format(time.RFC3339Nano), id)
 	if err != nil {
 		return fmt.Errorf("mark backup: %w", err)
 	}
@@ -132,7 +132,8 @@ func scan(row scanner) (Backup, error) {
 		created, updated string
 	)
 	if err := row.Scan(&b.ID, &b.ProjectID, &b.ScheduleID, &b.VolumeID, &b.NodeID, &b.Name,
-		&b.State, &b.Message, &b.SizeBytes, &b.Checksum, &created, &updated); err != nil {
+		&b.State, &b.Message, &b.SizeBytes, &b.Checksum, &b.KeyID,
+		&created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Backup{}, err
 		}

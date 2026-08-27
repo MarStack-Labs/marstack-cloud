@@ -29,6 +29,7 @@ type response struct {
 	Message    string `json:"message,omitempty"`
 	SizeBytes  int64  `json:"size_bytes"`
 	Checksum   string `json:"checksum,omitempty"`
+	KeyID      string `json:"key_id,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	UpdatedAt  string `json:"updated_at"`
 }
@@ -48,6 +49,7 @@ func toResponse(b Backup) response {
 		Message:    b.Message,
 		SizeBytes:  b.SizeBytes,
 		Checksum:   b.Checksum,
+		KeyID:      b.KeyID,
 		CreatedAt:  b.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:  b.UpdatedAt.Format(time.RFC3339Nano),
 	}

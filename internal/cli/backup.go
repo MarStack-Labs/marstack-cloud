@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/spf13/cobra"
+
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 )
 
 type backupView struct {
@@ -48,7 +51,7 @@ func newBackupCmd(g *globals) *cobra.Command {
 		Aliases: []string{"backups"},
 	}
 	cmd.AddCommand(newBackupCreateCmd(g), newBackupListCmd(g), newBackupDeleteCmd(g),
-		newScheduleCmd(g))
+		newScheduleCmd(g), newBackupKeygenCmd(g))
 	return cmd
 }
 
@@ -227,6 +230,32 @@ func newScheduleClearCmd(g *globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return g.client().do(cmd.Context(), "DELETE",
 				"/v1/volumes/"+args[0]+"/schedule", nil, nil)
+		},
+	}
+}
+
+func newBackupKeygenCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "keygen",
+		Short: "Print a new backup key",
+		Long: "Print a new backup key.\n\n" +
+			"Write it to a file and pass that file to marstack server --backup-key-file.\n" +
+			"Keep it somewhere other than the data directory it protects: a key stored next\n" +
+			"to the backups it seals protects nothing. Lose it and those backups are gone.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			key, text := sealed.NewKey()
+
+			if g.output != outputTable {
+				return render(cmd.OutOrStdout(), g.output,
+					map[string]string{"key": text, "key_id": key.ID()}, table{})
+			}
+
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), text); err != nil {
+				return err
+			}
+			cmd.PrintErrln("key " + key.ID() + " — this is the only time it is shown")
+			return nil
 		},
 	}
 }

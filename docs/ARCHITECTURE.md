@@ -157,6 +157,18 @@ strictness here.
 
 ## Data protection
 
+Backup content is sealed with `kernel/sealed`, a streaming chunked AEAD over the standard library
+alone - `crypto/aes`, `crypto/cipher`, `crypto/hkdf`. Streaming is the requirement that shapes it: a
+volume does not fit in memory, so the whole file cannot be one `Seal` call, and a naive split into
+independently sealed chunks would let an attacker truncate, reorder or splice them undetected. Each
+frame therefore carries a nonce derived from its index under a key derived per file, and the final
+frame is marked through its additional data so a stream that ends early fails.
+
+The keyring lives in the backup module and is injected from `app`, so the module decides nothing
+about where keys come from. Each backup records the key that sealed it, which is what makes rotation
+possible without rewriting history.
+
+
 Two mechanisms with different failure domains, deliberately not merged:
 
 | | Lives in | Survives | Does not survive |

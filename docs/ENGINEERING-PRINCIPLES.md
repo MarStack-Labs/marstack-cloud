@@ -118,6 +118,13 @@ make check      # vet + test + security scans
   `Volumes.Source` resolves - never the string the caller typed. The agent matches its volumes by
   id; a name stored in `backups.volume_id` is a backup no node ever picks up, and it fails silently
   because the pending guard then blocks every retry.
+- `kernel/sealed` writes 64 KiB AEAD frames with a per-file salt, and the final frame is marked
+  through its additional data. That marking is the only thing that makes truncation detectable, so
+  never "simplify" the AAD away. `Seal` never emits a full-size final frame, which is why a reader
+  can treat a short read as the end.
+- A backup's `size_bytes` and `checksum` describe the plaintext, not the file on disk. The download
+  handler sets Content-Length from that, and an agent sizes the restored disk from it - taking the
+  ciphertext length instead writes the wrong thing.
 - Backup retention runs in two places on purpose: when a backup becomes ready, and on every sweep.
   The first is when the count actually changes; the second is what makes a lowered `keep` take
   effect without waiting for the next copy. Removing either leaves a real gap.

@@ -10,6 +10,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/certs"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
@@ -43,6 +44,7 @@ type Config struct {
 	Now               func() time.Time
 	TLSCert           string
 	TLSKey            string
+	BackupKeys        []sealed.Key
 }
 
 func (c Config) servesTLS() bool {
@@ -95,7 +97,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a := &App{cfg: cfg, log: log, store: st, networks: networks}
 	volumes := volume.New(st, volumeInstances{instances: instances}, log)
 
-	backups, err := backup.New(st, cfg.DataDir, log)
+	backups, err := backup.New(st, cfg.DataDir, backup.NewKeyring(cfg.BackupKeys), log)
 	if err != nil {
 		st.Close()
 		return nil, err
@@ -246,6 +248,14 @@ func (a *App) announce() {
 		a.log.Warn("serving plain HTTP, so every bearer token crosses the network in the clear",
 			"fix", "pass --tls-cert and --tls-key")
 	}
+
+	if len(a.cfg.BackupKeys) == 0 {
+		a.log.Warn("backups are stored unencrypted, so a copy of every volume sits in the "+
+			"data directory in the clear", "fix", "pass --backup-key-file")
+		return
+	}
+	a.log.Info("backups are sealed at rest",
+		"key", a.cfg.BackupKeys[0].ID(), "keys_held", len(a.cfg.BackupKeys))
 }
 
 func (a *App) listen() error {

@@ -16,8 +16,8 @@ type Module struct {
 	handler *handler
 }
 
-func New(st *store.Store, dataDir string, log *slog.Logger) (*Module, error) {
-	v, err := openVault(dataDir)
+func New(st *store.Store, dataDir string, keys *Keyring, log *slog.Logger) (*Module, error) {
+	v, err := openVault(dataDir, keys)
 	if err != nil {
 		return nil, err
 	}
@@ -96,6 +96,11 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "backup",
 			Index:  7,
 			SQL:    `CREATE INDEX backup_schedules_next ON backup_schedules (next_at)`,
+		},
+		{
+			Module: "backup",
+			Index:  8,
+			SQL:    `ALTER TABLE backups ADD COLUMN key_id TEXT NOT NULL DEFAULT ''`,
 		},
 	}
 }
