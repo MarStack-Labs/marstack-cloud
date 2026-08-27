@@ -97,6 +97,21 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  8,
 			SQL:    `CREATE UNIQUE INDEX networks_cidr_unique ON networks (cidr)`,
 		},
+		{
+			Module: "network",
+			Index:  9,
+			SQL:    `ALTER TABLE networks ADD COLUMN project_id TEXT NOT NULL DEFAULT 'prj-default'`,
+		},
+		{
+			Module: "network",
+			Index:  10,
+			SQL:    `DROP INDEX networks_name_unique`,
+		},
+		{
+			Module: "network",
+			Index:  11,
+			SQL:    `CREATE UNIQUE INDEX networks_name_unique ON networks (project_id, name)`,
+		},
 	}
 }
 
@@ -108,8 +123,8 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/nodes/{nodeID}/network", httpx.Wrap(m.log, m.handler.nodeView))
 }
 
-func (m *Module) EnsureDefault(ctx context.Context) (Network, error) {
-	n, err := m.svc.ensureDefault(ctx)
+func (m *Module) EnsureDefault(ctx context.Context, projectID string) (Network, error) {
+	n, err := m.svc.ensureDefaultFor(ctx, projectID)
 	if err != nil {
 		return Network{}, err
 	}
@@ -117,8 +132,8 @@ func (m *Module) EnsureDefault(ctx context.Context) (Network, error) {
 	return n, nil
 }
 
-func (m *Module) DefaultNetworkID(ctx context.Context) (string, error) {
-	n, err := m.svc.ensureDefault(ctx)
+func (m *Module) DefaultNetworkID(ctx context.Context, projectID string) (string, error) {
+	n, err := m.svc.ensureDefaultFor(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
@@ -147,7 +162,7 @@ func (m *Module) AllAddresses(ctx context.Context) (map[string]string, error) {
 }
 
 func (m *Module) NetworkNames(ctx context.Context) (map[string]string, error) {
-	networks, err := m.svc.list(ctx)
+	networks, err := m.svc.listAll(ctx)
 	if err != nil {
 		return nil, err
 	}

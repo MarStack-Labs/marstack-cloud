@@ -18,7 +18,7 @@ type fakeNetworks struct {
 	releaseErr error
 }
 
-func (f *fakeNetworks) DefaultNetworkID(context.Context) (string, error) {
+func (f *fakeNetworks) DefaultNetworkID(context.Context, string) (string, error) {
 	if f.defaultID == "" {
 		return "nw-default", nil
 	}

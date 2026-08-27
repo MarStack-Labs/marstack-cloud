@@ -5,6 +5,8 @@ import "time"
 const (
 	DefaultName    = "default"
 	DefaultCIDR    = "10.20.0.0/16"
+	SupernetCIDR   = "10.0.0.0/8"
+	ProjectBits    = 16
 	SliceBits      = 26
 	bridgePrefix   = "msbr-"
 	reservedSlices = 1
@@ -12,6 +14,7 @@ const (
 
 type Network struct {
 	ID        string
+	ProjectID string
 	Name      string
 	CIDR      string
 	Gateway   string
@@ -36,6 +39,7 @@ type NIC struct {
 }
 
 type CreateParams struct {
-	Name string
-	CIDR string
+	ProjectID string
+	Name      string
+	CIDR      string
 }

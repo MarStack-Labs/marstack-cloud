@@ -132,7 +132,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
-	if _, err := a.networks.EnsureDefault(ctx); err != nil {
+	if _, err := a.networks.EnsureDefault(ctx, project.DefaultID); err != nil {
 		st.Close()
 		return nil, err
 	}

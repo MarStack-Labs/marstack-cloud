@@ -17,7 +17,7 @@ var (
 	errCIDRTaken = errors.New("address already allocated")
 )
 
-const networkColumns = `id, name, cidr, gateway, bridge, created_at`
+const networkColumns = `id, project_id, name, cidr, gateway, bridge, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -29,8 +29,9 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insertNetwork(ctx context.Context, n Network) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO networks (`+networkColumns+`) VALUES (?, ?, ?, ?, ?, ?)`,
-		n.ID, n.Name, n.CIDR, n.Gateway, n.Bridge, n.CreatedAt.Format(time.RFC3339Nano),
+		`INSERT INTO networks (`+networkColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		n.ID, n.ProjectID, n.Name, n.CIDR, n.Gateway, n.Bridge,
+		n.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -41,8 +42,9 @@ func (r *repository) insertNetwork(ctx context.Context, n Network) error {
 	return nil
 }
 
-func (r *repository) networkByName(ctx context.Context, name string) (Network, error) {
-	row := r.db.QueryRowContext(ctx, `SELECT `+networkColumns+` FROM networks WHERE name = ?`, name)
+func (r *repository) networkByName(ctx context.Context, projectID, name string) (Network, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+networkColumns+` FROM networks WHERE project_id = ? AND name = ?`, projectID, name)
 	return scanNetworkRow(row)
 }
 
@@ -66,6 +68,25 @@ func (r *repository) listNetworks(ctx context.Context) ([]Network, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT `+networkColumns+` FROM networks ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list networks: %w", err)
+	}
+	defer rows.Close()
+
+	networks := make([]Network, 0)
+	for rows.Next() {
+		n, err := scanNetwork(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan network: %w", err)
+		}
+		networks = append(networks, n)
+	}
+	return networks, rows.Err()
+}
+
+func (r *repository) listNetworksIn(ctx context.Context, projectID string) ([]Network, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+networkColumns+` FROM networks WHERE project_id = ? ORDER BY name`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list networks in project: %w", err)
 	}
 	defer rows.Close()
 
@@ -316,7 +337,8 @@ func scanNetwork(row scanner) (Network, error) {
 		n          Network
 		createdRaw string
 	)
-	if err := row.Scan(&n.ID, &n.Name, &n.CIDR, &n.Gateway, &n.Bridge, &createdRaw); err != nil {
+	if err := row.Scan(&n.ID, &n.ProjectID, &n.Name, &n.CIDR, &n.Gateway, &n.Bridge,
+		&createdRaw); err != nil {
 		return Network{}, err
 	}
 

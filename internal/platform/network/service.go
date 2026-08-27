@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"errors"
+	"net/netip"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
@@ -60,6 +61,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Network, err
 	id := ids.New("nw")
 	n := Network{
 		ID:        id,
+		ProjectID: params.ProjectID,
 		Name:      params.Name,
 		CIDR:      prefix.String(),
 		Gateway:   gatewayOf(prefix).String(),
@@ -81,9 +83,9 @@ func (s *service) nicOf(ctx context.Context, instanceID string) (NIC, error) {
 	return nic, nil
 }
 
-func (s *service) remove(ctx context.Context, id string) error {
-	if _, err := s.repo.network(ctx, id); err != nil {
-		return translate(err)
+func (s *service) remove(ctx context.Context, id, projectID string) error {
+	if _, err := s.getIn(ctx, id, projectID); err != nil {
+		return err
 	}
 
 	attached, err := s.repo.countNICs(ctx, id)
@@ -101,23 +103,80 @@ func (s *service) remove(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *service) ensureDefault(ctx context.Context) (Network, error) {
-	existing, err := s.repo.networkByName(ctx, DefaultName)
+func (s *service) ensureDefaultFor(ctx context.Context, projectID string) (Network, error) {
+	existing, err := s.repo.networkByName(ctx, projectID, DefaultName)
 	if err == nil {
 		return existing, nil
 	}
 	if !errors.Is(err, errNotFound) {
 		return Network{}, translate(err)
 	}
-	return s.create(ctx, CreateParams{Name: DefaultName, CIDR: DefaultCIDR})
+
+	cidr, err := s.freeDefaultCIDR(ctx)
+	if err != nil {
+		return Network{}, err
+	}
+	return s.create(ctx, CreateParams{ProjectID: projectID, Name: DefaultName, CIDR: cidr})
 }
 
-func (s *service) list(ctx context.Context) ([]Network, error) {
+func (s *service) freeDefaultCIDR(ctx context.Context) (string, error) {
+	existing, err := s.repo.listNetworks(ctx)
+	if err != nil {
+		return "", translate(err)
+	}
+
+	taken := make([]netip.Prefix, 0, len(existing))
+	for _, other := range existing {
+		if prefix, parseErr := parsePrefix(other.CIDR); parseErr == nil {
+			taken = append(taken, prefix)
+		}
+	}
+
+	preferred, err := parsePrefix(DefaultCIDR)
+	if err != nil {
+		return "", fault.Internal(err)
+	}
+	if !overlapsAny(preferred, taken) {
+		return preferred.String(), nil
+	}
+
+	supernet, err := parsePrefix(SupernetCIDR)
+	if err != nil {
+		return "", fault.Internal(err)
+	}
+
+	free, err := freePrefix(supernet, ProjectBits, taken)
+	if err != nil {
+		return "", fault.Conflict("address_space_exhausted", err.Error())
+	}
+	return free.String(), nil
+}
+
+func (s *service) listAll(ctx context.Context) ([]Network, error) {
 	networks, err := s.repo.listNetworks(ctx)
 	if err != nil {
 		return nil, translate(err)
 	}
 	return networks, nil
+}
+
+func (s *service) listIn(ctx context.Context, projectID string) ([]Network, error) {
+	networks, err := s.repo.listNetworksIn(ctx, projectID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return networks, nil
+}
+
+func (s *service) getIn(ctx context.Context, id, projectID string) (Network, error) {
+	n, err := s.get(ctx, id)
+	if err != nil {
+		return Network{}, err
+	}
+	if n.ProjectID != projectID {
+		return Network{}, fault.NotFound("network_not_found", "no network with that id exists")
+	}
+	return n, nil
 }
 
 func (s *service) get(ctx context.Context, id string) (Network, error) {

@@ -16,7 +16,7 @@ type Module struct {
 }
 
 type Networks interface {
-	DefaultNetworkID(ctx context.Context) (string, error)
+	DefaultNetworkID(ctx context.Context, projectID string) (string, error)
 	ReleaseAddress(ctx context.Context, instanceID string) error
 }
 
@@ -159,6 +159,21 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "instance",
 			Index:  12,
 			SQL:    `ALTER TABLE instances ADD COLUMN firewall_id TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  13,
+			SQL:    `ALTER TABLE instances ADD COLUMN project_id TEXT NOT NULL DEFAULT 'prj-default'`,
+		},
+		{
+			Module: "instance",
+			Index:  14,
+			SQL:    `DROP INDEX instances_name_unique`,
+		},
+		{
+			Module: "instance",
+			Index:  15,
+			SQL:    `CREATE UNIQUE INDEX instances_name_unique ON instances (project_id, name)`,
 		},
 	}
 }

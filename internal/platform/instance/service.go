@@ -37,7 +37,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 
 	networkID := normalized.NetworkID
 	if networkID == "" && s.networks != nil {
-		resolved, err := s.networks.DefaultNetworkID(ctx)
+		resolved, err := s.networks.DefaultNetworkID(ctx, params.ProjectID)
 		if err != nil {
 			return Instance{}, err
 		}
@@ -58,6 +58,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 	now := s.now()
 	in := Instance{
 		ID:            ids.New("i"),
+		ProjectID:     params.ProjectID,
 		Name:          normalized.Name,
 		Isolation:     Isolation(normalized.Isolation),
 		Image:         normalized.Image,
@@ -98,14 +99,41 @@ func (s *service) list(ctx context.Context) ([]Instance, error) {
 	return instances, nil
 }
 
-func (s *service) setDesired(ctx context.Context, id string, desired DesiredState) (Instance, error) {
+func (s *service) listIn(ctx context.Context, projectID string) ([]Instance, error) {
+	instances, err := s.repo.listIn(ctx, projectID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return instances, nil
+}
+
+func (s *service) getIn(ctx context.Context, id, projectID string) (Instance, error) {
+	in, err := s.get(ctx, id)
+	if err != nil {
+		return Instance{}, err
+	}
+	if in.ProjectID != projectID {
+		return Instance{}, fault.NotFound("instance_not_found", "no instance with that id exists")
+	}
+	return in, nil
+}
+
+func (s *service) setDesired(
+	ctx context.Context, id, projectID string, desired DesiredState,
+) (Instance, error) {
+	if _, err := s.getIn(ctx, id, projectID); err != nil {
+		return Instance{}, err
+	}
 	if err := s.repo.setDesired(ctx, id, desired, s.now()); err != nil {
 		return Instance{}, translate(err)
 	}
 	return s.get(ctx, id)
 }
 
-func (s *service) delete(ctx context.Context, id string) error {
+func (s *service) delete(ctx context.Context, id, projectID string) error {
+	if _, err := s.getIn(ctx, id, projectID); err != nil {
+		return err
+	}
 	if err := s.repo.delete(ctx, id); err != nil {
 		return translate(err)
 	}

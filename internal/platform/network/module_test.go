@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -33,6 +34,8 @@ func newTestModule(t *testing.T) (http.Handler, *Module) {
 	return mux, m
 }
 
+const testProject = "prj-test"
+
 func request(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -44,6 +47,7 @@ func request(t *testing.T, h http.Handler, method, path, body string) *httptest.
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req = req.WithContext(scope.With(req.Context(), scope.Scope{ProjectID: testProject}))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -64,11 +68,11 @@ func TestEnsureDefaultIsIdempotent(t *testing.T) {
 	_, m := newTestModule(t)
 	ctx := context.Background()
 
-	first, err := m.EnsureDefault(ctx)
+	first, err := m.EnsureDefault(ctx, testProject)
 	if err != nil {
 		t.Fatalf("ensure default: %v", err)
 	}
-	second, err := m.EnsureDefault(ctx)
+	second, err := m.EnsureDefault(ctx, testProject)
 	if err != nil {
 		t.Fatalf("ensure default again: %v", err)
 	}
@@ -125,7 +129,7 @@ func TestEachNodeGetsItsOwnSlice(t *testing.T) {
 	_, m := newTestModule(t)
 	ctx := context.Background()
 
-	n, err := m.EnsureDefault(ctx)
+	n, err := m.EnsureDefault(ctx, testProject)
 	if err != nil {
 		t.Fatalf("ensure default: %v", err)
 	}
@@ -162,7 +166,7 @@ func TestAllocateGivesDistinctAddressesFromTheNodeSlice(t *testing.T) {
 	h, m := newTestModule(t)
 	ctx := context.Background()
 
-	n, err := m.EnsureDefault(ctx)
+	n, err := m.EnsureDefault(ctx, testProject)
 	if err != nil {
 		t.Fatalf("ensure default: %v", err)
 	}
@@ -209,7 +213,7 @@ func TestAllocateIsIdempotentPerInstance(t *testing.T) {
 	_, m := newTestModule(t)
 	ctx := context.Background()
 
-	n, _ := m.EnsureDefault(ctx)
+	n, _ := m.EnsureDefault(ctx, testProject)
 
 	if err := m.Allocate(ctx, "i-1", n.ID, "n-1"); err != nil {
 		t.Fatalf("allocate: %v", err)
@@ -239,7 +243,7 @@ func TestReleaseFreesTheAddressForReuse(t *testing.T) {
 	_, m := newTestModule(t)
 	ctx := context.Background()
 
-	n, _ := m.EnsureDefault(ctx)
+	n, _ := m.EnsureDefault(ctx, testProject)
 	if err := m.Allocate(ctx, "i-1", n.ID, "n-1"); err != nil {
 		t.Fatalf("allocate: %v", err)
 	}
@@ -261,7 +265,7 @@ func TestReleaseFreesTheAddressForReuse(t *testing.T) {
 
 func TestNodeViewIsEmptyForAnUnknownNode(t *testing.T) {
 	h, m := newTestModule(t)
-	m.EnsureDefault(context.Background())
+	m.EnsureDefault(context.Background(), testProject)
 
 	view := decode[nodeViewResponse](t, request(t, h, http.MethodGet, "/v1/nodes/n-nobody/network", ""))
 	if len(view.Networks) != 0 {
@@ -273,7 +277,7 @@ func TestAddressesDoNotCollideAcrossNodes(t *testing.T) {
 	_, m := newTestModule(t)
 	ctx := context.Background()
 
-	n, _ := m.EnsureDefault(ctx)
+	n, _ := m.EnsureDefault(ctx, testProject)
 	m.Allocate(ctx, "i-1", n.ID, "n-1")
 	m.Allocate(ctx, "i-2", n.ID, "n-2")
 
@@ -319,7 +323,7 @@ func TestOverlappingRangesAreRejected(t *testing.T) {
 func TestCreateWithoutACIDRCannotShadowTheDefault(t *testing.T) {
 	h, m := newTestModule(t)
 
-	if _, err := m.EnsureDefault(context.Background()); err != nil {
+	if _, err := m.EnsureDefault(context.Background(), testProject); err != nil {
 		t.Fatalf("ensure default: %v", err)
 	}
 

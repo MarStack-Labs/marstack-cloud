@@ -77,6 +77,7 @@ const (
 
 type Instance struct {
 	ID              string
+	ProjectID       string
 	Name            string
 	Isolation       Isolation
 	Image           string
@@ -99,6 +100,7 @@ type Instance struct {
 }
 
 type CreateParams struct {
+	ProjectID     string
 	Name          string
 	Isolation     string
 	Image         string

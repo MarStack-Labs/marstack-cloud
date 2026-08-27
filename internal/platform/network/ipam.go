@@ -117,3 +117,32 @@ func bridgeName(networkID string) string {
 	}
 	return bridgePrefix + suffix
 }
+
+func overlapsAny(candidate netip.Prefix, taken []netip.Prefix) bool {
+	for _, other := range taken {
+		if other.Overlaps(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func freePrefix(supernet netip.Prefix, bits int, taken []netip.Prefix) (netip.Prefix, error) {
+	if supernet.Bits() > bits {
+		return netip.Prefix{}, fmt.Errorf("supernet %s cannot hold a /%d", supernet, bits)
+	}
+
+	candidate := netip.PrefixFrom(supernet.Addr(), bits).Masked()
+	for supernet.Contains(candidate.Addr()) {
+		if !overlapsAny(candidate, taken) {
+			return candidate, nil
+		}
+		next, err := advance(candidate)
+		if err != nil {
+			return netip.Prefix{}, err
+		}
+		candidate = next
+	}
+
+	return netip.Prefix{}, fmt.Errorf("supernet %s has no free /%d left", supernet, bits)
+}

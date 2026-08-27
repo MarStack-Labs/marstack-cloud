@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type createRequest struct {
@@ -91,6 +92,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	in, err := h.svc.create(r.Context(), CreateParams{
+		ProjectID:     scope.From(r.Context()).ProjectID,
 		Name:          req.Name,
 		Isolation:     req.Isolation,
 		Image:         req.Image,
@@ -113,7 +115,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	instances, err := h.svc.list(r.Context())
+	instances, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -128,7 +130,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
-	in, err := h.svc.get(r.Context(), r.PathValue("id"))
+	in, err := h.svc.getIn(r.Context(), r.PathValue("id"), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -145,7 +147,8 @@ func (h *handler) stop(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) transition(w http.ResponseWriter, r *http.Request, desired DesiredState) error {
-	in, err := h.svc.setDesired(r.Context(), r.PathValue("id"), desired)
+	in, err := h.svc.setDesired(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, desired)
 	if err != nil {
 		return err
 	}
@@ -191,7 +194,8 @@ func (h *handler) reportStatus(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
-	if err := h.svc.delete(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.svc.delete(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
 		return err
 	}
 	httpx.Write(w, http.StatusNoContent, nil)

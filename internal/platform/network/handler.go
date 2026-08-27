@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type createRequest struct {
@@ -72,7 +73,11 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	n, err := h.svc.create(r.Context(), CreateParams{Name: req.Name, CIDR: req.CIDR})
+	n, err := h.svc.create(r.Context(), CreateParams{
+		ProjectID: scope.From(r.Context()).ProjectID,
+		Name:      req.Name,
+		CIDR:      req.CIDR,
+	})
 	if err != nil {
 		return err
 	}
@@ -82,7 +87,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	networks, err := h.svc.list(r.Context())
+	networks, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -97,7 +102,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
-	n, err := h.svc.get(r.Context(), r.PathValue("id"))
+	n, err := h.svc.getIn(r.Context(), r.PathValue("id"), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -141,7 +146,8 @@ func (h *handler) nodeView(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
-	if err := h.svc.remove(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.svc.remove(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

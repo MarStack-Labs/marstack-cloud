@@ -26,10 +26,10 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
+const columns = `id, project_id, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
-	taken, err := r.nameTaken(ctx, in.Name)
+	taken, err := r.nameTaken(ctx, in.ProjectID, in.Name)
 	if err != nil {
 		return err
 	}
@@ -44,8 +44,8 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO instances (`+columns+`) VALUES `+
-			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.ID, in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
+			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.ID, in.ProjectID, in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
 		in.FirewallID, string(command), in.NetworkID,
 		string(in.RestartPolicy), in.RestartCount, in.VCPU, in.MemoryMiB,
 		string(in.Desired), string(in.Observed), in.ObservedMessage, in.NodeID,
@@ -64,10 +64,10 @@ func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
-func (r *repository) nameTaken(ctx context.Context, name string) (bool, error) {
+func (r *repository) nameTaken(ctx context.Context, projectID, name string) (bool, error) {
 	var count int
 	if err := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM instances WHERE name = ?`, name,
+		`SELECT COUNT(*) FROM instances WHERE project_id = ? AND name = ?`, projectID, name,
 	).Scan(&count); err != nil {
 		return false, fmt.Errorf("check instance name: %w", err)
 	}
@@ -85,6 +85,25 @@ func (r *repository) get(ctx context.Context, id string) (Instance, error) {
 		return Instance{}, fmt.Errorf("get instance: %w", err)
 	}
 	return in, nil
+}
+
+func (r *repository) listIn(ctx context.Context, projectID string) ([]Instance, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+columns+` FROM instances WHERE project_id = ? ORDER BY created_at`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list instances in project: %w", err)
+	}
+	defer rows.Close()
+
+	instances := make([]Instance, 0)
+	for rows.Next() {
+		in, err := scanInstance(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan instance: %w", err)
+		}
+		instances = append(instances, in)
+	}
+	return instances, rows.Err()
 }
 
 func (r *repository) list(ctx context.Context) ([]Instance, error) {
@@ -305,7 +324,7 @@ func scanInstance(row scanner) (Instance, error) {
 	)
 
 	if err := row.Scan(
-		&in.ID, &in.Name, &isolation, &in.Image, &in.ISO, &in.Kernel, &in.DiskGiB,
+		&in.ID, &in.ProjectID, &in.Name, &isolation, &in.Image, &in.ISO, &in.Kernel, &in.DiskGiB,
 		&in.FirewallID, &command, &in.NetworkID,
 		&policy, &in.RestartCount, &in.VCPU, &in.MemoryMiB,
 		&desired, &observed, &in.ObservedMessage, &nodeID, &createdRaw, &updatedRaw,
