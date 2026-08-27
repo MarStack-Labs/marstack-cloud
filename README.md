@@ -138,12 +138,16 @@ sudo MARSTACK_TOKEN=$(cat /etc/marstack/token) marstack agent --name bm-1
 |---|---|
 | `admin` | everything in its project, plus projects, tokens and the audit trail |
 | `member` | the resources in its project, and nothing administrative |
+| `viewer` | the same resources, read only |
 | `node` | register, heartbeat, its own desired state, the dns zone, its image and firewall view |
 
 A node token asking for `/v1/instances` gets 403, and creating an instance with
 one gets 403 too, so a compromised node cannot schedule work or read the whole
 platform. A member token asking for `/v1/tokens` gets 403, so it cannot mint
-itself an admin. Secrets are stored as a sha256 hash and never appear in a
+itself an admin. A viewer token reaches exactly the reads a member does and
+nothing else, because its allow-list is derived from the member one by keeping
+only `GET` — a route added for members cannot accidentally become writable for
+viewers. Secrets are stored as a sha256 hash and never appear in a
 listing. The only admin token cannot be revoked, because that locks everyone
 out.
 

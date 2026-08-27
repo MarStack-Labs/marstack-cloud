@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -460,4 +461,86 @@ func TestARefusedExpiredTokenIsRecorded(t *testing.T) {
 		}
 	}
 	t.Fatal("an expired token was turned away without a trace, so nobody could explain the outage")
+}
+
+func viewerToken(t *testing.T, a *testApp) string {
+	t.Helper()
+
+	rec := do(t, a, http.MethodPost, "/v1/tokens",
+		strings.NewReader(`{"name":"oncall","role":"viewer"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create a viewer token: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return created.Secret
+}
+
+func TestAViewerReadsItsProjectAndChangesNothing(t *testing.T) {
+	a := newTestApp(t)
+	secret := viewerToken(t, a)
+
+	for _, path := range []string{
+		"/v1/instances", "/v1/volumes", "/v1/networks", "/v1/firewalls",
+		"/v1/backups", "/v1/snapshots", "/v1/images", "/v1/usage",
+	} {
+		t.Run("reads "+path, func(t *testing.T) {
+			if rec := doAs(t, a, secret, http.MethodGet, path, nil); rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+		})
+	}
+
+	mutations := []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{http.MethodPost, "/v1/instances", `{"name":"x","isolation":"container","image":"alpine:3.20"}`},
+		{http.MethodPost, "/v1/volumes", `{"name":"x","size_gib":1}`},
+		{http.MethodPost, "/v1/networks", `{"name":"x","cidr":"10.90.0.0/16"}`},
+		{http.MethodPost, "/v1/firewalls", `{"name":"x","rules":[]}`},
+		{http.MethodDelete, "/v1/instances/i-anything", ""},
+		{http.MethodDelete, "/v1/volumes/vol-anything", ""},
+		{http.MethodPost, "/v1/instances/i-anything/stop", ""},
+	}
+
+	for _, m := range mutations {
+		t.Run("refuses "+m.method+" "+m.path, func(t *testing.T) {
+			var body io.Reader
+			if m.body != "" {
+				body = strings.NewReader(m.body)
+			}
+			if rec := doAs(t, a, secret, m.method, m.path, body); rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want %d: a viewer must not change anything",
+					rec.Code, http.StatusForbidden)
+			}
+		})
+	}
+}
+
+func TestEveryRouteAViewerReachesIsARead(t *testing.T) {
+	for _, pattern := range readsOf(memberPaths) {
+		if !strings.HasPrefix(pattern, "GET ") && !strings.HasPrefix(pattern, "HEAD ") {
+			t.Fatalf("a viewer may call %q, which is not a read", pattern)
+		}
+	}
+}
+
+func TestAViewerCannotReachGovernance(t *testing.T) {
+	a := newTestApp(t)
+	secret := viewerToken(t, a)
+
+	for _, path := range []string{"/v1/tokens", "/v1/audit", "/v1/projects", "/v1/nodes"} {
+		t.Run(path, func(t *testing.T) {
+			if rec := doAs(t, a, secret, http.MethodGet, path, nil); rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+			}
+		})
+	}
 }

@@ -62,9 +62,10 @@ func newTokenCreateCmd(g *globals) *cobra.Command {
 		Short: "Create a token, printing the secret once",
 		Long: "Create a token, printing the secret once.\n\n" +
 			"Role admin can call everything in its project, and administers projects, tokens\n" +
-			"and the audit trail. Role member manages resources in its project only. Role node\n" +
-			"can only call the endpoints an agent needs, so a compromised node cannot schedule\n" +
-			"work or read the whole platform.\n\n" +
+			"and the audit trail. Role member manages resources in its project only. Role\n" +
+			"viewer reads them and changes nothing. Role node can only call the endpoints an\n" +
+			"agent needs, so a compromised node cannot schedule work or read the whole\n" +
+			"platform.\n\n" +
 			"A token without --project lands in the project of the token that created it, and a\n" +
 			"token without --ttl never expires.",
 		Args: cobra.NoArgs,
@@ -89,7 +90,7 @@ func newTokenCreateCmd(g *globals) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&req.Name, "name", "", "token name, unique within the platform")
-	cmd.Flags().StringVar(&req.Role, "role", "admin", "admin, member or node")
+	cmd.Flags().StringVar(&req.Role, "role", "admin", "admin, member, viewer or node")
 	cmd.Flags().StringVar(&req.ProjectID, "project", "", "project the token works in")
 	cmd.Flags().StringVar(&req.ExpiresIn, "ttl", "",
 		"how long the token stays valid, such as 12h, 30d or 4w; empty means never expires")

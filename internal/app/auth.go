@@ -112,10 +112,21 @@ var memberPaths = []string{
 	"DELETE /v1/forwards/{id}",
 }
 
+func readsOf(patterns []string) []string {
+	reads := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		if strings.HasPrefix(pattern, "GET ") || strings.HasPrefix(pattern, "HEAD ") {
+			reads = append(reads, pattern)
+		}
+	}
+	return reads
+}
+
 func authenticate(verify verifier, log *slog.Logger) httpx.Middleware {
 	allowed := map[string]func(*http.Request) bool{
 		token.RoleNode:   allowList(nodePaths),
 		token.RoleMember: allowList(memberPaths),
+		token.RoleViewer: allowList(readsOf(memberPaths)),
 	}
 
 	return func(next http.Handler) http.Handler {

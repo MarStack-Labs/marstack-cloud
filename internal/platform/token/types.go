@@ -5,6 +5,7 @@ import "time"
 const (
 	RoleAdmin  = "admin"
 	RoleMember = "member"
+	RoleViewer = "viewer"
 	RoleNode   = "node"
 
 	BootstrapName     = "bootstrap"
@@ -43,5 +44,5 @@ type CreateParams struct {
 }
 
 func Roles() []string {
-	return []string{RoleAdmin, RoleMember, RoleNode}
+	return []string{RoleAdmin, RoleMember, RoleViewer, RoleNode}
 }
