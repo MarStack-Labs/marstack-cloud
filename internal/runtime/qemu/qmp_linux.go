@@ -97,17 +97,22 @@ func (q *qmpConn) attached() (map[string]bool, error) {
 	}
 
 	var devices []struct {
-		Device string `json:"device"`
-		QdevID string `json:"qdev"`
+		Device   string `json:"device"`
+		Inserted struct {
+			File string `json:"file"`
+		} `json:"inserted"`
 	}
 	if err := json.Unmarshal(raw, &devices); err != nil {
 		return nil, fmt.Errorf("decode the block list: %w", err)
 	}
 
-	present := make(map[string]bool, len(devices))
+	present := make(map[string]bool, 2*len(devices))
 	for _, d := range devices {
 		if d.Device != "" {
 			present[d.Device] = true
+		}
+		if d.Inserted.File != "" {
+			present[d.Inserted.File] = true
 		}
 	}
 	return present, nil

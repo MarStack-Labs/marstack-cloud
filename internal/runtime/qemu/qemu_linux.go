@@ -199,43 +199,48 @@ func (r *Runtime) volumeDir() string {
 }
 
 func (r *Runtime) prepareVolumes(spec workload.Spec) ([]string, error) {
-	if len(spec.Volumes) == 0 {
-		return nil, nil
-	}
-
-	if err := os.MkdirAll(r.volumeDir(), 0o750); err != nil {
-		return nil, fmt.Errorf("create the volume directory: %w", err)
-	}
-
 	paths := make([]string, 0, len(spec.Volumes))
 	for _, disk := range spec.Volumes {
-		if strings.ContainsAny(disk.ID, "/.") {
-			return nil, fmt.Errorf("refusing a volume with id %q", disk.ID)
-		}
-
-		path := filepath.Join(r.volumeDir(), disk.ID+".qcow2")
-		if _, err := os.Stat(path); err != nil {
-			args := []string{"create"}
-			if disk.KeyFile != "" {
-				args = append(args, "--object", "secret,id=vkey,file="+disk.KeyFile)
-			}
-			args = append(args, "-f", "qcow2")
-			if disk.KeyFile != "" {
-				args = append(args, "-o", "encrypt.format=luks,encrypt.key-secret=vkey")
-			}
-			args = append(args, path, strconv.Itoa(disk.SizeGiB)+"G")
-
-			if out, err := exec.Command("qemu-img", args...).CombinedOutput(); err != nil {
-				return nil, fmt.Errorf("create volume %s: %w: %s",
-					disk.Name, err, strings.TrimSpace(string(out)))
-			}
-			r.log.Info("volume created",
-				"instance", spec.InstanceID, "volume", disk.Name,
-				"size_gib", disk.SizeGiB, "encrypted", disk.KeyFile != "")
+		path, err := r.ensureVolume(disk)
+		if err != nil {
+			return nil, err
 		}
 		paths = append(paths, path)
 	}
 	return paths, nil
+}
+
+func (r *Runtime) ensureVolume(disk workload.Disk) (string, error) {
+	if strings.ContainsAny(disk.ID, "/.") {
+		return "", fmt.Errorf("refusing a volume with id %q", disk.ID)
+	}
+	if err := os.MkdirAll(r.volumeDir(), 0o750); err != nil {
+		return "", fmt.Errorf("create the volume directory: %w", err)
+	}
+
+	path := filepath.Join(r.volumeDir(), disk.ID+".qcow2")
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+
+	args := []string{"create"}
+	if disk.KeyFile != "" {
+		args = append(args, "--object", "secret,id=vkey,file="+disk.KeyFile)
+	}
+	args = append(args, "-f", "qcow2")
+	if disk.KeyFile != "" {
+		args = append(args, "-o", "encrypt.format=luks,encrypt.key-secret=vkey")
+	}
+	args = append(args, path, strconv.Itoa(disk.SizeGiB)+"G")
+
+	if out, err := exec.Command("qemu-img", args...).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("create volume %s: %w: %s",
+			disk.Name, err, strings.TrimSpace(string(out)))
+	}
+
+	r.log.Info("volume created",
+		"volume", disk.Name, "size_gib", disk.SizeGiB, "encrypted", disk.KeyFile != "")
+	return path, nil
 }
 
 func (r *Runtime) arguments(

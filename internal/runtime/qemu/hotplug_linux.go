@@ -34,10 +34,16 @@ func (r *Runtime) SyncDisks(instanceID string, disks []workload.Disk) (int, erro
 	plugged := 0
 	for _, disk := range disks {
 		id := diskDeviceID(disk.ID)
-		if present[id] {
+
+		file, err := r.ensureVolume(disk)
+		if err != nil {
+			return plugged, err
+		}
+		if present[id] || present[file] {
 			continue
 		}
-		if err := r.plug(monitor, id, disk); err != nil {
+
+		if err := r.plug(monitor, id, file, disk); err != nil {
 			return plugged, err
 		}
 
@@ -48,11 +54,8 @@ func (r *Runtime) SyncDisks(instanceID string, disks []workload.Disk) (int, erro
 	return plugged, nil
 }
 
-func (r *Runtime) plug(monitor *qmpConn, id string, disk workload.Disk) error {
-	file, err := r.volumeFile(disk.ID)
-	if err != nil {
-		return fmt.Errorf("volume %s has no file on this node yet: %w", disk.Name, err)
-	}
+func (r *Runtime) plug(monitor *qmpConn, id, file string, disk workload.Disk) error {
+	var err error
 
 	if disk.KeyFile != "" {
 		key, readErr := os.ReadFile(disk.KeyFile)
