@@ -636,6 +636,7 @@ func (a *Agent) reconcileOne(
 		Command:    in.Command,
 		VCPU:       in.VCPU,
 		MemoryMiB:  in.MemoryMiB,
+		SSHKeys:    in.SSHKeys,
 		Network:    iface,
 	}
 

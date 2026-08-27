@@ -23,6 +23,7 @@ type createRequest struct {
 	MemoryMiB     int      `json:"memory_mib,omitempty"`
 	Group         string   `json:"placement_group,omitempty"`
 	Strict        bool     `json:"placement_strict,omitempty"`
+	Keys          []string `json:"keys,omitempty"`
 }
 
 type statusRequest struct {
@@ -48,6 +49,7 @@ type response struct {
 	MemoryMiB       int      `json:"memory_mib"`
 	Group           string   `json:"placement_group,omitempty"`
 	Strict          bool     `json:"placement_strict,omitempty"`
+	SSHKeys         []string `json:"ssh_keys,omitempty"`
 	Desired         string   `json:"desired_state"`
 	Observed        string   `json:"observed_state"`
 	ObservedMessage string   `json:"observed_message,omitempty"`
@@ -78,6 +80,7 @@ func toResponse(in Instance) response {
 		MemoryMiB:       in.MemoryMiB,
 		Group:           in.Group,
 		Strict:          in.Strict,
+		SSHKeys:         in.SSHKeys,
 		Desired:         string(in.Desired),
 		Observed:        string(in.Observed),
 		ObservedMessage: in.ObservedMessage,
@@ -101,6 +104,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		ProjectID:     scope.From(r.Context()).ProjectID,
 		Group:         req.Group,
 		Strict:        req.Strict,
+		Keys:          req.Keys,
 		Name:          req.Name,
 		Isolation:     req.Isolation,
 		Image:         req.Image,

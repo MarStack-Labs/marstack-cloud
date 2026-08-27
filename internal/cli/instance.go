@@ -83,6 +83,7 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		MemoryMiB     int      `json:"memory_mib,omitempty"`
 		Group         string   `json:"placement_group,omitempty"`
 		Strict        bool     `json:"placement_strict,omitempty"`
+		Keys          []string `json:"keys,omitempty"`
 	}
 
 	cmd := &cobra.Command{
@@ -124,6 +125,8 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		"instances sharing this name are spread across nodes and zones")
 	cmd.Flags().BoolVar(&req.Strict, "placement-strict", false,
 		"hold this instance pending rather than share a node with its group")
+	cmd.Flags().StringArrayVar(&req.Keys, "key", nil,
+		"ssh key to install at first boot, by name; repeat for more, isolation vm only")
 
 	must(cmd.MarkFlagRequired("name"))
 

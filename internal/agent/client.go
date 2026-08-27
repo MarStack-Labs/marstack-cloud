@@ -44,6 +44,7 @@ type instanceView struct {
 	MemoryMiB       int      `json:"memory_mib"`
 	RestartPolicy   string   `json:"restart_policy,omitempty"`
 	RestartCount    int      `json:"restart_count,omitempty"`
+	SSHKeys         []string `json:"ssh_keys,omitempty"`
 	DesiredState    string   `json:"desired_state"`
 	ObservedState   string   `json:"observed_state"`
 	ObservedMessage string   `json:"observed_message,omitempty"`

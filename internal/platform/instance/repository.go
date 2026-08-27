@@ -26,7 +26,7 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, project_id, placement_group, placement_strict, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
+const columns = `id, project_id, placement_group, placement_strict, ssh_keys, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
 	taken, err := r.nameTaken(ctx, in.ProjectID, in.Name)
@@ -42,10 +42,15 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 		return fmt.Errorf("encode command: %w", err)
 	}
 
+	keys, err := json.Marshal(in.SSHKeys)
+	if err != nil {
+		return fmt.Errorf("encode ssh keys: %w", err)
+	}
+
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO instances (`+columns+`) VALUES `+
-			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.ID, in.ProjectID, in.Group, in.Strict, in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
+			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.ID, in.ProjectID, in.Group, in.Strict, string(keys), in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
 		in.FirewallID, string(command), in.NetworkID,
 		string(in.RestartPolicy), in.RestartCount, in.VCPU, in.MemoryMiB,
 		string(in.Desired), string(in.Observed), in.ObservedMessage, in.NodeID,
@@ -327,6 +332,7 @@ func scanInstance(row scanner) (Instance, error) {
 		in         Instance
 		isolation  string
 		command    string
+		keys       string
 		policy     string
 		desired    string
 		observed   string
@@ -336,13 +342,19 @@ func scanInstance(row scanner) (Instance, error) {
 	)
 
 	if err := row.Scan(
-		&in.ID, &in.ProjectID, &in.Group, &in.Strict, &in.Name, &isolation, &in.Image, &in.ISO,
-		&in.Kernel, &in.DiskGiB,
+		&in.ID, &in.ProjectID, &in.Group, &in.Strict, &keys, &in.Name, &isolation, &in.Image,
+		&in.ISO, &in.Kernel, &in.DiskGiB,
 		&in.FirewallID, &command, &in.NetworkID,
 		&policy, &in.RestartCount, &in.VCPU, &in.MemoryMiB,
 		&desired, &observed, &in.ObservedMessage, &nodeID, &createdRaw, &updatedRaw,
 	); err != nil {
 		return Instance{}, err
+	}
+
+	if keys != "" {
+		if err := json.Unmarshal([]byte(keys), &in.SSHKeys); err != nil {
+			return Instance{}, fmt.Errorf("decode ssh keys: %w", err)
+		}
 	}
 
 	if command != "" {

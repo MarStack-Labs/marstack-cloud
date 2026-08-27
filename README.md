@@ -621,6 +621,42 @@ That choice is the operator's: a strict group in a two-node fleet will refuse
 to run a third replica, and a soft one will double up rather than stall. Neither
 is right for everyone, so neither is the hidden default.
 
+## Getting into a VM
+
+A VM used to be reachable only through the serial console, with a password the
+platform generated — cloud-init was told `ssh_pwauth: false` and given no keys,
+so ssh was locked with nobody holding a key. Keys are a project resource now:
+
+```sh
+marstack key add --name laptop --file ~/.ssh/id_ed25519.pub
+marstack instance create --name box --isolation vm --image ubuntu-24.04 --key laptop
+```
+
+```
+NAME     TYPE          FINGERPRINT                                    COMMENT
+laptop   ssh-ed25519   SHA256:kVc8u1D1hbUJ7hRbP4bxjq1sVpqzTk8B0Z...   umar@laptop
+```
+
+The fingerprint is the one `ssh-keygen -lf` prints, taken over the key body
+alone — so the same key added under two names fingerprints identically, and
+naming both on one instance installs it once rather than writing it twice into
+`authorized_keys`.
+
+Three things are refused rather than quietly accepted:
+
+- **A key on anything but `vm`.** Containers, microvms and sandboxes do not run
+  cloud-init, so the key would be stored and never installed.
+- **A key name that does not exist.** A typo would otherwise boot a machine
+  nobody can log in to.
+- **A private key.** If the file starts with `-----BEGIN`, it says so instead of
+  storing your private key on a server.
+
+Keys are resolved when the instance is created and the material travels with it,
+because cloud-init runs once at first boot. Adding a key afterwards does not
+reach a machine that has already booted, and deleting one does not lock you out
+of a machine already carrying it. The serial console password still works and is
+still written to `<runtime-root>/vms/<id>/console-login`, mode 0600.
+
 ## Networking
 
 An instance is given an address when it is placed, and the agent wires it before the workload runs:
@@ -881,6 +917,8 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 22  backup encryption at rest                         done
 23  encrypted volumes on the node                     done
 24  backup and restore of encrypted volumes           done
+25  volume resize, placement groups, disk hot-plug    done
+26  ssh keys for vm instances                         done
 ```
 
 ## License

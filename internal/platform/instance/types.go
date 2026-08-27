@@ -97,6 +97,7 @@ type Instance struct {
 	NodeID          string
 	Group           string
 	Strict          bool
+	SSHKeys         []string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -112,6 +113,7 @@ type CreateParams struct {
 	Name          string
 	Group         string
 	Strict        bool
+	Keys          []string
 	Isolation     string
 	Image         string
 	ISO           string

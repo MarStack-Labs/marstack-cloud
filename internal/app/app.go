@@ -18,6 +18,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/image"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/keypair"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/project"
@@ -104,6 +105,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	}
 	forwards := forward.New(st, forwardAddresses{networks: networks, instances: instances}, log)
 	firewalls := firewall.New(st, log)
+	keys := keypair.New(st, log)
 	projects := project.New(st, log)
 	quotas := quota.New(st, log)
 	tokens := token.New(st, log, cfg.Now)
@@ -115,6 +117,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	quotas.UseProjects(projects)
 	quotas.UseUsage(projectUsage{instances: instances, volumes: volumes})
 	instances.UseQuota(instanceQuota{quotas: quotas})
+	instances.UseKeys(keys)
 	volumes.UseQuota(volumeQuota{quotas: quotas})
 	projects.UseOccupancy(projectOccupancy{
 		tokens:    tokens,
@@ -143,6 +146,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		trail,
 		projects,
 		quotas,
+		keys,
 		tokens,
 	}
 	instances.UseVolumes(volumes)

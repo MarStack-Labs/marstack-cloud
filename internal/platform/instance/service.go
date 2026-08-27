@@ -17,6 +17,7 @@ type service struct {
 	repo      *repository
 	now       clock
 	networks  Networks
+	keys      Keys
 	quota     Quota
 	volumes   Volumes
 	forwards  Forwards
@@ -32,6 +33,11 @@ func newService(repo *repository, now clock) *service {
 
 func (s *service) create(ctx context.Context, params CreateParams) (Instance, error) {
 	normalized, err := normalize(params)
+	if err != nil {
+		return Instance{}, err
+	}
+
+	authorized, err := s.authorizedKeys(ctx, params, normalized)
 	if err != nil {
 		return Instance{}, err
 	}
@@ -69,6 +75,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		ProjectID:     params.ProjectID,
 		Group:         normalized.Group,
 		Strict:        params.Strict,
+		SSHKeys:       authorized,
 		Name:          normalized.Name,
 		Isolation:     Isolation(normalized.Isolation),
 		Image:         normalized.Image,
@@ -354,4 +361,23 @@ func (s *service) groupCounts(ctx context.Context, group string) (map[string]int
 
 func (s *service) holdPlacement(ctx context.Context, id, reason string) error {
 	return translate(s.repo.setObservedMessage(ctx, id, reason, s.now()))
+}
+
+func (s *service) authorizedKeys(
+	ctx context.Context, params, normalized CreateParams,
+) ([]string, error) {
+	if len(params.Keys) == 0 {
+		return nil, nil
+	}
+	if normalized.Isolation != string(IsolationVM) {
+		return nil, fault.Invalid("keys_unsupported",
+			"only isolation vm boots cloud-init, so a key given to a "+normalized.Isolation+
+				" would be accepted and never installed")
+	}
+	if s.keys == nil {
+		return nil, fault.Unavailable("keys_unavailable",
+			"the platform cannot look up ssh keys")
+	}
+
+	return s.keys.Resolve(ctx, params.ProjectID, params.Keys)
 }

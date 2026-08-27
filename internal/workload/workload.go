@@ -63,6 +63,7 @@ type Spec struct {
 	Command    []string
 	VCPU       int
 	MemoryMiB  int
+	SSHKeys    []string
 	Network    *NetworkConfig
 }
 

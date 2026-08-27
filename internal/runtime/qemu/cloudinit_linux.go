@@ -35,6 +35,12 @@ func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 	user := "#cloud-config\nhostname: " + spec.Name + "\nssh_pwauth: false\n" +
 		"chpasswd:\n  expire: false\n  users:\n" +
 		"    - {name: " + consoleUser + ", password: " + password + ", type: text}\n"
+	if len(spec.SSHKeys) > 0 {
+		user += "ssh_authorized_keys:\n"
+		for _, key := range spec.SSHKeys {
+			user += "  - " + yamlScalar(key) + "\n"
+		}
+	}
 	if len(spec.Command) > 0 {
 		user += "runcmd:\n  - " + shellQuote(spec.Command) + "\n"
 	}
@@ -130,6 +136,10 @@ func networkConfig(spec workload.Spec) string {
 	}
 
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func yamlScalar(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 func shellQuote(command []string) string {

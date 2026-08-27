@@ -222,3 +222,109 @@ func TestANodeTokenCannotReadQuotas(t *testing.T) {
 		})
 	}
 }
+
+const testKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIL0l2S7DDA2xhJmCJ8+eVQZlP4kzHJqPrGm0k" +
+	"XlbLK9M umar@laptop"
+
+func addKey(t *testing.T, a *testApp, name string) {
+	t.Helper()
+
+	body := `{"name":"` + name + `","public_key":"` + testKey + `"}`
+	rec := do(t, a, http.MethodPost, "/v1/keys", strings.NewReader(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("add key: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAVMCarriesTheKeysItWasCreatedWith(t *testing.T) {
+	a := newTestApp(t)
+	addKey(t, a, "laptop")
+
+	body := `{"name":"box","isolation":"vm","image":"ubuntu-24.04","keys":["laptop"]}`
+	rec := do(t, a, http.MethodPost, "/v1/instances", strings.NewReader(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created struct {
+		SSHKeys []string `json:"ssh_keys"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(created.SSHKeys) != 1 || created.SSHKeys[0] != testKey {
+		t.Fatalf("keys = %v, want the key material so the node needs no second lookup",
+			created.SSHKeys)
+	}
+}
+
+func TestAKeyOnSomethingWithoutCloudInitIsRefused(t *testing.T) {
+	a := newTestApp(t)
+	addKey(t, a, "laptop")
+
+	for _, isolation := range []string{"container", "microvm", "sandbox"} {
+		t.Run(isolation, func(t *testing.T) {
+			body := `{"name":"box-` + isolation + `","isolation":"` + isolation +
+				`","image":"alpine:3.20","keys":["laptop"]}`
+			rec := do(t, a, http.MethodPost, "/v1/instances", strings.NewReader(body))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want %d: a key accepted and never installed is worse "+
+					"than one refused", rec.Code, http.StatusBadRequest)
+			}
+		})
+	}
+}
+
+func TestAnUnknownKeyNameIsRefused(t *testing.T) {
+	a := newTestApp(t)
+
+	body := `{"name":"box","isolation":"vm","image":"ubuntu-24.04","keys":["nope"]}`
+	rec := do(t, a, http.MethodPost, "/v1/instances", strings.NewReader(body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: a typo would boot a machine nobody can log in to",
+			rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestKeysAreScopedToTheirProject(t *testing.T) {
+	a := newTestApp(t)
+	addKey(t, a, "laptop")
+
+	other := newProject(t, a, "tenant-b")
+	theirs := tokenIn(t, a, "b-dev", other)
+
+	if got := countAt(t, a, theirs, "/v1/keys", "keys"); got != 0 {
+		t.Fatalf("tenant-b sees %d keys, want none", got)
+	}
+
+	body := `{"name":"box","isolation":"vm","image":"ubuntu-24.04","keys":["laptop"]}`
+	rec := doAs(t, a, theirs, http.MethodPost, "/v1/instances", strings.NewReader(body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: another project's key must not be installable",
+			rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestTheSameKeyNamedTwiceIsInstalledOnce(t *testing.T) {
+	a := newTestApp(t)
+	addKey(t, a, "laptop")
+	addKey(t, a, "same-key-other-name")
+
+	body := `{"name":"box","isolation":"vm","image":"ubuntu-24.04",` +
+		`"keys":["laptop","same-key-other-name","laptop"]}`
+	rec := do(t, a, http.MethodPost, "/v1/instances", strings.NewReader(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created struct {
+		SSHKeys []string `json:"ssh_keys"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(created.SSHKeys) != 1 {
+		t.Fatalf("keys = %v, want one line: authorized_keys with duplicates is noise",
+			created.SSHKeys)
+	}
+}

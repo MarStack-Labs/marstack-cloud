@@ -28,6 +28,10 @@ type Forwards interface {
 	ReleaseInstance(ctx context.Context, instanceID string) error
 }
 
+type Keys interface {
+	Resolve(ctx context.Context, projectID string, names []string) ([]string, error)
+}
+
 type Quota interface {
 	AdmitInstance(ctx context.Context, projectID string, vcpu, memoryMiB int) error
 }
@@ -52,6 +56,10 @@ func (m *Module) UseVolumes(volumes Volumes) {
 
 func (m *Module) UseForwards(forwards Forwards) {
 	m.svc.forwards = forwards
+}
+
+func (m *Module) UseKeys(k Keys) {
+	m.svc.keys = k
 }
 
 func (m *Module) UseQuota(q Quota) {
@@ -209,6 +217,11 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "instance",
 			Index:  18,
 			SQL:    `CREATE INDEX instances_placement_group ON instances (placement_group)`,
+		},
+		{
+			Module: "instance",
+			Index:  19,
+			SQL:    `ALTER TABLE instances ADD COLUMN ssh_keys TEXT NOT NULL DEFAULT '[]'`,
 		},
 	}
 }
