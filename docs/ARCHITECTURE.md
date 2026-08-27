@@ -164,6 +164,15 @@ independently sealed chunks would let an attacker truncate, reorder or splice th
 frame therefore carries a nonce derived from its index under a key derived per file, and the final
 frame is marked through its additional data so a stream that ends early fails.
 
+Volume encryption uses the same operator key, one level up: the control plane mints a random key
+per volume, seals it with `sealed.SealBytes`, and stores the wrapped blob. The node that holds the
+volume fetches the unwrapped key from `GET /v1/nodes/{id}/volumes/{id}/key` and keeps it only in
+tmpfs. So the threat this addresses is precisely a stolen node disk - not a compromised control
+plane, which by construction can open everything it stores keys for.
+
+The keyring moved to `kernel/sealed` once both the backup and volume modules needed it; a keyring is
+a set of keys by fingerprint, which is mechanism, and neither module may import the other.
+
 The keyring lives in the backup module and is injected from `app`, so the module decides nothing
 about where keys come from. Each backup records the key that sealed it, which is what makes rotation
 possible without rewriting history.

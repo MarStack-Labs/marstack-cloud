@@ -23,6 +23,9 @@ type Volume struct {
 	InstanceID  string
 	RestoreFrom string
 	BackupID    string
+	Encrypted   bool
+	KeySealed   string
+	KeyID       string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -66,6 +69,7 @@ type CreateParams struct {
 	Name      string
 	SizeGiB   int
 	BackupID  string
+	Encrypted bool
 }
 
 type Placement struct {

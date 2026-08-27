@@ -170,6 +170,7 @@ type volumeView struct {
 	InstanceID  string         `json:"instance_id,omitempty"`
 	RestoreFrom string         `json:"restore_from,omitempty"`
 	BackupID    string         `json:"backup_id,omitempty"`
+	Encrypted   bool           `json:"encrypted,omitempty"`
 	Snapshots   []snapshotView `json:"snapshots,omitempty"`
 }
 
@@ -447,4 +448,16 @@ func (c *client) fetchBackup(ctx context.Context, nodeID, id string) (io.ReadClo
 		return nil, &statusError{Status: res.StatusCode, Code: errorCode(res.Body)}
 	}
 	return res.Body, nil
+}
+
+type volumeKeyBody struct {
+	VolumeID string `json:"volume_id"`
+	Key      string `json:"key"`
+}
+
+func (c *client) volumeKey(ctx context.Context, nodeID, volumeID string) (string, error) {
+	var out volumeKeyBody
+	err := c.do(ctx, http.MethodGet,
+		"/v1/nodes/"+nodeID+"/volumes/"+volumeID+"/key", nil, &out)
+	return out.Key, err
 }

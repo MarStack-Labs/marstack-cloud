@@ -280,6 +280,40 @@ Retention runs when a backup becomes ready, not only on the next sweep, because
 the count only changes at that moment. It runs on the sweep as well, so
 lowering `keep` takes effect without waiting for the next copy.
 
+### Encrypted volumes
+
+A backup key also protects volumes on the node:
+
+```sh
+marstack volume create --name secrets --size-gib 10 --encrypted
+marstack volume attach secrets --instance i-7dn7y7vsn7218
+```
+
+The node writes a LUKS qcow2 through `qemu-img` and cannot read it on its own.
+The control plane generates a random key per volume, seals it with the operator
+key, and hands it to the node that holds the volume — over the API, so run this
+with TLS. The node writes the key to `/run/marstack/keys/`, which is tmpfs: a
+powered-off disk carries the ciphertext and nothing else.
+
+```
+$ sudo qemu-img info /var/lib/marstack/volumes/vol-....qcow2
+encrypted: yes
+```
+
+Guests need no cooperation; QEMU does the crypto and the guest sees an ordinary
+virtio disk. Snapshots work as before, with the key passed alongside.
+
+Two limits, both deliberate:
+
+- **An encrypted volume cannot be backed up yet.** Copying it out means
+  `qemu-img convert`, which writes plaintext to the node's disk on the way — the
+  one thing encrypting it was meant to prevent. Both the control plane and the
+  node refuse rather than do it quietly. Converting straight to an encrypted
+  target is the fix, and it needs the restore path to carry the volume key too.
+- **Without `--backup-key-file` the control plane refuses to create one.** A
+  volume key stored beside the data it protects is not encryption, so it says so
+  instead of pretending.
+
 ### Encryption at rest
 
 Backup content is a copy of a customer's disk, kept indefinitely. Without a key
@@ -704,6 +738,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 20  per-project quotas + read-only viewer role        done
 21  scheduled backups + retention                     done
 22  backup encryption at rest                         done
+23  encrypted volumes on the node                     done
 ```
 
 ## License

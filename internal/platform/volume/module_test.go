@@ -8,9 +8,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -447,5 +449,135 @@ func TestTwoSnapshotsCannotShareAName(t *testing.T) {
 	rec := request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/snapshots", `{"name":"twice"}`)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusConflict)
+	}
+}
+
+func TestAnEncryptedVolumeNeedsAKeyToProtectItsKeyWith(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes",
+		`{"name":"secret","size_gib":1,"encrypted":true}`)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d: without an operator key the volume key would sit in "+
+			"the database in the clear, which only looks like encryption",
+			rec.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestAnEncryptedVolumeCarriesASealedKey(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+
+	operator, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{operator}))
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes",
+		`{"name":"secret","size_gib":1,"encrypted":true}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !created.Encrypted || created.KeyID != operator.ID() {
+		t.Fatalf("volume = %+v, want it sealed under %s", created, operator.ID())
+	}
+
+	stored, err := m.svc.repo.byID(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("read back: %v", err)
+	}
+	if stored.KeySealed == "" {
+		t.Fatal("no sealed key was stored, so the node could never open the volume")
+	}
+
+	raw, err := sealed.OpenBytes(stored.KeySealed, operator)
+	if err != nil {
+		t.Fatalf("unseal: %v", err)
+	}
+	if len(raw) != sealed.KeyBytes {
+		t.Fatalf("key is %d bytes, want %d", len(raw), sealed.KeyBytes)
+	}
+}
+
+func TestOnlyTheNodeHoldingAnEncryptedVolumeGetsItsKey(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+	ctx := context.Background()
+
+	operator, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{operator}))
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes",
+		`{"name":"secret","size_gib":1,"encrypted":true}`)
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	if _, err := m.svc.keyForNode(ctx, created.ID, "n-nobody"); err == nil {
+		t.Fatal("a node that does not hold the volume was handed its key")
+	}
+
+	if err := m.svc.repo.attach(ctx, created.ID, "i-1", "n-1", time.Now().UTC()); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+
+	key, err := m.svc.keyForNode(ctx, created.ID, "n-1")
+	if err != nil {
+		t.Fatalf("the node holding it cannot get the key: %v", err)
+	}
+	if len(key) != sealed.KeyBytes*2 {
+		t.Fatalf("key is %d characters, want %d hex", len(key), sealed.KeyBytes*2)
+	}
+}
+
+func TestAPlainVolumeHasNoKeyToHandOut(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+	ctx := context.Background()
+
+	operator, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{operator}))
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes", `{"name":"plain","size_gib":1}`)
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if err := m.svc.repo.attach(ctx, created.ID, "i-1", "n-1", time.Now().UTC()); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+
+	if _, err := m.svc.keyForNode(ctx, created.ID, "n-1"); err == nil {
+		t.Fatal("a plaintext volume handed out a key")
+	}
+}
+
+func TestAKeySealedWithAKeyNoLongerHeldIsNotGuessed(t *testing.T) {
+	h, m := newTestModule(t, placedVM("n-1"))
+	ctx := context.Background()
+
+	operator, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{operator}))
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes",
+		`{"name":"secret","size_gib":1,"encrypted":true}`)
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if err := m.svc.repo.attach(ctx, created.ID, "i-1", "n-1", time.Now().UTC()); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+
+	other, _ := sealed.NewKey()
+	m.UseKeys(sealed.NewKeyring([]sealed.Key{other}))
+
+	_, err := m.svc.keyForNode(ctx, created.ID, "n-1")
+	if err == nil {
+		t.Fatal("the volume key was handed out despite its wrapping key being gone")
+	}
+	if !strings.Contains(err.Error(), operator.ID()) {
+		t.Fatalf("err = %v, want it to name the missing key", err)
 	}
 }

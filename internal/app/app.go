@@ -97,7 +97,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a := &App{cfg: cfg, log: log, store: st, networks: networks}
 	volumes := volume.New(st, volumeInstances{instances: instances}, log)
 
-	backups, err := backup.New(st, cfg.DataDir, backup.NewKeyring(cfg.BackupKeys), log)
+	backups, err := backup.New(st, cfg.DataDir, sealed.NewKeyring(cfg.BackupKeys), log)
 	if err != nil {
 		st.Close()
 		return nil, err
@@ -110,6 +110,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 
 	backups.UseVolumes(backupVolumes{volumes: volumes})
 	volumes.UseBackups(backups)
+	volumes.UseKeys(sealed.NewKeyring(cfg.BackupKeys))
 	tokens.UseProjects(projects)
 	quotas.UseProjects(projects)
 	quotas.UseUsage(projectUsage{instances: instances, volumes: volumes})

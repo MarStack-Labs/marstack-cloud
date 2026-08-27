@@ -268,5 +268,6 @@ func (s backupVolumes) Source(
 		ProjectID: v.ProjectID,
 		NodeID:    v.NodeID,
 		Name:      v.Name,
+		Encrypted: v.Encrypted,
 	}, nil
 }

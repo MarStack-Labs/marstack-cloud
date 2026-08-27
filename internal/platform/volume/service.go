@@ -2,12 +2,15 @@ package volume
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -27,6 +30,7 @@ type clock func() time.Time
 
 type service struct {
 	repo      *repository
+	keys      *sealed.Keyring
 	quota     Quota
 	backups   Backups
 	instances Instances
@@ -56,6 +60,11 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 		}
 	}
 
+	guard, err := s.mintKey(params.Encrypted)
+	if err != nil {
+		return Volume{}, err
+	}
+
 	if params.BackupID != "" {
 		if s.backups == nil {
 			return Volume{}, fault.Unavailable("backups_unavailable",
@@ -72,6 +81,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 		ProjectID: params.ProjectID,
 		Name:      params.Name,
 		BackupID:  params.BackupID,
+		Encrypted: params.Encrypted,
+		KeySealed: guard.sealedKey,
+		KeyID:     guard.keyID,
 		SizeGiB:   params.SizeGiB,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -398,4 +410,58 @@ func translate(err error) error {
 	default:
 		return err
 	}
+}
+
+type volumeKey struct {
+	sealedKey string
+	keyID     string
+}
+
+func (s *service) mintKey(wanted bool) (volumeKey, error) {
+	if !wanted {
+		return volumeKey{}, nil
+	}
+
+	active, ok := s.keys.Active()
+	if !ok {
+		return volumeKey{}, fault.Unavailable("no_encryption_key",
+			"this control plane holds no key to protect a volume key with, so an encrypted "+
+				"volume would only look encrypted; start it with --backup-key-file")
+	}
+
+	raw := make([]byte, sealed.KeyBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return volumeKey{}, fault.Internal(err)
+	}
+
+	wrapped, err := sealed.SealBytes(raw, active)
+	if err != nil {
+		return volumeKey{}, fault.Internal(err)
+	}
+	return volumeKey{sealedKey: wrapped, keyID: active.ID()}, nil
+}
+
+func (s *service) keyForNode(ctx context.Context, volumeID, nodeID string) (string, error) {
+	v, err := s.repo.byID(ctx, volumeID)
+	if err != nil {
+		return "", translate(err)
+	}
+	if v.NodeID != nodeID {
+		return "", fault.NotFound("volume_not_found", "no volume with that id is held here")
+	}
+	if !v.Encrypted {
+		return "", fault.Conflict("volume_not_encrypted", "that volume carries no key")
+	}
+
+	key, known := s.keys.Find(v.KeyID)
+	if !known {
+		return "", fault.Unavailable("key_missing", "the volume key was sealed with key "+
+			v.KeyID+", which this control plane does not hold")
+	}
+
+	raw, err := sealed.OpenBytes(v.KeySealed, key)
+	if err != nil {
+		return "", fault.Internal(err)
+	}
+	return hex.EncodeToString(raw), nil
 }

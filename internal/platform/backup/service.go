@@ -50,6 +50,11 @@ func (s *service) create(ctx context.Context, params CreateParams) (Backup, erro
 		return Backup{}, fault.Conflict("volume_empty",
 			"the volume has never been attached, so no node holds anything to copy")
 	}
+	if source.Encrypted {
+		return Backup{}, fault.Conflict("volume_encrypted",
+			"copying an encrypted volume would write its plaintext to the node's disk on the "+
+				"way out, which is the one thing encrypting it was meant to prevent")
+	}
 
 	now := s.now()
 	b := Backup{

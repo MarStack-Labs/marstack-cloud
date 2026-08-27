@@ -9,9 +9,10 @@ import (
 )
 
 type createRequest struct {
-	Name     string `json:"name"`
-	SizeGiB  int    `json:"size_gib"`
-	BackupID string `json:"from_backup,omitempty"`
+	Name      string `json:"name"`
+	SizeGiB   int    `json:"size_gib"`
+	BackupID  string `json:"from_backup,omitempty"`
+	Encrypted bool   `json:"encrypted,omitempty"`
 }
 
 type attachRequest struct {
@@ -73,6 +74,8 @@ type response struct {
 	InstanceID  string             `json:"instance_id,omitempty"`
 	RestoreFrom string             `json:"restore_from,omitempty"`
 	BackupID    string             `json:"backup_id,omitempty"`
+	Encrypted   bool               `json:"encrypted,omitempty"`
+	KeyID       string             `json:"key_id,omitempty"`
 	Snapshots   []snapshotResponse `json:"snapshots,omitempty"`
 	CreatedAt   string             `json:"created_at"`
 	UpdatedAt   string             `json:"updated_at"`
@@ -92,6 +95,8 @@ func toResponse(v Volume) response {
 		InstanceID:  v.InstanceID,
 		RestoreFrom: v.RestoreFrom,
 		BackupID:    v.BackupID,
+		Encrypted:   v.Encrypted,
+		KeyID:       v.KeyID,
 		CreatedAt:   v.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:   v.UpdatedAt.Format(time.RFC3339Nano),
 	}
@@ -112,6 +117,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		Name:      req.Name,
 		SizeGiB:   req.SizeGiB,
 		BackupID:  req.BackupID,
+		Encrypted: req.Encrypted,
 	})
 	if err != nil {
 		return err
@@ -292,5 +298,20 @@ func (h *handler) report(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+type keyResponse struct {
+	VolumeID string `json:"volume_id"`
+	Key      string `json:"key"`
+}
+
+func (h *handler) nodeKey(w http.ResponseWriter, r *http.Request) error {
+	key, err := h.svc.keyForNode(r.Context(), r.PathValue("id"), r.PathValue("nodeID"))
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, keyResponse{VolumeID: r.PathValue("id"), Key: key})
 	return nil
 }

@@ -122,7 +122,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	a.serveDNS(ctx, state.Networks, state.Records)
 
 	interfaces := a.interfacesByInstance(state.Networks)
-	disks := disksByInstance(state.Volumes)
+	disks := a.disksByInstance(ctx, state.Volumes)
 	a.applyRoutes(ctx, state.Networks, state.Nodes)
 	a.applyFilters(ctx, state.Networks, isolationsOf(state.Instances))
 	a.applyForwards(ctx, state.Forwards)
@@ -466,11 +466,21 @@ func (a *Agent) applySnapshots(
 		for _, snap := range v.Snapshots {
 			wanted = append(wanted, snap.Name)
 		}
-		plans = append(plans, workload.SnapshotPlan{
+		plan := workload.SnapshotPlan{
 			VolumeID:  v.ID,
 			Wanted:    wanted,
 			RestoreTo: v.RestoreFrom,
-		})
+		}
+		if v.Encrypted {
+			path, err := a.volumeKeyFile(ctx, v.ID)
+			if err != nil {
+				a.log.Warn("could not place the key of an encrypted volume, skipping snapshots",
+					"volume", v.ID, "error", err)
+				continue
+			}
+			plan.KeyFile = path
+		}
+		plans = append(plans, plan)
 	}
 
 	if len(plans) == 0 {
@@ -565,17 +575,26 @@ func (a *Agent) refreshCatalog(ctx context.Context) {
 	a.catalog.Replace(known)
 }
 
-func disksByInstance(volumes []volumeView) map[string][]workload.Disk {
+func (a *Agent) disksByInstance(
+	ctx context.Context, volumes []volumeView,
+) map[string][]workload.Disk {
 	byInstance := map[string][]workload.Disk{}
 	for _, v := range volumes {
 		if v.InstanceID == "" {
 			continue
 		}
-		byInstance[v.InstanceID] = append(byInstance[v.InstanceID], workload.Disk{
-			ID:      v.ID,
-			Name:    v.Name,
-			SizeGiB: v.SizeGiB,
-		})
+
+		disk := workload.Disk{ID: v.ID, Name: v.Name, SizeGiB: v.SizeGiB}
+		if v.Encrypted {
+			path, err := a.volumeKeyFile(ctx, v.ID)
+			if err != nil {
+				a.log.Warn("could not place the key of an encrypted volume, leaving the disk out",
+					"volume", v.ID, "error", err)
+				continue
+			}
+			disk.KeyFile = path
+		}
+		byInstance[v.InstanceID] = append(byInstance[v.InstanceID], disk)
 	}
 	return byInstance
 }

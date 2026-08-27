@@ -55,7 +55,7 @@ func newModuleWithKeys(t *testing.T, keys []sealed.Key) (http.Handler, *Module, 
 	}
 	t.Cleanup(func() { st.Close() })
 
-	m, err := New(st, dir, NewKeyring(keys), logging.New("error", io.Discard))
+	m, err := New(st, dir, sealed.NewKeyring(keys), logging.New("error", io.Discard))
 	if err != nil {
 		t.Fatalf("new module: %v", err)
 	}
@@ -725,7 +725,7 @@ func TestABackupTakenBeforeEncryptionStaysReadable(t *testing.T) {
 	upload(t, h, created.ID, "plain bytes")
 
 	key, _ := sealed.NewKey()
-	m.svc.vault.keys = NewKeyring([]sealed.Key{key})
+	m.svc.vault.keys = sealed.NewKeyring([]sealed.Key{key})
 
 	back := fetchContent(t, h, created.ID)
 	if back.Code != http.StatusOK {
@@ -745,7 +745,7 @@ func TestABackupSealedWithARetiredKeyStaysReadable(t *testing.T) {
 	upload(t, h, created.ID, "old bytes")
 
 	fresh, _ := sealed.NewKey()
-	m.svc.vault.keys = NewKeyring([]sealed.Key{fresh, old})
+	m.svc.vault.keys = sealed.NewKeyring([]sealed.Key{fresh, old})
 
 	back := fetchContent(t, h, created.ID)
 	if back.Code != http.StatusOK {
@@ -776,7 +776,7 @@ func TestABackupWhoseKeyIsGoneSaysSoInsteadOfServingRubbish(t *testing.T) {
 	created := newBackup(t, h, "orphaned")
 	upload(t, h, created.ID, "bytes")
 
-	m.svc.vault.keys = NewKeyring(nil)
+	m.svc.vault.keys = sealed.NewKeyring(nil)
 
 	back := fetchContent(t, h, created.ID)
 	if back.Code == http.StatusOK {

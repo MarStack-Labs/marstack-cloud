@@ -29,12 +29,14 @@ type Disk struct {
 	ID      string
 	Name    string
 	SizeGiB int
+	KeyFile string
 }
 
 type SnapshotPlan struct {
 	VolumeID  string
 	Wanted    []string
 	RestoreTo string
+	KeyFile   string
 }
 
 type SnapshotState struct {

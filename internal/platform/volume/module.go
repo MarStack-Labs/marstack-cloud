@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -22,6 +23,10 @@ func New(st *store.Store, instances Instances, log *slog.Logger) *Module {
 		svc:     svc,
 		handler: &handler{svc: svc},
 	}
+}
+
+func (m *Module) UseKeys(ring *sealed.Keyring) {
+	m.svc.keys = ring
 }
 
 func (m *Module) UseQuota(q Quota) {
@@ -112,6 +117,21 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  10,
 			SQL:    `ALTER TABLE volumes ADD COLUMN backup_id TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "volume",
+			Index:  11,
+			SQL:    `ALTER TABLE volumes ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			Module: "volume",
+			Index:  12,
+			SQL:    `ALTER TABLE volumes ADD COLUMN key_sealed TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "volume",
+			Index:  13,
+			SQL:    `ALTER TABLE volumes ADD COLUMN key_id TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -130,6 +150,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/snapshots/{id}/restore", httpx.Wrap(m.log, m.handler.restore))
 
 	mux.Handle("GET /v1/nodes/{nodeID}/volumes", httpx.Wrap(m.log, m.handler.listForNode))
+	mux.Handle("GET /v1/nodes/{nodeID}/volumes/{id}/key", httpx.Wrap(m.log, m.handler.nodeKey))
 	mux.Handle("PUT /v1/nodes/{nodeID}/volumes", httpx.Wrap(m.log, m.handler.report))
 }
 

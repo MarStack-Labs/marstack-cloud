@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -16,7 +17,7 @@ type Module struct {
 	handler *handler
 }
 
-func New(st *store.Store, dataDir string, keys *Keyring, log *slog.Logger) (*Module, error) {
+func New(st *store.Store, dataDir string, keys *sealed.Keyring, log *slog.Logger) (*Module, error) {
 	v, err := openVault(dataDir, keys)
 	if err != nil {
 		return nil, err

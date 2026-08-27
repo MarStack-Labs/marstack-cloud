@@ -57,12 +57,18 @@ func newVolumeCreateCmd(g *globals) *cobra.Command {
 		Name       string `json:"name"`
 		SizeGiB    int    `json:"size_gib"`
 		FromBackup string `json:"from_backup,omitempty"`
+		Encrypted  bool   `json:"encrypted,omitempty"`
 	}
 
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a volume, which lives on the node it is first attached to",
-		Args:  cobra.NoArgs,
+		Long: "Create a volume, which lives on the node it is first attached to.\n\n" +
+			"With --encrypted the node writes a LUKS qcow2 and cannot read it without a key\n" +
+			"the control plane hands over at start. A stolen node disk gives up nothing. The\n" +
+			"key never touches the node's persistent storage, so the volume cannot be opened\n" +
+			"without the control plane, and it cannot be backed up yet.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var created volumeView
 			if err := g.client().do(cmd.Context(), "POST", "/v1/volumes", req, &created); err != nil {
@@ -76,6 +82,8 @@ func newVolumeCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().IntVar(&req.SizeGiB, "size-gib", 0, "size in GiB")
 	cmd.Flags().StringVar(&req.FromBackup, "from-backup", "",
 		"restore from this backup instead of starting empty")
+	cmd.Flags().BoolVar(&req.Encrypted, "encrypted", false,
+		"encrypt the volume on the node it lands on")
 	must(cmd.MarkFlagRequired("name"))
 	must(cmd.MarkFlagRequired("size-gib"))
 

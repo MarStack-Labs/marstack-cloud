@@ -65,6 +65,7 @@ type Source struct {
 	ProjectID string
 	NodeID    string
 	Name      string
+	Encrypted bool
 }
 
 func States() []string {

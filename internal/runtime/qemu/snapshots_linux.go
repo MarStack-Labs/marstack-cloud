@@ -32,7 +32,7 @@ func (r *Runtime) SyncSnapshots(plans []workload.SnapshotPlan) []workload.Snapsh
 			state.Restored = plan.RestoreTo
 		}
 
-		present, err := snapshotsIn(path)
+		present, err := snapshotsIn(path, plan.KeyFile)
 		if err != nil {
 			state.Error = err.Error()
 		}
@@ -56,7 +56,7 @@ func (r *Runtime) volumeFile(volumeID string) (string, error) {
 }
 
 func (r *Runtime) applySnapshots(path string, plan workload.SnapshotPlan) error {
-	present, err := snapshotsIn(path)
+	present, err := snapshotsIn(path, plan.KeyFile)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (r *Runtime) applySnapshots(path string, plan workload.SnapshotPlan) error 
 		if have[name] {
 			continue
 		}
-		if err := snapshot(path, "-c", name); err != nil {
+		if err := snapshot(path, plan.KeyFile, "-c", name); err != nil {
 			return err
 		}
 		r.log.Info("snapshot taken", "volume", plan.VolumeID, "snapshot", name)
@@ -83,14 +83,14 @@ func (r *Runtime) applySnapshots(path string, plan workload.SnapshotPlan) error 
 		if want[file.Name] {
 			continue
 		}
-		if err := snapshot(path, "-d", file.Name); err != nil {
+		if err := snapshot(path, plan.KeyFile, "-d", file.Name); err != nil {
 			return err
 		}
 		r.log.Info("snapshot removed", "volume", plan.VolumeID, "snapshot", file.Name)
 	}
 
 	if plan.RestoreTo != "" {
-		if err := snapshot(path, "-a", plan.RestoreTo); err != nil {
+		if err := snapshot(path, plan.KeyFile, "-a", plan.RestoreTo); err != nil {
 			return err
 		}
 		r.log.Info("volume restored", "volume", plan.VolumeID, "snapshot", plan.RestoreTo)
@@ -98,8 +98,21 @@ func (r *Runtime) applySnapshots(path string, plan workload.SnapshotPlan) error 
 	return nil
 }
 
-func snapshot(path, action, name string) error {
-	out, err := exec.Command("qemu-img", "snapshot", action, name, path).CombinedOutput()
+func imageArgs(path, keyFile string) []string {
+	if keyFile == "" {
+		return []string{path}
+	}
+	return []string{
+		"--object", "secret,id=vkey,file=" + keyFile,
+		"--image-opts", "driver=qcow2,file.filename=" + path + ",encrypt.key-secret=vkey",
+	}
+}
+
+func snapshot(path, keyFile, action, name string) error {
+	args := append([]string{"snapshot"}, imageArgs(path, keyFile)...)
+	args = append(args, action, name)
+
+	out, err := exec.Command("qemu-img", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("qemu-img snapshot %s %s: %w: %s",
 			action, name, err, strings.TrimSpace(string(out)))
@@ -107,8 +120,10 @@ func snapshot(path, action, name string) error {
 	return nil
 }
 
-func snapshotsIn(path string) ([]workload.SnapshotFile, error) {
-	out, err := exec.Command("qemu-img", "info", "--output=json", path).Output()
+func snapshotsIn(path, keyFile string) ([]workload.SnapshotFile, error) {
+	args := append([]string{"info", "--output=json"}, imageArgs(path, keyFile)...)
+
+	out, err := exec.Command("qemu-img", args...).Output()
 	if err != nil {
 		return nil, fmt.Errorf("read the volume: %w", err)
 	}

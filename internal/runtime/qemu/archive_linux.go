@@ -3,6 +3,7 @@
 package qemu
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -30,6 +31,13 @@ func (r *Runtime) ExportVolume(volumeID string) (io.ReadCloser, error) {
 	source, err := r.volumeFile(volumeID)
 	if err != nil {
 		return nil, fmt.Errorf("read volume %s: %w", volumeID, err)
+	}
+
+	if encrypted, err := isEncrypted(source); err != nil {
+		return nil, err
+	} else if encrypted {
+		return nil, fmt.Errorf("volume %s is encrypted, and copying it out would write its "+
+			"plaintext to this node", volumeID)
 	}
 
 	target, err := os.CreateTemp(r.volumeDir(), "export-*.qcow2")
@@ -89,4 +97,19 @@ func (r *Runtime) ImportVolume(volumeID string, content io.Reader) error {
 		return fmt.Errorf("place the volume file: %w", err)
 	}
 	return nil
+}
+
+func isEncrypted(path string) (bool, error) {
+	out, err := exec.Command("qemu-img", "info", "--output=json", path).Output()
+	if err != nil {
+		return false, fmt.Errorf("read the volume: %w", err)
+	}
+
+	var info struct {
+		Encrypted bool `json:"encrypted"`
+	}
+	if err := json.Unmarshal(out, &info); err != nil {
+		return false, fmt.Errorf("decode the volume info: %w", err)
+	}
+	return info.Encrypted, nil
 }

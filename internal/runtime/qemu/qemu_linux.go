@@ -211,14 +211,23 @@ func (r *Runtime) prepareVolumes(spec workload.Spec) ([]string, error) {
 
 		path := filepath.Join(r.volumeDir(), disk.ID+".qcow2")
 		if _, err := os.Stat(path); err != nil {
-			create := exec.Command("qemu-img", "create", "-f", "qcow2", path,
-				strconv.Itoa(disk.SizeGiB)+"G")
-			if out, err := create.CombinedOutput(); err != nil {
+			args := []string{"create"}
+			if disk.KeyFile != "" {
+				args = append(args, "--object", "secret,id=vkey,file="+disk.KeyFile)
+			}
+			args = append(args, "-f", "qcow2")
+			if disk.KeyFile != "" {
+				args = append(args, "-o", "encrypt.format=luks,encrypt.key-secret=vkey")
+			}
+			args = append(args, path, strconv.Itoa(disk.SizeGiB)+"G")
+
+			if out, err := exec.Command("qemu-img", args...).CombinedOutput(); err != nil {
 				return nil, fmt.Errorf("create volume %s: %w: %s",
 					disk.Name, err, strings.TrimSpace(string(out)))
 			}
 			r.log.Info("volume created",
-				"instance", spec.InstanceID, "volume", disk.Name, "size_gib", disk.SizeGiB)
+				"instance", spec.InstanceID, "volume", disk.Name,
+				"size_gib", disk.SizeGiB, "encrypted", disk.KeyFile != "")
 		}
 		paths = append(paths, path)
 	}
@@ -251,9 +260,20 @@ func (r *Runtime) arguments(
 	}
 
 	for index, path := range volumes {
+		keyFile := spec.Volumes[index].KeyFile
+		if keyFile != "" {
+			args = append(args,
+				"-object", "secret,id=vkey"+strconv.Itoa(index)+",file="+keyFile)
+		}
+
 		id := "vol" + strconv.Itoa(index)
+		drive := "id=" + id + ",if=none,format=qcow2,file=" + path
+		if keyFile != "" {
+			drive += ",encrypt.key-secret=vkey" + strconv.Itoa(index)
+		}
+
 		args = append(args,
-			"-drive", "id="+id+",if=none,format=qcow2,file="+path,
+			"-drive", drive,
 			"-device", "virtio-blk-pci,drive="+id+",serial="+spec.Volumes[index].Name,
 		)
 	}

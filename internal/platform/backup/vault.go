@@ -13,48 +13,12 @@ import (
 
 const DirName = "backups"
 
-type Keyring struct {
-	active *sealed.Key
-	byID   map[string]sealed.Key
-}
-
-func NewKeyring(keys []sealed.Key) *Keyring {
-	ring := &Keyring{byID: make(map[string]sealed.Key, len(keys))}
-	for i, k := range keys {
-		ring.byID[k.ID()] = k
-		if i == 0 {
-			first := k
-			ring.active = &first
-		}
-	}
-	return ring
-}
-
-func (r *Keyring) Sealing() bool {
-	return r != nil && r.active != nil
-}
-
-func (r *Keyring) ActiveID() string {
-	if !r.Sealing() {
-		return ""
-	}
-	return r.active.ID()
-}
-
-func (r *Keyring) find(id string) (sealed.Key, bool) {
-	if r == nil {
-		return sealed.Key{}, false
-	}
-	k, ok := r.byID[id]
-	return k, ok
-}
-
 type vault struct {
 	root *os.Root
-	keys *Keyring
+	keys *sealed.Keyring
 }
 
-func openVault(dataDir string, keys *Keyring) (*vault, error) {
+func openVault(dataDir string, keys *sealed.Keyring) (*vault, error) {
 	path := filepath.Join(dataDir, DirName)
 	if err := os.MkdirAll(path, 0o750); err != nil {
 		return nil, fmt.Errorf("create the backup directory: %w", err)
@@ -111,8 +75,8 @@ func (v *vault) pour(file io.Writer, src io.Reader, limit int64) (written, error
 		size int64
 		err  error
 	)
-	if v.keys.Sealing() {
-		size, err = sealed.Seal(file, io.TeeReader(bounded, digest), *v.keys.active)
+	if active, ok := v.keys.Active(); ok {
+		size, err = sealed.Seal(file, io.TeeReader(bounded, digest), active)
 	} else {
 		size, err = io.Copy(io.MultiWriter(file, digest), bounded)
 	}
@@ -140,7 +104,7 @@ func (v *vault) open(id, keyID string) (io.ReadCloser, error) {
 		return file, nil
 	}
 
-	k, known := v.keys.find(keyID)
+	k, known := v.keys.Find(keyID)
 	if !known {
 		file.Close()
 		return nil, fmt.Errorf("this backup was sealed with key %s, which this control plane "+
