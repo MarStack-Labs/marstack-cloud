@@ -46,17 +46,33 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  2,
 			SQL:    `CREATE UNIQUE INDEX firewalls_name_unique ON firewalls (name)`,
 		},
+		{
+			Module: "firewall",
+			Index:  3,
+			SQL:    `ALTER TABLE firewalls ADD COLUMN project_id TEXT NOT NULL DEFAULT 'prj-default'`,
+		},
+		{
+			Module: "firewall",
+			Index:  4,
+			SQL:    `DROP INDEX firewalls_name_unique`,
+		},
+		{
+			Module: "firewall",
+			Index:  5,
+			SQL:    `CREATE UNIQUE INDEX firewalls_name_unique ON firewalls (project_id, name)`,
+		},
 	}
 }
 
 func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/firewalls", httpx.Wrap(m.log, m.handler.create))
 	mux.Handle("GET /v1/firewalls", httpx.Wrap(m.log, m.handler.list))
+	mux.Handle("GET /v1/nodes/{nodeID}/firewalls", httpx.Wrap(m.log, m.handler.listForNode))
 	mux.Handle("GET /v1/firewalls/{id}", httpx.Wrap(m.log, m.handler.get))
 	mux.Handle("PUT /v1/firewalls/{id}/rules", httpx.Wrap(m.log, m.handler.setRules))
 	mux.Handle("DELETE /v1/firewalls/{id}", httpx.Wrap(m.log, m.handler.delete))
 }
 
-func (m *Module) Exists(ctx context.Context, id string) (bool, error) {
-	return m.svc.exists(ctx, id)
+func (m *Module) ExistsIn(ctx context.Context, id, projectID string) (bool, error) {
+	return m.svc.existsIn(ctx, id, projectID)
 }

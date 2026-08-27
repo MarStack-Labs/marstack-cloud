@@ -60,19 +60,31 @@ func (m *Module) Migrations() []store.Migration {
 				PRIMARY KEY (node_id, image_id)
 			)`,
 		},
+		{
+			Module: "image",
+			Index:  90,
+			SQL:    `ALTER TABLE images ADD COLUMN project_id TEXT NOT NULL DEFAULT 'prj-default'`,
+		},
+		{
+			Module: "image",
+			Index:  91,
+			SQL:    `DROP INDEX images_name_unique`,
+		},
+		{
+			Module: "image",
+			Index:  92,
+			SQL:    `CREATE UNIQUE INDEX images_name_unique ON images (project_id, name)`,
+		},
 	}
 }
 
 func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/images", httpx.Wrap(m.log, m.handler.create))
 	mux.Handle("GET /v1/images", httpx.Wrap(m.log, m.handler.list))
+	mux.Handle("GET /v1/nodes/{nodeID}/images", httpx.Wrap(m.log, m.handler.listForNode))
 	mux.Handle("GET /v1/images/{id}", httpx.Wrap(m.log, m.handler.get))
 	mux.Handle("DELETE /v1/images/{id}", httpx.Wrap(m.log, m.handler.delete))
 	mux.Handle("PUT /v1/nodes/{nodeID}/images", httpx.Wrap(m.log, m.handler.report))
-}
-
-func (m *Module) Resolve(ctx context.Context, nameOrID string) (Image, error) {
-	return m.svc.resolve(ctx, nameOrID)
 }
 
 func (m *Module) List(ctx context.Context) ([]Placement, error) {

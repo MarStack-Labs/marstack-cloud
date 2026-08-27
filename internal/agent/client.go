@@ -264,15 +264,15 @@ func (c *client) reportUsage(ctx context.Context, nodeID string, body usageBody)
 	return c.do(ctx, http.MethodPut, "/v1/nodes/"+nodeID+"/usage", body, nil)
 }
 
-func (c *client) firewalls(ctx context.Context) ([]firewallView, error) {
+func (c *client) firewalls(ctx context.Context, nodeID string) ([]firewallView, error) {
 	var out firewallsBody
-	err := c.do(ctx, http.MethodGet, "/v1/firewalls", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/firewalls", nil, &out)
 	return out.Firewalls, err
 }
 
-func (c *client) images(ctx context.Context) ([]imageView, error) {
+func (c *client) images(ctx context.Context, nodeID string) ([]imageView, error) {
 	var out imagesBody
-	err := c.do(ctx, http.MethodGet, "/v1/images", nil, &out)
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/images", nil, &out)
 	return out.Images, err
 }
 

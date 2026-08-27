@@ -76,6 +76,21 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  6,
 			SQL:    `CREATE UNIQUE INDEX snapshots_name_unique ON snapshots (volume_id, name)`,
 		},
+		{
+			Module: "volume",
+			Index:  7,
+			SQL:    `ALTER TABLE volumes ADD COLUMN project_id TEXT NOT NULL DEFAULT 'prj-default'`,
+		},
+		{
+			Module: "volume",
+			Index:  8,
+			SQL:    `DROP INDEX volumes_name_unique`,
+		},
+		{
+			Module: "volume",
+			Index:  9,
+			SQL:    `CREATE UNIQUE INDEX volumes_name_unique ON volumes (project_id, name)`,
+		},
 	}
 }
 

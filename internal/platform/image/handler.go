@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type createRequest struct {
@@ -75,11 +76,12 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	in, err := h.svc.create(r.Context(), CreateParams{
-		Name:     req.Name,
-		Kind:     req.Kind,
-		Arch:     req.Arch,
-		Source:   req.Source,
-		Checksum: req.Checksum,
+		ProjectID: scope.From(r.Context()).ProjectID,
+		Name:      req.Name,
+		Kind:      req.Kind,
+		Arch:      req.Arch,
+		Source:    req.Source,
+		Checksum:  req.Checksum,
 	})
 	if err != nil {
 		return err
@@ -89,7 +91,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
+func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 	images, err := h.svc.list(r.Context())
 	if err != nil {
 		return err
@@ -104,8 +106,23 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
+	images, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
+	if err != nil {
+		return err
+	}
+
+	body := listResponse{Images: make([]response, 0, len(images))}
+	for _, placed := range images {
+		body.Images = append(body.Images, toPlacementResponse(placed))
+	}
+
+	httpx.Write(w, http.StatusOK, body)
+	return nil
+}
+
 func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
-	in, err := h.svc.resolve(r.Context(), r.PathValue("id"))
+	in, err := h.svc.resolveIn(r.Context(), r.PathValue("id"), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -139,7 +156,8 @@ func (h *handler) report(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
-	if err := h.svc.remove(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.svc.remove(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

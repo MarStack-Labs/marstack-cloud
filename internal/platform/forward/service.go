@@ -62,6 +62,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Forward, err
 	if err != nil {
 		return Forward{}, err
 	}
+	if endpoint.ProjectID != params.ProjectID {
+		return Forward{}, fault.NotFound("instance_not_found", "no instance with that id exists")
+	}
 	if endpoint.NodeID == "" || endpoint.Address == "" {
 		return Forward{}, fault.Conflict("instance_unreachable",
 			"the instance has no address yet, so there is nothing to publish")
@@ -69,6 +72,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Forward, err
 
 	f := Forward{
 		ID:         ids.New("fwd"),
+		ProjectID:  params.ProjectID,
 		InstanceID: params.InstanceID,
 		Protocol:   params.Protocol,
 		NodePort:   params.NodePort,
@@ -88,14 +92,6 @@ func (s *service) create(ctx context.Context, params CreateParams) (Forward, err
 	return f, nil
 }
 
-func (s *service) list(ctx context.Context) ([]Forward, error) {
-	forwards, err := s.repo.list(ctx)
-	if err != nil {
-		return nil, translate(err)
-	}
-	return forwards, nil
-}
-
 func (s *service) onNode(ctx context.Context, nodeID string) ([]Forward, error) {
 	forwards, err := s.repo.onNode(ctx, nodeID)
 	if err != nil {
@@ -104,7 +100,26 @@ func (s *service) onNode(ctx context.Context, nodeID string) ([]Forward, error) 
 	return forwards, nil
 }
 
-func (s *service) remove(ctx context.Context, id string) error {
+func (s *service) listIn(ctx context.Context, projectID string) ([]Forward, error) {
+	forwards, err := s.repo.listIn(ctx, projectID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return forwards, nil
+}
+
+func (s *service) remove(ctx context.Context, id, projectID string) error {
+	f, err := s.repo.byID(ctx, id)
+	if err != nil {
+		return translate(err)
+	}
+	if f.ProjectID != projectID {
+		return fault.NotFound("forward_not_found", "no published port with that id exists")
+	}
+	return s.removeAny(ctx, f.ID)
+}
+
+func (s *service) removeAny(ctx context.Context, id string) error {
 	if err := s.repo.delete(ctx, id); err != nil {
 		return translate(err)
 	}

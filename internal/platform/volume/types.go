@@ -16,6 +16,7 @@ const (
 
 type Volume struct {
 	ID          string
+	ProjectID   string
 	Name        string
 	SizeGiB     int
 	NodeID      string
@@ -55,11 +56,13 @@ func (v Volume) State() string {
 }
 
 type CreateParams struct {
-	Name    string
-	SizeGiB int
+	ProjectID string
+	Name      string
+	SizeGiB   int
 }
 
 type Placement struct {
+	ProjectID string
 	NodeID    string
 	Isolation string
 	Running   bool

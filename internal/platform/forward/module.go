@@ -55,6 +55,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  3,
 			SQL:    `CREATE INDEX forwards_instance_id ON forwards (instance_id)`,
 		},
+		{
+			Module: "forward",
+			Index:  4,
+			SQL:    `ALTER TABLE forwards ADD COLUMN project_id TEXT NOT NULL DEFAULT 'prj-default'`,
+		},
 	}
 }
 

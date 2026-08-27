@@ -16,7 +16,7 @@ var (
 	errNameTaken = errors.New("image name already exists")
 )
 
-const columns = `id, name, kind, arch, source, checksum, size_bytes, created_at`
+const columns = `id, project_id, name, kind, arch, source, checksum, size_bytes, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -28,8 +28,8 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, in Image) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO images (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.ID, in.Name, in.Kind, in.Arch, in.Source, in.Checksum, in.SizeBytes,
+		`INSERT INTO images (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		in.ID, in.ProjectID, in.Name, in.Kind, in.Arch, in.Source, in.Checksum, in.SizeBytes,
 		in.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -46,9 +46,28 @@ func (r *repository) byID(ctx context.Context, id string) (Image, error) {
 		`SELECT `+columns+` FROM images WHERE id = ?`, id))
 }
 
-func (r *repository) byName(ctx context.Context, name string) (Image, error) {
+func (r *repository) listIn(ctx context.Context, projectID string) ([]Image, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+columns+` FROM images WHERE project_id = ? ORDER BY name`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list images in project: %w", err)
+	}
+	defer rows.Close()
+
+	images := make([]Image, 0)
+	for rows.Next() {
+		in, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		images = append(images, in)
+	}
+	return images, rows.Err()
+}
+
+func (r *repository) byName(ctx context.Context, projectID, name string) (Image, error) {
 	return scanRow(r.db.QueryRowContext(ctx,
-		`SELECT `+columns+` FROM images WHERE name = ?`, name))
+		`SELECT `+columns+` FROM images WHERE project_id = ? AND name = ?`, projectID, name))
 }
 
 func (r *repository) list(ctx context.Context) ([]Image, error) {
@@ -157,7 +176,7 @@ func scan(row scanner) (Image, error) {
 	var in Image
 	var created string
 
-	if err := row.Scan(&in.ID, &in.Name, &in.Kind, &in.Arch, &in.Source,
+	if err := row.Scan(&in.ID, &in.ProjectID, &in.Name, &in.Kind, &in.Arch, &in.Source,
 		&in.Checksum, &in.SizeBytes, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Image{}, err

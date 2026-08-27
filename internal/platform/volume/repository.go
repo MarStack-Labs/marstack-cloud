@@ -17,7 +17,7 @@ var (
 	errTaken     = errors.New("volume already attached")
 )
 
-const columns = `id, name, size_gib, node_id, instance_id, restore_from, created_at, updated_at`
+const columns = `id, project_id, name, size_gib, node_id, instance_id, restore_from, created_at, updated_at`
 
 const snapshotColumns = `id, volume_id, name, state, message, size_bytes, created_at`
 
@@ -31,8 +31,8 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, v Volume) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO volumes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.Name, v.SizeGiB, v.NodeID, v.InstanceID, v.RestoreFrom,
+		`INSERT INTO volumes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.ProjectID, v.Name, v.SizeGiB, v.NodeID, v.InstanceID, v.RestoreFrom,
 		v.CreatedAt.Format(time.RFC3339Nano), v.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -48,12 +48,14 @@ func (r *repository) byID(ctx context.Context, id string) (Volume, error) {
 	return scanRow(r.db.QueryRowContext(ctx, `SELECT `+columns+` FROM volumes WHERE id = ?`, id))
 }
 
-func (r *repository) byName(ctx context.Context, name string) (Volume, error) {
-	return scanRow(r.db.QueryRowContext(ctx, `SELECT `+columns+` FROM volumes WHERE name = ?`, name))
+func (r *repository) listIn(ctx context.Context, projectID string) ([]Volume, error) {
+	return r.query(ctx,
+		`SELECT `+columns+` FROM volumes WHERE project_id = ? ORDER BY name`, projectID)
 }
 
-func (r *repository) list(ctx context.Context) ([]Volume, error) {
-	return r.query(ctx, `SELECT `+columns+` FROM volumes ORDER BY name`)
+func (r *repository) byName(ctx context.Context, projectID, name string) (Volume, error) {
+	return scanRow(r.db.QueryRowContext(ctx,
+		`SELECT `+columns+` FROM volumes WHERE project_id = ? AND name = ?`, projectID, name))
 }
 
 func (r *repository) onNode(ctx context.Context, nodeID string) ([]Volume, error) {
@@ -171,6 +173,27 @@ func (r *repository) snapshots(ctx context.Context, volumeID string) ([]Snapshot
 	return snapshots, rows.Err()
 }
 
+func (r *repository) snapshotsIn(ctx context.Context, projectID string) ([]Snapshot, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT s.id, s.volume_id, s.name, s.state, s.message, s.size_bytes, s.created_at
+		 FROM snapshots s JOIN volumes v ON v.id = s.volume_id
+		 WHERE v.project_id = ? ORDER BY s.created_at`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list snapshots in project: %w", err)
+	}
+	defer rows.Close()
+
+	snapshots := make([]Snapshot, 0)
+	for rows.Next() {
+		snap, err := scanSnapshot(rows)
+		if err != nil {
+			return nil, err
+		}
+		snapshots = append(snapshots, snap)
+	}
+	return snapshots, rows.Err()
+}
+
 func (r *repository) markSnapshot(ctx context.Context, id, state, message string, size int64) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE snapshots SET state = ?, message = ?, size_bytes = ? WHERE id = ?`,
@@ -269,8 +292,8 @@ func scan(row scanner) (Volume, error) {
 	var v Volume
 	var created, updated string
 
-	if err := row.Scan(&v.ID, &v.Name, &v.SizeGiB, &v.NodeID, &v.InstanceID, &v.RestoreFrom,
-		&created, &updated); err != nil {
+	if err := row.Scan(&v.ID, &v.ProjectID, &v.Name, &v.SizeGiB, &v.NodeID, &v.InstanceID,
+		&v.RestoreFrom, &created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Volume{}, err
 		}

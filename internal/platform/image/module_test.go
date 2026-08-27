@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -36,6 +37,8 @@ func newTestModule(t *testing.T) (http.Handler, *Module) {
 	return mux, m
 }
 
+const testProject = "prj-test"
+
 func request(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -48,6 +51,7 @@ func request(t *testing.T, h http.Handler, method, path, body string) *httptest.
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req = req.WithContext(scope.With(req.Context(), scope.Scope{ProjectID: testProject}))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -87,7 +91,7 @@ func TestImagesAreFoundByNameOrID(t *testing.T) {
 	}
 
 	for _, key := range []string{created.ID, created.Name} {
-		found, err := m.Resolve(context.Background(), key)
+		found, err := m.svc.resolveIn(context.Background(), key, testProject)
 		if err != nil {
 			t.Fatalf("resolve %q: %v", key, err)
 		}

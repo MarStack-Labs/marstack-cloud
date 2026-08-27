@@ -127,6 +127,12 @@ The role vocabulary lives in `platform/token`; the policy of which role reaches 
 rather than deny-lists: a route added without a policy entry fails closed with a `403` instead of
 being silently reachable.
 
+Two routes used to serve both an agent and an operator: `GET /v1/images` and
+`GET /v1/firewalls`. Scoping them to the caller's project would have blinded every agent, since a
+node token carries no project worth honouring. They are now split along the existing
+`/v1/nodes/{id}/...` convention: the node path answers with the whole catalogue, the bare path
+answers with the caller's project. One path, one audience.
+
 Modules never learn about roles. `/v1/projects` is administrative in its entirety, so the project
 module has no role check inside it — the composition root simply keeps members off those routes.
 

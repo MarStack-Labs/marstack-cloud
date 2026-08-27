@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type createRequest struct {
@@ -103,7 +104,11 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	v, err := h.svc.create(r.Context(), CreateParams{Name: req.Name, SizeGiB: req.SizeGiB})
+	v, err := h.svc.create(r.Context(), CreateParams{
+		ProjectID: scope.From(r.Context()).ProjectID,
+		Name:      req.Name,
+		SizeGiB:   req.SizeGiB,
+	})
 	if err != nil {
 		return err
 	}
@@ -113,7 +118,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	volumes, err := h.svc.list(r.Context())
+	volumes, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -128,7 +133,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
-	v, err := h.svc.resolve(r.Context(), r.PathValue("id"))
+	v, err := h.svc.resolveIn(r.Context(), r.PathValue("id"), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -142,7 +147,8 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	v, err := h.svc.attach(r.Context(), r.PathValue("id"), req.InstanceID)
+	v, err := h.svc.attach(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, req.InstanceID)
 	if err != nil {
 		return err
 	}
@@ -152,7 +158,7 @@ func (h *handler) attach(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) detach(w http.ResponseWriter, r *http.Request) error {
-	v, err := h.svc.detach(r.Context(), r.PathValue("id"))
+	v, err := h.svc.detach(r.Context(), r.PathValue("id"), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -161,7 +167,8 @@ func (h *handler) detach(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
-	if err := h.svc.remove(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.svc.remove(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -199,7 +206,8 @@ func (h *handler) snapshot(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	snap, err := h.svc.snapshot(r.Context(), r.PathValue("id"), req.Name)
+	snap, err := h.svc.snapshot(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, req.Name)
 	if err != nil {
 		return err
 	}
@@ -209,16 +217,21 @@ func (h *handler) snapshot(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) listSnapshots(w http.ResponseWriter, r *http.Request) error {
-	volumeID := ""
-	if key := r.PathValue("id"); key != "" {
-		v, err := h.svc.resolve(r.Context(), key)
-		if err != nil {
-			return err
-		}
-		volumeID = v.ID
-	}
+	project := scope.From(r.Context()).ProjectID
 
-	snapshots, err := h.svc.snapshots(r.Context(), volumeID)
+	var (
+		snapshots []Snapshot
+		err       error
+	)
+	if key := r.PathValue("id"); key != "" {
+		v, resolveErr := h.svc.resolveIn(r.Context(), key, project)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		snapshots, err = h.svc.snapshots(r.Context(), v.ID)
+	} else {
+		snapshots, err = h.svc.snapshotsIn(r.Context(), project)
+	}
 	if err != nil {
 		return err
 	}
@@ -233,7 +246,8 @@ func (h *handler) listSnapshots(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) deleteSnapshot(w http.ResponseWriter, r *http.Request) error {
-	if err := h.svc.removeSnapshot(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.svc.removeSnapshot(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -241,7 +255,7 @@ func (h *handler) deleteSnapshot(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) restore(w http.ResponseWriter, r *http.Request) error {
-	v, err := h.svc.restore(r.Context(), r.PathValue("id"))
+	v, err := h.svc.restore(r.Context(), r.PathValue("id"), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}

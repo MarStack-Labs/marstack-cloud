@@ -16,6 +16,7 @@ const (
 
 type Firewall struct {
 	ID        string
+	ProjectID string
 	Name      string
 	Rules     []Rule
 	CreatedAt time.Time
@@ -30,8 +31,9 @@ type Rule struct {
 }
 
 type CreateParams struct {
-	Name  string
-	Rules []Rule
+	ProjectID string
+	Name      string
+	Rules     []Rule
 }
 
 func Protocols() []string {

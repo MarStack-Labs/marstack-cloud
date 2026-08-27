@@ -13,6 +13,7 @@ const (
 
 type Image struct {
 	ID        string
+	ProjectID string
 	Name      string
 	Kind      string
 	Arch      string
@@ -33,11 +34,12 @@ type Placement struct {
 }
 
 type CreateParams struct {
-	Name     string
-	Kind     string
-	Arch     string
-	Source   string
-	Checksum string
+	ProjectID string
+	Name      string
+	Kind      string
+	Arch      string
+	Source    string
+	Checksum  string
 }
 
 func Kinds() []string {

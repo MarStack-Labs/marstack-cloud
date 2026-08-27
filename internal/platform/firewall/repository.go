@@ -17,7 +17,7 @@ var (
 	errNameTaken = errors.New("firewall name already exists")
 )
 
-const columns = `id, name, rules, created_at, updated_at`
+const columns = `id, project_id, name, rules, created_at, updated_at`
 
 type repository struct {
 	db *sql.DB
@@ -34,8 +34,8 @@ func (r *repository) insert(ctx context.Context, f Firewall) error {
 	}
 
 	_, err = r.db.ExecContext(ctx,
-		`INSERT INTO firewalls (`+columns+`) VALUES (?, ?, ?, ?, ?)`,
-		f.ID, f.Name, string(rules),
+		`INSERT INTO firewalls (`+columns+`) VALUES (?, ?, ?, ?, ?, ?)`,
+		f.ID, f.ProjectID, f.Name, string(rules),
 		f.CreatedAt.Format(time.RFC3339Nano), f.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -74,8 +74,28 @@ func (r *repository) byID(ctx context.Context, id string) (Firewall, error) {
 	return scanRow(r.db.QueryRowContext(ctx, `SELECT `+columns+` FROM firewalls WHERE id = ?`, id))
 }
 
-func (r *repository) byName(ctx context.Context, name string) (Firewall, error) {
-	return scanRow(r.db.QueryRowContext(ctx, `SELECT `+columns+` FROM firewalls WHERE name = ?`, name))
+func (r *repository) listIn(ctx context.Context, projectID string) ([]Firewall, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+columns+` FROM firewalls WHERE project_id = ? ORDER BY name`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list firewalls in project: %w", err)
+	}
+	defer rows.Close()
+
+	firewalls := make([]Firewall, 0)
+	for rows.Next() {
+		f, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		firewalls = append(firewalls, f)
+	}
+	return firewalls, rows.Err()
+}
+
+func (r *repository) byName(ctx context.Context, projectID, name string) (Firewall, error) {
+	return scanRow(r.db.QueryRowContext(ctx,
+		`SELECT `+columns+` FROM firewalls WHERE project_id = ? AND name = ?`, projectID, name))
 }
 
 func (r *repository) list(ctx context.Context) ([]Firewall, error) {
@@ -128,7 +148,7 @@ func scan(row scanner) (Firewall, error) {
 	var f Firewall
 	var rules, created, updated string
 
-	if err := row.Scan(&f.ID, &f.Name, &rules, &created, &updated); err != nil {
+	if err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &rules, &created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Firewall{}, err
 		}

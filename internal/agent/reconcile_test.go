@@ -232,7 +232,7 @@ func (c *controlPlane) handler() http.Handler {
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(instanceListBody{Instances: c.instances})
 	})
-	mux.HandleFunc("GET /v1/firewalls", func(w http.ResponseWriter, _ *http.Request) {
+	mux.HandleFunc("GET /v1/nodes/{nodeID}/firewalls", func(w http.ResponseWriter, _ *http.Request) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(firewallsBody{Firewalls: c.firewalls})

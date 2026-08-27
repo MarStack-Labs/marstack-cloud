@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -33,6 +34,8 @@ func newTestModule(t *testing.T) (http.Handler, *Module) {
 	return mux, m
 }
 
+const testProject = "prj-test"
+
 func request(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
 
@@ -45,6 +48,7 @@ func request(t *testing.T, h http.Handler, method, path, body string) *httptest.
 	if body != "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	req = req.WithContext(scope.With(req.Context(), scope.Scope{ProjectID: testProject}))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -149,12 +153,12 @@ func TestExistsAnswersForInstanceValidation(t *testing.T) {
 	h, m := newTestModule(t)
 	created := create(t, h, `{"name":"web"}`)
 
-	known, err := m.Exists(context.Background(), created.ID)
+	known, err := m.ExistsIn(context.Background(), created.ID, testProject)
 	if err != nil || !known {
 		t.Fatalf("exists = %v, err = %v", known, err)
 	}
 
-	known, err = m.Exists(context.Background(), "fw-nope")
+	known, err = m.ExistsIn(context.Background(), "fw-nope", testProject)
 	if err != nil {
 		t.Fatalf("exists: %v", err)
 	}

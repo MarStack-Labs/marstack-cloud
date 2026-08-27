@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type ruleBody struct {
@@ -78,7 +79,11 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	f, err := h.svc.create(r.Context(), CreateParams{Name: req.Name, Rules: toRules(req.Rules)})
+	f, err := h.svc.create(r.Context(), CreateParams{
+		ProjectID: scope.From(r.Context()).ProjectID,
+		Name:      req.Name,
+		Rules:     toRules(req.Rules),
+	})
 	if err != nil {
 		return err
 	}
@@ -87,7 +92,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
+func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 	firewalls, err := h.svc.list(r.Context())
 	if err != nil {
 		return err
@@ -102,8 +107,23 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
+	firewalls, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
+	if err != nil {
+		return err
+	}
+
+	body := listResponse{Firewalls: make([]response, 0, len(firewalls))}
+	for _, f := range firewalls {
+		body.Firewalls = append(body.Firewalls, toResponse(f))
+	}
+
+	httpx.Write(w, http.StatusOK, body)
+	return nil
+}
+
 func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
-	f, err := h.svc.resolve(r.Context(), r.PathValue("id"))
+	f, err := h.svc.resolveIn(r.Context(), r.PathValue("id"), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -117,7 +137,8 @@ func (h *handler) setRules(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	f, err := h.svc.setRules(r.Context(), r.PathValue("id"), toRules(req.Rules))
+	f, err := h.svc.setRules(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, toRules(req.Rules))
 	if err != nil {
 		return err
 	}
@@ -127,7 +148,8 @@ func (h *handler) setRules(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
-	if err := h.svc.remove(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.svc.remove(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

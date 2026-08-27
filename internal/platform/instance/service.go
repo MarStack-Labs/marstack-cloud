@@ -45,7 +45,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 	}
 
 	if normalized.FirewallID != "" && s.firewalls != nil {
-		known, err := s.firewalls.Exists(ctx, normalized.FirewallID)
+		known, err := s.firewalls.ExistsIn(ctx, normalized.FirewallID, params.ProjectID)
 		if err != nil {
 			return Instance{}, err
 		}

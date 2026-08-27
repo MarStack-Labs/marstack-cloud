@@ -12,6 +12,7 @@ const (
 
 type Forward struct {
 	ID         string
+	ProjectID  string
 	InstanceID string
 	Protocol   string
 	NodePort   int
@@ -22,6 +23,7 @@ type Forward struct {
 }
 
 type CreateParams struct {
+	ProjectID  string
 	InstanceID string
 	Protocol   string
 	NodePort   int
@@ -29,8 +31,9 @@ type CreateParams struct {
 }
 
 type Endpoint struct {
-	NodeID  string
-	Address string
+	ProjectID string
+	NodeID    string
+	Address   string
 }
 
 func Protocols() []string {

@@ -202,3 +202,139 @@ func TestTheDefaultProjectExistsAtBoot(t *testing.T) {
 		t.Fatalf("status = %d, want %d: every migration backfills that id", rec.Code, http.StatusOK)
 	}
 }
+
+func createIn(t *testing.T, a *testApp, secret, path, body string) string {
+	t.Helper()
+
+	rec := doAs(t, a, secret, http.MethodPost, path, strings.NewReader(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("POST %s: %d %s", path, rec.Code, rec.Body.String())
+	}
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	return created.ID
+}
+
+func countAt(t *testing.T, a *testApp, secret, path, field string) int {
+	t.Helper()
+
+	rec := doAs(t, a, secret, http.MethodGet, path, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: %d %s", path, rec.Code, rec.Body.String())
+	}
+
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	var rows []json.RawMessage
+	if err := json.Unmarshal(body[field], &rows); err != nil {
+		t.Fatalf("decode %s: %v", field, err)
+	}
+	return len(rows)
+}
+
+func TestVolumesAndImagesAreInvisibleAcrossProjects(t *testing.T) {
+	a := newTestApp(t)
+
+	other := newProject(t, a, "tenant-b")
+	theirs := tokenIn(t, a, "b-dev", other)
+
+	createIn(t, a, a.secret, "/v1/volumes", `{"name":"data","size_gib":1}`)
+	createIn(t, a, a.secret, "/v1/images",
+		`{"name":"golden","kind":"disk","source":"https://example.invalid/g.qcow2"}`)
+
+	for _, c := range []struct{ path, field string }{
+		{"/v1/volumes", "volumes"},
+		{"/v1/images", "images"},
+	} {
+		t.Run(c.path, func(t *testing.T) {
+			if got := countAt(t, a, theirs, c.path, c.field); got != 0 {
+				t.Fatalf("tenant-b sees %d rows at %s, want none", got, c.path)
+			}
+			if got := countAt(t, a, a.secret, c.path, c.field); got != 1 {
+				t.Fatalf("the owner sees %d rows at %s, want its own", got, c.path)
+			}
+		})
+	}
+}
+
+func TestAVolumeCannotBeAttachedToAnInstanceInAnotherProject(t *testing.T) {
+	a := newTestApp(t)
+
+	other := newProject(t, a, "tenant-b")
+	theirs := tokenIn(t, a, "b-dev", other)
+
+	volumeID := createIn(t, a, theirs, "/v1/volumes", `{"name":"theirs","size_gib":1}`)
+	instanceID := newInstance(t, a, a.secret, "ours")
+
+	rec := doAs(t, a, theirs, http.MethodPost, "/v1/volumes/"+volumeID+"/attach",
+		strings.NewReader(`{"instance_id":"`+instanceID+`"}`))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: a disk must not cross a tenant boundary",
+			rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestAnInstanceCannotBorrowAnotherProjectsFirewall(t *testing.T) {
+	a := newTestApp(t)
+
+	other := newProject(t, a, "tenant-b")
+	theirs := tokenIn(t, a, "b-dev", other)
+
+	firewallID := createIn(t, a, a.secret, "/v1/firewalls", `{"name":"ours","rules":[]}`)
+
+	body := `{"name":"borrowed","isolation":"container","image":"alpine:3.20",` +
+		`"firewall_id":"` + firewallID + `"}`
+	rec := doAs(t, a, theirs, http.MethodPost, "/v1/instances", strings.NewReader(body))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: borrowing a firewall would let one tenant open "+
+			"another tenant's ports by editing rules", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestPublishingAnotherProjectsInstanceIsRefused(t *testing.T) {
+	a := newTestApp(t)
+
+	other := newProject(t, a, "tenant-b")
+	theirs := tokenIn(t, a, "b-dev", other)
+	instanceID := newInstance(t, a, a.secret, "ours")
+
+	rec := doAs(t, a, theirs, http.MethodPost, "/v1/forwards",
+		strings.NewReader(`{"instance_id":"`+instanceID+`","target_port":80}`))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: publishing would expose another tenant's workload",
+			rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestSnapshotsOfAnotherProjectsVolumeAreOutOfReach(t *testing.T) {
+	a := newTestApp(t)
+
+	other := newProject(t, a, "tenant-b")
+	theirs := tokenIn(t, a, "b-dev", other)
+
+	volumeID := createIn(t, a, a.secret, "/v1/volumes", `{"name":"data","size_gib":1}`)
+
+	rec := doAs(t, a, theirs, http.MethodGet, "/v1/volumes/"+volumeID+"/snapshots", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: the snapshot list names what is on that disk",
+			rec.Code, http.StatusNotFound)
+	}
+
+	rec = doAs(t, a, theirs, http.MethodPost, "/v1/volumes/"+volumeID+"/snapshots",
+		strings.NewReader(`{"name":"stolen"}`))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+
+	if got := countAt(t, a, theirs, "/v1/snapshots", "snapshots"); got != 0 {
+		t.Fatalf("tenant-b sees %d snapshots, want none", got)
+	}
+}

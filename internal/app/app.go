@@ -82,7 +82,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 
 	a := &App{cfg: cfg, log: log, store: st, networks: networks}
 	volumes := volume.New(st, volumeInstances{instances: instances}, log)
-	forwards := forward.New(st, forwardAddresses{networks: networks}, log)
+	forwards := forward.New(st, forwardAddresses{networks: networks, instances: instances}, log)
 	firewalls := firewall.New(st, log)
 	projects := project.New(st, log)
 	tokens := token.New(st, log)

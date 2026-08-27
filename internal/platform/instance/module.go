@@ -29,7 +29,7 @@ type Forwards interface {
 }
 
 type Firewalls interface {
-	Exists(ctx context.Context, id string) (bool, error)
+	ExistsIn(ctx context.Context, id, projectID string) (bool, error)
 }
 
 func New(st *store.Store, log *slog.Logger, networks Networks) *Module {

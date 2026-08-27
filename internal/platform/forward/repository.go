@@ -16,7 +16,7 @@ var (
 	errPortUsed = errors.New("node port already published")
 )
 
-const columns = `id, instance_id, protocol, node_port, target_port, node_id, address, created_at`
+const columns = `id, project_id, instance_id, protocol, node_port, target_port, node_id, address, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -28,8 +28,8 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, f Forward) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO forwards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		f.ID, f.InstanceID, f.Protocol, f.NodePort, f.TargetPort, f.NodeID, f.Address,
+		`INSERT INTO forwards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		f.ID, f.ProjectID, f.InstanceID, f.Protocol, f.NodePort, f.TargetPort, f.NodeID, f.Address,
 		f.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -41,8 +41,20 @@ func (r *repository) insert(ctx context.Context, f Forward) error {
 	return nil
 }
 
-func (r *repository) list(ctx context.Context) ([]Forward, error) {
-	return r.query(ctx, `SELECT `+columns+` FROM forwards ORDER BY node_port`)
+func (r *repository) listIn(ctx context.Context, projectID string) ([]Forward, error) {
+	return r.query(ctx,
+		`SELECT `+columns+` FROM forwards WHERE project_id = ? ORDER BY node_port`, projectID)
+}
+
+func (r *repository) byID(ctx context.Context, id string) (Forward, error) {
+	found, err := r.query(ctx, `SELECT `+columns+` FROM forwards WHERE id = ?`, id)
+	if err != nil {
+		return Forward{}, err
+	}
+	if len(found) == 0 {
+		return Forward{}, errNotFound
+	}
+	return found[0], nil
 }
 
 func (r *repository) onNode(ctx context.Context, nodeID string) ([]Forward, error) {
@@ -100,7 +112,7 @@ func scan(row scanner) (Forward, error) {
 	var f Forward
 	var created string
 
-	if err := row.Scan(&f.ID, &f.InstanceID, &f.Protocol, &f.NodePort, &f.TargetPort,
+	if err := row.Scan(&f.ID, &f.ProjectID, &f.InstanceID, &f.Protocol, &f.NodePort, &f.TargetPort,
 		&f.NodeID, &f.Address, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Forward{}, err

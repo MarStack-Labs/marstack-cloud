@@ -61,6 +61,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Image, error
 
 	in := Image{
 		ID:        ids.New("img"),
+		ProjectID: params.ProjectID,
 		Name:      params.Name,
 		Kind:      params.Kind,
 		Arch:      params.Arch,
@@ -117,8 +118,8 @@ func (s *service) withSize(ctx context.Context, in Image) (Image, error) {
 	return in, nil
 }
 
-func (s *service) resolve(ctx context.Context, nameOrID string) (Image, error) {
-	in, err := s.repo.byName(ctx, nameOrID)
+func (s *service) resolveIn(ctx context.Context, nameOrID, projectID string) (Image, error) {
+	in, err := s.repo.byName(ctx, projectID, nameOrID)
 	if err == nil {
 		return in, nil
 	}
@@ -130,7 +131,18 @@ func (s *service) resolve(ctx context.Context, nameOrID string) (Image, error) {
 	if err != nil {
 		return Image{}, translate(err)
 	}
+	if in.ProjectID != projectID {
+		return Image{}, fault.NotFound("image_not_found", "no image with that name or id exists")
+	}
 	return in, nil
+}
+
+func (s *service) listIn(ctx context.Context, projectID string) ([]Placement, error) {
+	images, err := s.repo.listIn(ctx, projectID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return s.placed(ctx, images)
 }
 
 func (s *service) list(ctx context.Context) ([]Placement, error) {
@@ -138,7 +150,10 @@ func (s *service) list(ctx context.Context) ([]Placement, error) {
 	if err != nil {
 		return nil, translate(err)
 	}
+	return s.placed(ctx, images)
+}
 
+func (s *service) placed(ctx context.Context, images []Image) ([]Placement, error) {
 	byImage, sizes, err := s.repo.nodesByImage(ctx)
 	if err != nil {
 		return nil, translate(err)
@@ -173,8 +188,12 @@ func (s *service) report(ctx context.Context, nodeID string, staged []Staged) er
 	return nil
 }
 
-func (s *service) remove(ctx context.Context, id string) error {
-	if err := s.repo.delete(ctx, id); err != nil {
+func (s *service) remove(ctx context.Context, id, projectID string) error {
+	in, err := s.resolveIn(ctx, id, projectID)
+	if err != nil {
+		return err
+	}
+	if err := s.repo.delete(ctx, in.ID); err != nil {
 		return translate(err)
 	}
 	return nil

@@ -88,8 +88,9 @@ func TestANodeTokenReachesOnlyWhatAnAgentNeeds(t *testing.T) {
 		"/v1/nodes/n-1/instances",
 		"/v1/nodes/n-1/network",
 		"/v1/nodes/n-1/volumes",
+		"/v1/nodes/n-1/images",
+		"/v1/nodes/n-1/firewalls",
 		"/v1/dns/records",
-		"/v1/images",
 	} {
 		t.Run("allows "+path, func(t *testing.T) {
 			if rec := doAs(t, a, secret, http.MethodGet, path, nil); rec.Code == http.StatusForbidden {
@@ -98,7 +99,10 @@ func TestANodeTokenReachesOnlyWhatAnAgentNeeds(t *testing.T) {
 		})
 	}
 
-	for _, path := range []string{"/v1/instances", "/v1/volumes", "/v1/networks", "/v1/tokens"} {
+	for _, path := range []string{
+		"/v1/instances", "/v1/volumes", "/v1/networks", "/v1/tokens",
+		"/v1/images", "/v1/firewalls",
+	} {
 		t.Run("refuses "+path, func(t *testing.T) {
 			if rec := doAs(t, a, secret, http.MethodGet, path, nil); rec.Code != http.StatusForbidden {
 				t.Fatalf("status = %d, want %d: a node has no business reading the whole platform",

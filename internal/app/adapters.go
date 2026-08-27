@@ -114,6 +114,7 @@ func (s volumeInstances) Placement(ctx context.Context, instanceID string) (volu
 		return volume.Placement{}, err
 	}
 	return volume.Placement{
+		ProjectID: in.ProjectID,
 		NodeID:    in.NodeID,
 		Isolation: string(in.Isolation),
 		Running:   in.Desired == instance.DesiredRunning,
@@ -121,15 +122,21 @@ func (s volumeInstances) Placement(ctx context.Context, instanceID string) (volu
 }
 
 type forwardAddresses struct {
-	networks *network.Module
+	networks  *network.Module
+	instances *instance.Module
 }
 
 func (s forwardAddresses) Endpoint(ctx context.Context, instanceID string) (forward.Endpoint, error) {
-	nic, err := s.networks.NICOf(ctx, instanceID)
+	in, err := s.instances.Get(ctx, instanceID)
 	if err != nil {
 		return forward.Endpoint{}, err
 	}
-	return forward.Endpoint{NodeID: nic.NodeID, Address: nic.IP}, nil
+
+	nic, err := s.networks.NICOf(ctx, instanceID)
+	if err != nil {
+		return forward.Endpoint{ProjectID: in.ProjectID}, nil
+	}
+	return forward.Endpoint{ProjectID: in.ProjectID, NodeID: nic.NodeID, Address: nic.IP}, nil
 }
 
 const staleLoad = 30 * time.Second

@@ -84,7 +84,7 @@ func (a *Agent) readDesired(ctx context.Context) (cachedState, error) {
 		return cachedState{}, fmt.Errorf("forwards: %w", err)
 	}
 
-	firewalls, err := a.client.firewalls(ctx)
+	firewalls, err := a.client.firewalls(ctx, nodeID)
 	if err != nil {
 		return cachedState{}, fmt.Errorf("firewalls: %w", err)
 	}
@@ -540,7 +540,7 @@ func (a *Agent) refreshCatalog(ctx context.Context) {
 		return
 	}
 
-	images, err := a.client.images(ctx)
+	images, err := a.client.images(ctx, a.currentNodeID())
 	if err != nil {
 		a.log.Warn("could not read the image catalog, keeping the last one", "error", err)
 		return

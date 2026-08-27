@@ -39,6 +39,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Firewall, er
 	now := s.now()
 	f := Firewall{
 		ID:        ids.New("fw"),
+		ProjectID: params.ProjectID,
 		Name:      params.Name,
 		Rules:     rules,
 		CreatedAt: now,
@@ -101,8 +102,8 @@ func checkRules(rules []Rule) ([]Rule, error) {
 	return checked, nil
 }
 
-func (s *service) resolve(ctx context.Context, nameOrID string) (Firewall, error) {
-	f, err := s.repo.byName(ctx, nameOrID)
+func (s *service) resolveIn(ctx context.Context, nameOrID, projectID string) (Firewall, error) {
+	f, err := s.repo.byName(ctx, projectID, nameOrID)
 	if err == nil {
 		return f, nil
 	}
@@ -113,6 +114,9 @@ func (s *service) resolve(ctx context.Context, nameOrID string) (Firewall, error
 	f, err = s.repo.byID(ctx, nameOrID)
 	if err != nil {
 		return Firewall{}, translate(err)
+	}
+	if f.ProjectID != projectID {
+		return Firewall{}, fault.NotFound("firewall_not_found", "no firewall with that id exists")
 	}
 	return f, nil
 }
@@ -125,8 +129,29 @@ func (s *service) list(ctx context.Context) ([]Firewall, error) {
 	return firewalls, nil
 }
 
-func (s *service) setRules(ctx context.Context, nameOrID string, rules []Rule) (Firewall, error) {
-	f, err := s.resolve(ctx, nameOrID)
+func (s *service) listIn(ctx context.Context, projectID string) ([]Firewall, error) {
+	firewalls, err := s.repo.listIn(ctx, projectID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return firewalls, nil
+}
+
+func (s *service) existsIn(ctx context.Context, id, projectID string) (bool, error) {
+	f, err := s.repo.byID(ctx, id)
+	if errors.Is(err, errNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, translate(err)
+	}
+	return f.ProjectID == projectID, nil
+}
+
+func (s *service) setRules(
+	ctx context.Context, nameOrID, projectID string, rules []Rule,
+) (Firewall, error) {
+	f, err := s.resolveIn(ctx, nameOrID, projectID)
 	if err != nil {
 		return Firewall{}, err
 	}
@@ -144,8 +169,8 @@ func (s *service) setRules(ctx context.Context, nameOrID string, rules []Rule) (
 	return f, nil
 }
 
-func (s *service) remove(ctx context.Context, nameOrID string) error {
-	f, err := s.resolve(ctx, nameOrID)
+func (s *service) remove(ctx context.Context, nameOrID, projectID string) error {
+	f, err := s.resolveIn(ctx, nameOrID, projectID)
 	if err != nil {
 		return err
 	}
@@ -153,15 +178,6 @@ func (s *service) remove(ctx context.Context, nameOrID string) error {
 		return translate(err)
 	}
 	return nil
-}
-
-func (s *service) exists(ctx context.Context, id string) (bool, error) {
-	if _, err := s.repo.byID(ctx, id); errors.Is(err, errNotFound) {
-		return false, nil
-	} else if err != nil {
-		return false, translate(err)
-	}
-	return true, nil
 }
 
 func translate(err error) error {

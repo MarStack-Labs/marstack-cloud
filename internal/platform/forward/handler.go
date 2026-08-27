@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type createRequest struct {
@@ -53,6 +54,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	f, err := h.svc.create(r.Context(), CreateParams{
+		ProjectID:  scope.From(r.Context()).ProjectID,
 		InstanceID: req.InstanceID,
 		Protocol:   req.Protocol,
 		NodePort:   req.NodePort,
@@ -67,7 +69,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	forwards, err := h.svc.list(r.Context())
+	forwards, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
 	if err != nil {
 		return err
 	}
@@ -93,7 +95,8 @@ func writeList(w http.ResponseWriter, forwards []Forward) {
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
-	if err := h.svc.remove(r.Context(), r.PathValue("id")); err != nil {
+	if err := h.svc.remove(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

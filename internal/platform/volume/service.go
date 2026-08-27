@@ -43,6 +43,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 	now := s.now()
 	v := Volume{
 		ID:        ids.New("vol"),
+		ProjectID: params.ProjectID,
 		Name:      params.Name,
 		SizeGiB:   params.SizeGiB,
 		CreatedAt: now,
@@ -55,8 +56,8 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 	return v, nil
 }
 
-func (s *service) resolve(ctx context.Context, nameOrID string) (Volume, error) {
-	v, err := s.repo.byName(ctx, nameOrID)
+func (s *service) resolveIn(ctx context.Context, nameOrID, projectID string) (Volume, error) {
+	v, err := s.repo.byName(ctx, projectID, nameOrID)
 	if err == nil {
 		return v, nil
 	}
@@ -68,11 +69,14 @@ func (s *service) resolve(ctx context.Context, nameOrID string) (Volume, error) 
 	if err != nil {
 		return Volume{}, translate(err)
 	}
+	if v.ProjectID != projectID {
+		return Volume{}, fault.NotFound("volume_not_found", "no volume with that name or id exists")
+	}
 	return v, nil
 }
 
-func (s *service) list(ctx context.Context) ([]Volume, error) {
-	volumes, err := s.repo.list(ctx)
+func (s *service) listIn(ctx context.Context, projectID string) ([]Volume, error) {
+	volumes, err := s.repo.listIn(ctx, projectID)
 	if err != nil {
 		return nil, translate(err)
 	}
@@ -87,8 +91,10 @@ func (s *service) onNode(ctx context.Context, nodeID string) ([]Volume, error) {
 	return volumes, nil
 }
 
-func (s *service) attach(ctx context.Context, nameOrID, instanceID string) (Volume, error) {
-	v, err := s.resolve(ctx, nameOrID)
+func (s *service) attach(
+	ctx context.Context, nameOrID, projectID, instanceID string,
+) (Volume, error) {
+	v, err := s.resolveIn(ctx, nameOrID, projectID)
 	if err != nil {
 		return Volume{}, err
 	}
@@ -107,6 +113,9 @@ func (s *service) attach(ctx context.Context, nameOrID, instanceID string) (Volu
 	placed, err := s.instances.Placement(ctx, instanceID)
 	if err != nil {
 		return Volume{}, err
+	}
+	if placed.ProjectID != projectID {
+		return Volume{}, fault.NotFound("instance_not_found", "no instance with that id exists")
 	}
 	if placed.NodeID == "" {
 		return Volume{}, fault.Conflict("instance_unplaced",
@@ -131,8 +140,8 @@ func (s *service) attach(ctx context.Context, nameOrID, instanceID string) (Volu
 	return v, nil
 }
 
-func (s *service) detach(ctx context.Context, nameOrID string) (Volume, error) {
-	v, err := s.resolve(ctx, nameOrID)
+func (s *service) detach(ctx context.Context, nameOrID, projectID string) (Volume, error) {
+	v, err := s.resolveIn(ctx, nameOrID, projectID)
 	if err != nil {
 		return Volume{}, err
 	}
@@ -179,8 +188,10 @@ func (s *service) quiet(ctx context.Context, v Volume, action string) error {
 	return nil
 }
 
-func (s *service) snapshot(ctx context.Context, nameOrID, name string) (Snapshot, error) {
-	v, err := s.resolve(ctx, nameOrID)
+func (s *service) snapshot(
+	ctx context.Context, nameOrID, projectID, name string,
+) (Snapshot, error) {
+	v, err := s.resolveIn(ctx, nameOrID, projectID)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -217,9 +228,33 @@ func (s *service) snapshots(ctx context.Context, volumeID string) ([]Snapshot, e
 	return snapshots, nil
 }
 
-func (s *service) removeSnapshot(ctx context.Context, id string) error {
-	if _, err := s.repo.snapshot(ctx, id); err != nil {
-		return translate(err)
+func (s *service) snapshotsIn(ctx context.Context, projectID string) ([]Snapshot, error) {
+	snapshots, err := s.repo.snapshotsIn(ctx, projectID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return snapshots, nil
+}
+
+func (s *service) ownedSnapshot(ctx context.Context, id, projectID string) (Snapshot, error) {
+	snap, err := s.repo.snapshot(ctx, id)
+	if err != nil {
+		return Snapshot{}, translate(err)
+	}
+
+	v, err := s.repo.byID(ctx, snap.VolumeID)
+	if err != nil {
+		return Snapshot{}, translate(err)
+	}
+	if v.ProjectID != projectID {
+		return Snapshot{}, fault.NotFound("snapshot_not_found", "no snapshot with that id exists")
+	}
+	return snap, nil
+}
+
+func (s *service) removeSnapshot(ctx context.Context, id, projectID string) error {
+	if _, err := s.ownedSnapshot(ctx, id, projectID); err != nil {
+		return err
 	}
 	if err := s.repo.deleteSnapshot(ctx, id); err != nil {
 		return translate(err)
@@ -227,10 +262,10 @@ func (s *service) removeSnapshot(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *service) restore(ctx context.Context, snapshotID string) (Volume, error) {
-	snap, err := s.repo.snapshot(ctx, snapshotID)
+func (s *service) restore(ctx context.Context, snapshotID, projectID string) (Volume, error) {
+	snap, err := s.ownedSnapshot(ctx, snapshotID, projectID)
 	if err != nil {
-		return Volume{}, translate(err)
+		return Volume{}, err
 	}
 	if snap.State != SnapshotReady {
 		return Volume{}, fault.Conflict("snapshot_not_ready",
@@ -299,8 +334,8 @@ func (s *service) report(ctx context.Context, nodeID string, reports []NodeRepor
 	return nil
 }
 
-func (s *service) remove(ctx context.Context, nameOrID string) error {
-	v, err := s.resolve(ctx, nameOrID)
+func (s *service) remove(ctx context.Context, nameOrID, projectID string) error {
+	v, err := s.resolveIn(ctx, nameOrID, projectID)
 	if err != nil {
 		return err
 	}
