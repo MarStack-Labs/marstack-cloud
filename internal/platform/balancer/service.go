@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
@@ -61,6 +62,18 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 	if err := checkPort("listen_port", params.ListenPort); err != nil {
 		return Balancer{}, err
 	}
+	if params.Check == "" {
+		params.Check = CheckNone
+	}
+	if err := validate.OneOf("check", params.Check, Checks()...); err != nil {
+		return Balancer{}, err
+	}
+	if err := checkTarget(&params); err != nil {
+		return Balancer{}, err
+	}
+	if err := thresholds(&params); err != nil {
+		return Balancer{}, err
+	}
 	if len(params.Instances) > MaxBackends {
 		return Balancer{}, fault.Invalid("too_many_backends", fmt.Sprintf(
 			"a balancer takes at most %d backends", MaxBackends))
@@ -79,6 +92,10 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 		ListenPort: params.ListenPort,
 		TargetPort: params.TargetPort,
 		Algorithm:  params.Algorithm,
+		Check:      params.Check,
+		CheckPath:  params.CheckPath,
+		Rise:       params.Rise,
+		Fall:       params.Fall,
 		CreatedAt:  at,
 	}
 
@@ -174,6 +191,9 @@ func (s *service) removeBackend(ctx context.Context, projectID, id, instanceID s
 	if err != nil {
 		return err
 	}
+	if err := s.repo.forgetHealth(ctx, b.ID, instanceID); err != nil {
+		return translate(err)
+	}
 	if err := s.repo.removeBackend(ctx, b.ID, instanceID); err != nil {
 		if errors.Is(err, errNotFound) {
 			return fault.NotFound("backend_not_found",
@@ -220,41 +240,100 @@ func (s *service) forNode(ctx context.Context) ([]Balancer, error) {
 		return nil, translate(err)
 	}
 
-	live := make([]Balancer, 0, len(balancers))
-	for _, b := range balancers {
-		b = s.withHealth(ctx, b)
-		b.Backends = healthy(b.Backends)
-		if len(b.Backends) == 0 {
-			continue
-		}
-		live = append(live, b)
+	for i := range balancers {
+		balancers[i] = s.withHealth(ctx, balancers[i])
 	}
-	return live, nil
-}
-
-func healthy(backends []Backend) []Backend {
-	up := make([]Backend, 0, len(backends))
-	for _, backend := range backends {
-		if backend.Healthy && backend.Address != "" {
-			up = append(up, backend)
-		}
-	}
-	return up
+	return balancers, nil
 }
 
 func (s *service) withHealth(ctx context.Context, b Balancer) Balancer {
 	if s.members == nil {
 		return b
 	}
+
 	for i := range b.Backends {
-		member, err := s.members.Member(ctx, b.Backends[i].InstanceID)
+		backend := &b.Backends[i]
+
+		member, err := s.members.Member(ctx, backend.InstanceID)
 		if err != nil {
 			continue
 		}
-		b.Backends[i].Address = member.Address
-		b.Backends[i].Healthy = member.Running && member.Address != ""
+		backend.Address = member.Address
+		backend.Running = member.Running && member.Address != ""
+
+		if b.Check == CheckNone {
+			backend.Healthy = backend.Running
+			continue
+		}
+
+		if backend.Probe == "" {
+			backend.Probe = ProbeUnknown
+			backend.Reason = "no report from the node holding it yet"
+		} else if s.now().Sub(backend.CheckedAt) > HealthGrace {
+			backend.Probe = ProbeUnknown
+			backend.Reason = "the last report is older than " + HealthGrace.String()
+		}
+		backend.Healthy = backend.Running && backend.Probe == ProbePassing
 	}
 	return b
+}
+
+func (s *service) heldBy(ctx context.Context, cache map[string]bool, nodeID, instanceID string) bool {
+	if s.members == nil {
+		return false
+	}
+	if verdict, seen := cache[instanceID]; seen {
+		return verdict
+	}
+
+	member, err := s.members.Member(ctx, instanceID)
+	verdict := err == nil && member.NodeID != "" && member.NodeID == nodeID
+	cache[instanceID] = verdict
+	return verdict
+}
+
+func (s *service) reportHealth(ctx context.Context, nodeID string, reports []Report) error {
+	if len(reports) == 0 {
+		return nil
+	}
+	if len(reports) > MaxBackends*MaxBackends {
+		return fault.Invalid("too_many_reports", "that is more reports than a node could hold")
+	}
+
+	known, err := s.repo.all(ctx)
+	if err != nil {
+		return translate(err)
+	}
+
+	members := map[string]bool{}
+	for _, b := range known {
+		for _, backend := range b.Backends {
+			members[b.ID+"/"+backend.InstanceID] = true
+		}
+	}
+
+	held := map[string]bool{}
+	wanted := make([]Report, 0, len(reports))
+	for _, report := range reports {
+		if !members[report.BalancerID+"/"+report.InstanceID] {
+			continue
+		}
+		if !s.heldBy(ctx, held, nodeID, report.InstanceID) {
+			continue
+		}
+		if len(report.Reason) > MaxPathLength {
+			report.Reason = report.Reason[:MaxPathLength]
+		}
+		wanted = append(wanted, report)
+	}
+	if len(wanted) == 0 {
+		return nil
+	}
+
+	if err := s.repo.saveHealth(ctx, wanted, s.now()); err != nil {
+		return translate(err)
+	}
+	return nil
 }
 
 func (s *service) remove(ctx context.Context, projectID, id string) error {
@@ -277,6 +356,59 @@ func (s *service) releaseInstance(ctx context.Context, instanceID string) error 
 
 func (s *service) listenPortTaken(ctx context.Context, protocol string, port int) (bool, error) {
 	return s.repo.portTaken(ctx, protocol, port)
+}
+
+func checkTarget(params *CreateParams) error {
+	if params.Check != CheckHTTP {
+		if params.CheckPath != "" {
+			return fault.Invalid("check_path_unused",
+				"check_path only means something for an http check")
+		}
+		return nil
+	}
+
+	if params.CheckPath == "" {
+		params.CheckPath = "/"
+	}
+	if !strings.HasPrefix(params.CheckPath, "/") {
+		return fault.Invalid("invalid_check_path", "check_path must start with /")
+	}
+	if len(params.CheckPath) > MaxPathLength {
+		return fault.Invalid("invalid_check_path", fmt.Sprintf(
+			"check_path must be at most %d characters", MaxPathLength))
+	}
+	if strings.ContainsAny(params.CheckPath, " \t\r\n") {
+		return fault.Invalid("invalid_check_path", "check_path must not contain whitespace")
+	}
+	if params.Protocol != ProtocolTCP {
+		return fault.Invalid("check_unsupported",
+			"an http check needs a tcp balancer, and this one is "+params.Protocol)
+	}
+	return nil
+}
+
+func thresholds(params *CreateParams) error {
+	if params.Check == CheckNone {
+		if params.Rise != 0 || params.Fall != 0 {
+			return fault.Invalid("thresholds_unused",
+				"rise and fall only mean something once a check is set")
+		}
+		return nil
+	}
+
+	if params.Rise == 0 {
+		params.Rise = DefaultRise
+	}
+	if params.Fall == 0 {
+		params.Fall = DefaultFall
+	}
+	for field, value := range map[string]int{"rise": params.Rise, "fall": params.Fall} {
+		if value < 1 || value > MaxThreshold {
+			return fault.Invalid("invalid_"+field, fmt.Sprintf(
+				"%s must be between 1 and %d", field, MaxThreshold))
+		}
+	}
+	return nil
 }
 
 func checkPort(field string, port int) error {

@@ -713,9 +713,65 @@ tcp dport 8080 ... mod 1 map { 0 : 10.20.0.76 . 80 }     # after one was stopped
 tcp dport 8080 ... mod 2 map { 0 : ..., 1 : ... }        # after it came back
 ```
 
-That is VM liveness, not application liveness. A process that is running but
-wedged still counts as up, because nothing here probes the port. Deleting an
-instance drops it from every balancer it was in.
+Deleting an instance drops it from every balancer it was in.
+
+### When running is not the same as serving
+
+By default a backend counts as up while its instance is observed running, which
+a process that is running but wedged still satisfies. `--check` replaces that
+with a probe:
+
+```sh
+marstack lb create --name checked --target-port 80 --listen-port 8080 \
+  --check http --check-path /healthz --rise 1 --fall 2 \
+  --instance i-a --instance i-b --instance i-wedged
+```
+
+```
+INSTANCE   ADDRESS       STATE   PROBE     WHY
+i-a        10.20.0.133   up      passing   -
+i-b        10.20.0.76    up      passing   -
+i-wedged   10.20.0.77    down    failing   http request failed or timed out
+```
+
+Meanwhile the instance itself still reads healthy, which is the whole point:
+
+```
+NAME     DESIRED   OBSERVED   MESSAGE
+wedged   running   running    -
+```
+
+The node holding an instance is the one that probes it, once per reconcile pass,
+and reports a verdict. That keeps one prober per backend and reuses the channel
+the agent already reports status on. It also means a partition between one node
+and a backend on another is invisible: the node holding it says "passing" and
+every other node keeps sending traffic into a hole. Per-node probing would catch
+that and is not built.
+
+`--rise` and `--fall` are how many consecutive results it takes to change the
+verdict, defaulting to 2 and 2. A wobbling backend therefore keeps its traffic
+until it has failed `fall` times in a row, and says so while it wobbles:
+
+```
+i-wedged   10.20.0.77   up   passing   failed 1 of 2 needed to go down, still up: ...
+```
+
+Three things are deliberate:
+
+- **A checked backend starts down.** Until a probe has run it reads `unknown`
+  and takes no traffic. Trusting something nobody has asked yet would defeat
+  the feature on the one pass where it matters most.
+- **A verdict expires.** If the node holding a backend stops reporting for
+  longer than the grace, the backend goes `unknown` rather than staying up on a
+  stale answer. Silence is not health.
+- **Re-adding a backend forgets its verdict.** Removing and re-adding an
+  instance clears the stored report, so it has to earn `up` again instead of
+  inheriting one.
+
+The probe is HTTP or a bare TCP connect, with 200–399 counting as healthy and
+redirects not followed. An http check needs a tcp balancer. There is no
+per-check interval: probes ride the reconcile pass, so the loop that already
+paces the platform paces them too.
 
 A balancer holds its listen port on every node, so it cannot share one with a
 published port or another balancer. Both modules refuse the collision at create
@@ -984,6 +1040,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 25  volume resize, placement groups, disk hot-plug    done
 26  ssh keys for vm instances                         done
 27  load balancer across replicas                     done
+28  health checked backends                           done
 ```
 
 ## License

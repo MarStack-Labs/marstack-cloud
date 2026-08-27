@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -12,6 +13,10 @@ type backendBody struct {
 	InstanceID string `json:"instance_id"`
 	Address    string `json:"address"`
 	Healthy    bool   `json:"healthy"`
+	Running    bool   `json:"running"`
+	Probe      string `json:"probe"`
+	Reason     string `json:"reason"`
+	CheckedAt  string `json:"checked_at"`
 }
 
 type balancerBody struct {
@@ -21,6 +26,10 @@ type balancerBody struct {
 	ListenPort int           `json:"listen_port"`
 	TargetPort int           `json:"target_port"`
 	Algorithm  string        `json:"algorithm"`
+	Check      string        `json:"check"`
+	CheckPath  string        `json:"check_path"`
+	Rise       int           `json:"rise"`
+	Fall       int           `json:"fall"`
 	Backends   []backendBody `json:"backends"`
 }
 
@@ -125,7 +134,7 @@ func TestABalancerCarriesEveryRunningBackend(t *testing.T) {
 	}
 }
 
-func TestANodeOnlySeesBackendsThatAreRunning(t *testing.T) {
+func TestANodeSeesTheWholeMembershipWithHealthPerBackend(t *testing.T) {
 	a, nodeID := newBalancingApp(t)
 
 	up := runningInstance(t, a, a.secret, "web-1", nodeID)
@@ -136,25 +145,41 @@ func TestANodeOnlySeesBackendsThatAreRunning(t *testing.T) {
 
 	balancers := nodeBalancers(t, a, nodeID)
 	if len(balancers) != 1 {
-		t.Fatalf("balancers = %d, want the one that has a live backend", len(balancers))
+		t.Fatalf("balancers = %d, want the one that exists", len(balancers))
 	}
-	if len(balancers[0].Backends) != 1 {
-		t.Fatalf("backends = %d, want only the running one", len(balancers[0].Backends))
+
+	if len(balancers[0].Backends) != 2 {
+		t.Fatalf("backends = %d, want both so the node knows what to probe",
+			len(balancers[0].Backends))
 	}
-	if balancers[0].Backends[0].InstanceID != up {
-		t.Fatalf("backend = %s, want %s", balancers[0].Backends[0].InstanceID, up)
+
+	byID := map[string]backendBody{}
+	for _, backend := range balancers[0].Backends {
+		byID[backend.InstanceID] = backend
+	}
+	if !byID[up].Healthy {
+		t.Fatalf("the running backend is not marked healthy: %+v", byID[up])
+	}
+	if byID[pending].Healthy {
+		t.Fatalf("the pending backend is marked healthy: %+v", byID[pending])
 	}
 }
 
-func TestABalancerWithNothingRunningIsNotSentToANode(t *testing.T) {
+func TestABalancerWithNothingRunningCarriesNoHealthyBackend(t *testing.T) {
 	a, nodeID := newBalancingApp(t)
 
 	pending := newInstance(t, a, a.secret, "web-1")
 	createBalancer(t, a, a.secret, `{"name":"web","target_port":80,
 		"listen_port":8080,"instances":["`+pending+`"]}`)
 
-	if balancers := nodeBalancers(t, a, nodeID); len(balancers) != 0 {
-		t.Fatalf("balancers = %d, want none while every backend is down", len(balancers))
+	balancers := nodeBalancers(t, a, nodeID)
+	if len(balancers) != 1 {
+		t.Fatalf("balancers = %d, want the membership to still reach the node", len(balancers))
+	}
+	for _, backend := range balancers[0].Backends {
+		if backend.Healthy {
+			t.Fatalf("backend %s is healthy while nothing is running", backend.InstanceID)
+		}
 	}
 }
 
@@ -365,5 +390,222 @@ func TestAViewerCanReadBalancersButNotChangeThem(t *testing.T) {
 	if rec := doAs(t, a, created.Secret, http.MethodDelete, "/v1/balancers/web",
 		nil); rec.Code != http.StatusForbidden {
 		t.Fatalf("viewer delete = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func reportHealth(t *testing.T, a *testApp, nodeID, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return do(t, a, http.MethodPut, "/v1/nodes/"+nodeID+"/balancers/health",
+		strings.NewReader(body))
+}
+
+func backendOf(t *testing.T, a *testApp, name, instanceID string) backendBody {
+	t.Helper()
+
+	rec := do(t, a, http.MethodGet, "/v1/balancers/"+name, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get balancer: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var b balancerBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	for _, backend := range b.Backends {
+		if backend.InstanceID == instanceID {
+			return backend
+		}
+	}
+	t.Fatalf("instance %s is not a backend of %s", instanceID, name)
+	return backendBody{}
+}
+
+func TestWithoutACheckABalancerTrustsVMLiveness(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	id := runningInstance(t, a, a.secret, "web-1", nodeID)
+	created := createBalancer(t, a, a.secret,
+		`{"name":"web","target_port":80,"listen_port":8080,"instances":["`+id+`"]}`)
+
+	if created.Check != "none" {
+		t.Fatalf("check = %q, want none by default", created.Check)
+	}
+
+	backend := backendOf(t, a, "web", id)
+	if !backend.Healthy || backend.Probe != "" {
+		t.Fatalf("backend = %+v, want healthy with no probe state", backend)
+	}
+}
+
+func TestACheckedBackendIsNotHealthyUntilANodeReports(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	id := runningInstance(t, a, a.secret, "web-1", nodeID)
+	createBalancer(t, a, a.secret, `{"name":"web","target_port":80,"listen_port":8080,
+		"check":"tcp","instances":["`+id+`"]}`)
+
+	backend := backendOf(t, a, "web", id)
+	if backend.Healthy {
+		t.Fatal("a checked backend is healthy before any probe has run")
+	}
+	if !backend.Running {
+		t.Fatal("the instance is running, so running should still be true")
+	}
+	if backend.Probe != "unknown" {
+		t.Fatalf("probe = %q, want unknown", backend.Probe)
+	}
+}
+
+func TestAPassingReportBringsACheckedBackendUp(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	id := runningInstance(t, a, a.secret, "web-1", nodeID)
+	lb := createBalancer(t, a, a.secret, `{"name":"web","target_port":80,"listen_port":8080,
+		"check":"tcp","instances":["`+id+`"]}`)
+
+	rec := reportHealth(t, a, nodeID, `{"checks":[{"balancer_id":"`+lb.ID+
+		`","instance_id":"`+id+`","healthy":true}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("report: %d %s", rec.Code, rec.Body.String())
+	}
+
+	backend := backendOf(t, a, "web", id)
+	if !backend.Healthy || backend.Probe != "passing" {
+		t.Fatalf("backend = %+v, want healthy and passing", backend)
+	}
+	if backend.CheckedAt == "" {
+		t.Fatal("checked_at is empty, so staleness could never be judged")
+	}
+}
+
+func TestAFailingReportTakesABackendOutWhileItKeepsRunning(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	id := runningInstance(t, a, a.secret, "web-1", nodeID)
+	lb := createBalancer(t, a, a.secret, `{"name":"web","target_port":80,"listen_port":8080,
+		"check":"http","check_path":"/healthz","instances":["`+id+`"]}`)
+
+	reportHealth(t, a, nodeID, `{"checks":[{"balancer_id":"`+lb.ID+
+		`","instance_id":"`+id+`","healthy":false,"reason":"http status 500"}]}`)
+
+	backend := backendOf(t, a, "web", id)
+	if backend.Healthy {
+		t.Fatal("a backend whose check fails is still healthy")
+	}
+	if !backend.Running {
+		t.Fatal("running should stay true: the point is that VM liveness cannot see this")
+	}
+	if backend.Probe != "failing" || backend.Reason != "http status 500" {
+		t.Fatalf("backend = %+v, want the failure and its reason", backend)
+	}
+}
+
+func TestANodeCannotReportForAnInstanceItDoesNotHold(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	id := runningInstance(t, a, a.secret, "web-1", nodeID)
+	lb := createBalancer(t, a, a.secret, `{"name":"web","target_port":80,"listen_port":8080,
+		"check":"tcp","instances":["`+id+`"]}`)
+
+	other := registerNode(t, a, "bm-2", "rack-b")
+	rec := reportHealth(t, a, other, `{"checks":[{"balancer_id":"`+lb.ID+
+		`","instance_id":"`+id+`","healthy":true}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("report: %d %s", rec.Code, rec.Body.String())
+	}
+
+	if backend := backendOf(t, a, "web", id); backend.Probe != "unknown" {
+		t.Fatalf("probe = %q, want the report from the wrong node ignored", backend.Probe)
+	}
+}
+
+func TestAReportForSomethingThatIsNotABackendIsIgnored(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	id := runningInstance(t, a, a.secret, "web-1", nodeID)
+	stranger := runningInstance(t, a, a.secret, "web-2", nodeID)
+	lb := createBalancer(t, a, a.secret, `{"name":"web","target_port":80,"listen_port":8080,
+		"check":"tcp","instances":["`+id+`"]}`)
+
+	rec := reportHealth(t, a, nodeID, `{"checks":[{"balancer_id":"`+lb.ID+
+		`","instance_id":"`+stranger+`","healthy":true}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("report: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, a, http.MethodGet, "/v1/balancers/web", nil)
+	var b balancerBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(b.Backends) != 1 {
+		t.Fatalf("backends = %d, want a report not to invent one", len(b.Backends))
+	}
+}
+
+func TestReAddingABackendDoesNotInheritItsOldVerdict(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	id := runningInstance(t, a, a.secret, "web-1", nodeID)
+	lb := createBalancer(t, a, a.secret, `{"name":"web","target_port":80,"listen_port":8080,
+		"check":"tcp","instances":["`+id+`"]}`)
+
+	reportHealth(t, a, nodeID, `{"checks":[{"balancer_id":"`+lb.ID+
+		`","instance_id":"`+id+`","healthy":true}]}`)
+	if backend := backendOf(t, a, "web", id); !backend.Healthy {
+		t.Fatal("the backend never came up")
+	}
+
+	rec := do(t, a, http.MethodDelete, "/v1/balancers/"+lb.ID+"/backends/"+id, nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("remove: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, a, http.MethodPost, "/v1/balancers/"+lb.ID+"/backends",
+		strings.NewReader(`{"instance_id":"`+id+`"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("add back: %d %s", rec.Code, rec.Body.String())
+	}
+
+	backend := backendOf(t, a, "web", id)
+	if backend.Healthy || backend.Probe != "unknown" {
+		t.Fatalf("backend = %+v, want it unverified again rather than trusted", backend)
+	}
+}
+
+func TestCheckConfigurationIsValidated(t *testing.T) {
+	a, _ := newBalancingApp(t)
+
+	refused := map[string]string{
+		"an unknown check kind":      `{"name":"a","target_port":80,"check":"ping"}`,
+		"a path without a check":     `{"name":"b","target_port":80,"check_path":"/x"}`,
+		"a path that is not a path":  `{"name":"c","target_port":80,"check":"http","check_path":"x"}`,
+		"a rise without a check":     `{"name":"d","target_port":80,"rise":3}`,
+		"a rise over the maximum":    `{"name":"e","target_port":80,"check":"tcp","rise":99}`,
+		"a fall below one":           `{"name":"f","target_port":80,"check":"tcp","fall":-1}`,
+		"an http check over udp":     `{"name":"g","target_port":80,"protocol":"udp","check":"http"}`,
+		"a path carrying whitespace": `{"name":"h","target_port":80,"check":"http","check_path":"/a b"}`,
+	}
+
+	for what, body := range refused {
+		rec := do(t, a, http.MethodPost, "/v1/balancers", strings.NewReader(body))
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want %d (%s)", what, rec.Code,
+				http.StatusBadRequest, rec.Body.String())
+		}
+	}
+}
+
+func TestAnHTTPCheckDefaultsItsPathAndThresholds(t *testing.T) {
+	a, _ := newBalancingApp(t)
+
+	created := createBalancer(t, a, a.secret,
+		`{"name":"web","target_port":80,"listen_port":8080,"check":"http"}`)
+
+	if created.CheckPath != "/" {
+		t.Fatalf("check_path = %q, want /", created.CheckPath)
+	}
+	if created.Rise != 2 || created.Fall != 2 {
+		t.Fatalf("rise/fall = %d/%d, want 2/2", created.Rise, created.Fall)
 	}
 }

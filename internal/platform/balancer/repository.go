@@ -17,7 +17,7 @@ var (
 	errNameUsed = errors.New("balancer name already used")
 )
 
-const columns = `id, project_id, name, protocol, listen_port, target_port, algorithm, created_at`
+const columns = `id, project_id, name, protocol, listen_port, target_port, algorithm, check_kind, check_path, rise, fall, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -35,8 +35,9 @@ func (r *repository) insert(ctx context.Context, b Balancer) error {
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO balancers (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO balancers (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		b.ID, b.ProjectID, b.Name, b.Protocol, b.ListenPort, b.TargetPort, b.Algorithm,
+		b.Check, b.CheckPath, b.Rise, b.Fall,
 		b.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -175,8 +176,11 @@ func (r *repository) load(ctx context.Context, query string, args ...any) ([]Bal
 
 func (r *repository) backendsOf(ctx context.Context, balancerID string) ([]Backend, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT instance_id, added_at FROM balancer_backends
-			WHERE balancer_id = ? ORDER BY instance_id`, balancerID)
+		`SELECT b.instance_id, b.added_at, h.healthy, h.reason, h.checked_at
+			FROM balancer_backends b
+			LEFT JOIN balancer_health h
+				ON h.balancer_id = b.balancer_id AND h.instance_id = b.instance_id
+			WHERE b.balancer_id = ? ORDER BY b.instance_id`, balancerID)
 	if err != nil {
 		return nil, fmt.Errorf("list backends: %w", err)
 	}
@@ -187,8 +191,11 @@ func (r *repository) backendsOf(ctx context.Context, balancerID string) ([]Backe
 		var (
 			backend Backend
 			added   string
+			passed  sql.NullBool
+			reason  sql.NullString
+			checked sql.NullString
 		)
-		if err := rows.Scan(&backend.InstanceID, &added); err != nil {
+		if err := rows.Scan(&backend.InstanceID, &added, &passed, &reason, &checked); err != nil {
 			return nil, fmt.Errorf("scan a backend: %w", err)
 		}
 
@@ -197,9 +204,56 @@ func (r *repository) backendsOf(ctx context.Context, balancerID string) ([]Backe
 			return nil, fmt.Errorf("parse added_at: %w", err)
 		}
 		backend.AddedAt = at
+
+		if checked.Valid {
+			when, err := time.Parse(time.RFC3339Nano, checked.String)
+			if err != nil {
+				return nil, fmt.Errorf("parse checked_at: %w", err)
+			}
+			backend.CheckedAt = when
+			backend.Probe = ProbeFailing
+			if passed.Bool {
+				backend.Probe = ProbePassing
+			}
+			backend.Reason = reason.String
+		}
 		backends = append(backends, backend)
 	}
 	return backends, rows.Err()
+}
+
+func (r *repository) saveHealth(ctx context.Context, reports []Report, at time.Time) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	stamp := at.Format(time.RFC3339Nano)
+	for _, report := range reports {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO balancer_health (balancer_id, instance_id, healthy, reason, checked_at)
+				VALUES (?, ?, ?, ?, ?)
+				ON CONFLICT (balancer_id, instance_id) DO UPDATE SET
+					healthy = excluded.healthy,
+					reason = excluded.reason,
+					checked_at = excluded.checked_at`,
+			report.BalancerID, report.InstanceID, report.Healthy, report.Reason, stamp)
+		if err != nil {
+			return fmt.Errorf("save a health report: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *repository) forgetHealth(ctx context.Context, balancerID, instanceID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM balancer_health WHERE balancer_id = ? AND instance_id = ?`,
+		balancerID, instanceID)
+	if err != nil {
+		return fmt.Errorf("forget a health report: %w", err)
+	}
+	return nil
 }
 
 func (r *repository) delete(ctx context.Context, id string) error {
@@ -212,6 +266,10 @@ func (r *repository) delete(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM balancer_backends WHERE balancer_id = ?`, id); err != nil {
 		return fmt.Errorf("delete the backends: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM balancer_health WHERE balancer_id = ?`, id); err != nil {
+		return fmt.Errorf("delete the health reports: %w", err)
 	}
 
 	result, err := tx.ExecContext(ctx, `DELETE FROM balancers WHERE id = ?`, id)
@@ -230,12 +288,21 @@ func (r *repository) delete(ctx context.Context, id string) error {
 }
 
 func (r *repository) releaseInstance(ctx context.Context, instanceID string) error {
-	_, err := r.db.ExecContext(ctx,
-		`DELETE FROM balancer_backends WHERE instance_id = ?`, instanceID)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM balancer_backends WHERE instance_id = ?`, instanceID); err != nil {
 		return fmt.Errorf("release an instance from its balancers: %w", err)
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM balancer_health WHERE instance_id = ?`, instanceID); err != nil {
+		return fmt.Errorf("forget the health reports of an instance: %w", err)
+	}
+	return tx.Commit()
 }
 
 type scanner interface {
@@ -248,7 +315,7 @@ func scan(row scanner) (Balancer, error) {
 		created string
 	)
 	if err := row.Scan(&b.ID, &b.ProjectID, &b.Name, &b.Protocol, &b.ListenPort, &b.TargetPort,
-		&b.Algorithm, &created); err != nil {
+		&b.Algorithm, &b.Check, &b.CheckPath, &b.Rise, &b.Fall, &created); err != nil {
 		return Balancer{}, fmt.Errorf("scan balancer: %w", err)
 	}
 

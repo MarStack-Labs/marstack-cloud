@@ -124,6 +124,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	if report {
 		a.forgetMarks(state.Instances)
 		a.reportUsage(ctx, state.Instances)
+		a.runProbes(ctx, state.Balancers, state.Instances)
 	}
 	a.serveDNS(ctx, state.Networks, state.Records)
 

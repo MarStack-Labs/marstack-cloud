@@ -75,6 +75,9 @@ type Agent struct {
 	marksMu sync.Mutex
 	marks   map[string]sampleMark
 
+	probesMu sync.Mutex
+	probes   map[string]*probeState
+
 	contactMu   sync.Mutex
 	lastContact time.Time
 
@@ -96,6 +99,7 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 		now:       time.Now,
 		restarts:  map[string]*restartState{},
 		marks:     map[string]sampleMark{},
+		probes:    map[string]*probeState{},
 		fencedFor: map[string]time.Duration{},
 	}
 }

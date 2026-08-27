@@ -256,7 +256,22 @@ type balancerView struct {
 	ListenPort int                   `json:"listen_port"`
 	TargetPort int                   `json:"target_port"`
 	Algorithm  string                `json:"algorithm"`
+	Check      string                `json:"check"`
+	CheckPath  string                `json:"check_path,omitempty"`
+	Rise       int                   `json:"rise,omitempty"`
+	Fall       int                   `json:"fall,omitempty"`
 	Backends   []balancerBackendView `json:"backends"`
+}
+
+type healthReportBody struct {
+	BalancerID string `json:"balancer_id"`
+	InstanceID string `json:"instance_id"`
+	Healthy    bool   `json:"healthy"`
+	Reason     string `json:"reason,omitempty"`
+}
+
+type healthReportsBody struct {
+	Checks []healthReportBody `json:"checks"`
 }
 
 type balancersBody struct {
@@ -298,6 +313,11 @@ func (c *client) balancers(ctx context.Context, nodeID string) ([]balancerView, 
 	var out balancersBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/balancers", nil, &out)
 	return out.Balancers, err
+}
+
+func (c *client) reportHealth(ctx context.Context, nodeID string, reports []healthReportBody) error {
+	return c.do(ctx, http.MethodPut, "/v1/nodes/"+nodeID+"/balancers/health",
+		healthReportsBody{Checks: reports}, nil)
 }
 
 func (c *client) reportUsage(ctx context.Context, nodeID string, body usageBody) error {

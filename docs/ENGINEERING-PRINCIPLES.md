@@ -187,12 +187,29 @@ make check      # vet + test + security scans
   and the connection never establishes - the symptom is that exactly the cross-node share of
   requests times out while local ones succeed. Single-target forwards are deliberately left
   unmarked so they keep seeing the real client address; marking them would hide it for nothing.
-- `GET /v1/nodes/{id}/balancers` returns the same set to every node and already drops backends
-  whose instance is not observed running. The node does not filter again beyond skipping an empty
-  target list, so a balancer with nothing up programs no rule at all rather than an empty map,
-  which `nft` would reject.
-- A backend is "up" when its instance is observed running. That is VM liveness, not application
-  liveness, and there is no port probe anywhere - a wedged process still receives its share.
+- `GET /v1/nodes/{id}/balancers` returns the same set to every node. The agent is what skips
+  unhealthy backends, and a balancer left with no target programs no rule at all rather than an
+  empty map, which `nft` would reject.
+- A backend is "up" when its instance is observed running, unless the balancer carries a check.
+  Plain VM liveness cannot see a process that is running but wedged, which is what `--check` exists
+  for; leaving the default in place is a choice, not an oversight.
+- The node holding an instance is the only one that may report health for it, and `reportHealth`
+  enforces that through `Members.NodeID`. Without the check any node token could mark another
+  node's backends up or down, which is either a blackhole or a denial of service.
+- `GET /v1/nodes/{id}/balancers` deliberately returns every backend, healthy or not. The node needs
+  the full membership to know what to probe, and it is the agent that filters when it builds the
+  nftables map. Dropping unhealthy backends server-side again would silently stop all probing,
+  because a backend that is down would never be probed to come back up.
+- A checked backend with no report yet reads `unknown` and takes no traffic, and a report older than
+  `balancer.HealthGrace` goes back to `unknown`. Both are on purpose: trusting an unprobed or
+  unrefreshed backend defeats the check exactly when it matters. Do not "fix" the startup blip by
+  defaulting to healthy.
+- Removing a backend deletes its `balancer_health` row, and the agent drops its counters in
+  `forgetProbes`. Skipping either lets a re-added backend inherit an old verdict and take traffic
+  without being probed.
+- Probe thresholds live in the agent's memory, so an agent restart re-earns every verdict from
+  scratch. The control-plane grace is what stops that from looking like an outage; it must stay
+  comfortably larger than the reconcile interval.
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead

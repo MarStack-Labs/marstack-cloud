@@ -72,6 +72,38 @@ func (m *Module) Migrations() []store.Migration {
 			SQL: `CREATE INDEX balancer_backends_instance_id
 				ON balancer_backends (instance_id)`,
 		},
+		{
+			Module: "balancer",
+			Index:  6,
+			SQL:    `ALTER TABLE balancers ADD COLUMN check_kind TEXT NOT NULL DEFAULT 'none'`,
+		},
+		{
+			Module: "balancer",
+			Index:  7,
+			SQL:    `ALTER TABLE balancers ADD COLUMN check_path TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "balancer",
+			Index:  8,
+			SQL:    `ALTER TABLE balancers ADD COLUMN rise INTEGER NOT NULL DEFAULT 2`,
+		},
+		{
+			Module: "balancer",
+			Index:  9,
+			SQL:    `ALTER TABLE balancers ADD COLUMN fall INTEGER NOT NULL DEFAULT 2`,
+		},
+		{
+			Module: "balancer",
+			Index:  10,
+			SQL: `CREATE TABLE balancer_health (
+				balancer_id TEXT    NOT NULL,
+				instance_id TEXT    NOT NULL,
+				healthy     INTEGER NOT NULL,
+				reason      TEXT    NOT NULL,
+				checked_at  TEXT    NOT NULL,
+				PRIMARY KEY (balancer_id, instance_id)
+			)`,
+		},
 	}
 }
 
@@ -85,6 +117,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 		httpx.Wrap(m.log, m.handler.removeBackend))
 
 	mux.Handle("GET /v1/nodes/{nodeID}/balancers", httpx.Wrap(m.log, m.handler.listForNode))
+	mux.Handle("PUT /v1/nodes/{nodeID}/balancers/health", httpx.Wrap(m.log, m.handler.reportHealth))
 }
 
 func (m *Module) UseMembers(members Members) {

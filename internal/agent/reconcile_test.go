@@ -211,7 +211,14 @@ type controlPlane struct {
 	forwards  []forwardView
 	balancers []balancerView
 	firewalls []firewallView
+	health    []healthReportBody
 	reports   []report
+}
+
+func (c *controlPlane) healthReports() []healthReportBody {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]healthReportBody(nil), c.health...)
 }
 
 func (c *controlPlane) handler() http.Handler {
@@ -247,6 +254,15 @@ func (c *controlPlane) handler() http.Handler {
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(balancersBody{Balancers: c.balancers})
+	})
+	mux.HandleFunc("PUT /v1/nodes/{id}/balancers/health", func(w http.ResponseWriter, r *http.Request) {
+		var body healthReportsBody
+		json.NewDecoder(r.Body).Decode(&body)
+
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.health = append(c.health, body.Checks...)
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /v1/nodes/{id}/volumes", func(w http.ResponseWriter, _ *http.Request) {
 		c.mu.Lock()

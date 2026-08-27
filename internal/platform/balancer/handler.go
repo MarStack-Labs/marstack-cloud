@@ -14,7 +14,22 @@ type createRequest struct {
 	ListenPort int      `json:"listen_port,omitempty"`
 	TargetPort int      `json:"target_port"`
 	Algorithm  string   `json:"algorithm,omitempty"`
+	Check      string   `json:"check,omitempty"`
+	CheckPath  string   `json:"check_path,omitempty"`
+	Rise       int      `json:"rise,omitempty"`
+	Fall       int      `json:"fall,omitempty"`
 	Instances  []string `json:"instances,omitempty"`
+}
+
+type healthRequest struct {
+	Checks []healthEntry `json:"checks"`
+}
+
+type healthEntry struct {
+	BalancerID string `json:"balancer_id"`
+	InstanceID string `json:"instance_id"`
+	Healthy    bool   `json:"healthy"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 type backendRequest struct {
@@ -25,6 +40,10 @@ type backendResponse struct {
 	InstanceID string `json:"instance_id"`
 	Address    string `json:"address,omitempty"`
 	Healthy    bool   `json:"healthy"`
+	Running    bool   `json:"running"`
+	Probe      string `json:"probe,omitempty"`
+	Reason     string `json:"reason,omitempty"`
+	CheckedAt  string `json:"checked_at,omitempty"`
 	AddedAt    string `json:"added_at"`
 }
 
@@ -35,6 +54,10 @@ type response struct {
 	ListenPort int               `json:"listen_port"`
 	TargetPort int               `json:"target_port"`
 	Algorithm  string            `json:"algorithm"`
+	Check      string            `json:"check"`
+	CheckPath  string            `json:"check_path,omitempty"`
+	Rise       int               `json:"rise,omitempty"`
+	Fall       int               `json:"fall,omitempty"`
 	Backends   []backendResponse `json:"backends"`
 	CreatedAt  string            `json:"created_at"`
 }
@@ -46,12 +69,19 @@ type listResponse struct {
 func toResponse(b Balancer) response {
 	backends := make([]backendResponse, 0, len(b.Backends))
 	for _, backend := range b.Backends {
-		backends = append(backends, backendResponse{
+		entry := backendResponse{
 			InstanceID: backend.InstanceID,
 			Address:    backend.Address,
 			Healthy:    backend.Healthy,
+			Running:    backend.Running,
+			Probe:      backend.Probe,
+			Reason:     backend.Reason,
 			AddedAt:    backend.AddedAt.Format(time.RFC3339Nano),
-		})
+		}
+		if !backend.CheckedAt.IsZero() {
+			entry.CheckedAt = backend.CheckedAt.Format(time.RFC3339Nano)
+		}
+		backends = append(backends, entry)
 	}
 
 	return response{
@@ -61,6 +91,10 @@ func toResponse(b Balancer) response {
 		ListenPort: b.ListenPort,
 		TargetPort: b.TargetPort,
 		Algorithm:  b.Algorithm,
+		Check:      b.Check,
+		CheckPath:  b.CheckPath,
+		Rise:       b.Rise,
+		Fall:       b.Fall,
 		Backends:   backends,
 		CreatedAt:  b.CreatedAt.Format(time.RFC3339Nano),
 	}
@@ -83,6 +117,10 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		ListenPort: req.ListenPort,
 		TargetPort: req.TargetPort,
 		Algorithm:  req.Algorithm,
+		Check:      req.Check,
+		CheckPath:  req.CheckPath,
+		Rise:       req.Rise,
+		Fall:       req.Fall,
 		Instances:  req.Instances,
 	})
 	if err != nil {
@@ -117,6 +155,29 @@ func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	writeList(w, balancers)
+	return nil
+}
+
+func (h *handler) reportHealth(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[healthRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	reports := make([]Report, 0, len(req.Checks))
+	for _, entry := range req.Checks {
+		reports = append(reports, Report{
+			BalancerID: entry.BalancerID,
+			InstanceID: entry.InstanceID,
+			Healthy:    entry.Healthy,
+			Reason:     entry.Reason,
+		})
+	}
+
+	if err := h.svc.reportHealth(r.Context(), r.PathValue("nodeID"), reports); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
 

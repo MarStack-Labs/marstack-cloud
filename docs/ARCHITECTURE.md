@@ -170,11 +170,25 @@ the agent merges them into the same `[]workload.Publish` that published ports al
 the map branch when `Targets` is set. A second table would have meant two writers racing over the
 same `dport`, discovered only in production.
 
-Health is borrowed rather than measured. The control plane already knows each instance's observed
-state, so `GET /v1/nodes/{id}/balancers` drops backends whose instance is not running and omits a
-balancer with none left. That is deliberately VM liveness and not a port probe - a real health check
-means a prober, a threshold and a state machine, and none of that exists yet. Calling it "healthy"
-in the API would overstate what is known, which is why the README says plainly what it is.
+Health has two layers. The cheap one is borrowed: the control plane already knows each instance's
+observed state, so a balancer with no check treats running as up. The real one is opt-in, and it
+answers the question the cheap one cannot - whether the application is serving.
+
+The prober lives in the agent, on the node that holds the instance. That placement follows the seam
+already there: the agent reports observed state for its own instances, so it reports probe verdicts
+the same way, and there is exactly one prober per backend with nobody to disagree with. The cost is
+named in the README: a partition between one node and a backend on another is invisible.
+
+The threshold state machine is in the agent too, because the counters belong next to the probes and
+reporting a settled verdict keeps the control plane free of per-tick state. That trade has a
+consequence - an agent restart loses the counters - which is why the control plane keeps the last
+verdict under a staleness grace instead of requiring a fresh report on every read. The same shape as
+node heartbeats, for the same reason.
+
+One consequence worth stating: because the node needs the membership in order to probe it, the
+node-facing view stopped filtering unhealthy backends. Health became a flag on each backend and the
+agent filters when it renders. Filtering server-side would have been a deadlock - a backend that is
+down would never be sent to a node, so it would never be probed, so it could never come back up.
 
 ## Data protection
 

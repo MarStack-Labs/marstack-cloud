@@ -11,6 +11,10 @@ type balancerBackendView struct {
 	InstanceID string `json:"instance_id"`
 	Address    string `json:"address"`
 	Healthy    bool   `json:"healthy"`
+	Running    bool   `json:"running"`
+	Probe      string `json:"probe"`
+	Reason     string `json:"reason"`
+	CheckedAt  string `json:"checked_at"`
 	AddedAt    string `json:"added_at"`
 }
 
@@ -21,6 +25,10 @@ type balancerView struct {
 	ListenPort int                   `json:"listen_port"`
 	TargetPort int                   `json:"target_port"`
 	Algorithm  string                `json:"algorithm"`
+	Check      string                `json:"check"`
+	CheckPath  string                `json:"check_path"`
+	Rise       int                   `json:"rise"`
+	Fall       int                   `json:"fall"`
 	Backends   []balancerBackendView `json:"backends"`
 	CreatedAt  string                `json:"created_at"`
 }
@@ -29,7 +37,7 @@ type balancerListView struct {
 	Balancers []balancerView `json:"balancers"`
 }
 
-var balancerHeaders = []string{"NAME", "ID", "LISTEN", "TARGET", "ALGORITHM", "BACKENDS"}
+var balancerHeaders = []string{"NAME", "ID", "LISTEN", "TARGET", "ALGORITHM", "CHECK", "BACKENDS"}
 
 func balancerRow(b balancerView) []string {
 	up := 0
@@ -45,11 +53,27 @@ func balancerRow(b balancerView) []string {
 		strconv.Itoa(b.ListenPort) + "/" + b.Protocol,
 		strconv.Itoa(b.TargetPort),
 		b.Algorithm,
+		checkText(b),
 		strconv.Itoa(up) + "/" + strconv.Itoa(len(b.Backends)) + " up",
 	}
 }
 
-var backendHeaders = []string{"INSTANCE", "ADDRESS", "STATE"}
+func checkText(b balancerView) string {
+	switch b.Check {
+	case "http":
+		return "http " + b.CheckPath + " " + thresholdText(b)
+	case "tcp":
+		return "tcp " + thresholdText(b)
+	default:
+		return "vm liveness"
+	}
+}
+
+func thresholdText(b balancerView) string {
+	return "(" + strconv.Itoa(b.Rise) + "/" + strconv.Itoa(b.Fall) + ")"
+}
+
+var backendHeaders = []string{"INSTANCE", "ADDRESS", "STATE", "PROBE", "WHY"}
 
 func backendRows(b balancerView) [][]string {
 	rows := make([][]string, 0, len(b.Backends))
@@ -62,7 +86,19 @@ func backendRows(b balancerView) [][]string {
 		if address == "" {
 			address = "-"
 		}
-		rows = append(rows, []string{backend.InstanceID, address, state})
+
+		probe := backend.Probe
+		if probe == "" {
+			probe = "-"
+		}
+		why := backend.Reason
+		if why == "" && !backend.Running {
+			why = "the instance is not running"
+		}
+		if why == "" {
+			why = "-"
+		}
+		rows = append(rows, []string{backend.InstanceID, address, state, probe, why})
 	}
 	return rows
 }
@@ -91,6 +127,10 @@ func newBalancerCreateCmd(g *globals) *cobra.Command {
 		ListenPort int      `json:"listen_port,omitempty"`
 		TargetPort int      `json:"target_port"`
 		Algorithm  string   `json:"algorithm,omitempty"`
+		Check      string   `json:"check,omitempty"`
+		CheckPath  string   `json:"check_path,omitempty"`
+		Rise       int      `json:"rise,omitempty"`
+		Fall       int      `json:"fall,omitempty"`
 		Instances  []string `json:"instances,omitempty"`
 	}
 
@@ -101,7 +141,10 @@ func newBalancerCreateCmd(g *globals) *cobra.Command {
 			"Every node claims the listen port and rewrites arriving packets to one of the\n" +
 			"backends with nftables. There is no single virtual address: any node's address is\n" +
 			"an entry point, so losing a node costs only the clients that were using it.\n\n" +
-			"A backend only receives traffic while its instance is observed running.",
+			"Without --check a backend counts as up while its instance is observed running,\n" +
+			"which a process that is running but wedged still satisfies. With --check the node\n" +
+			"holding the instance probes it every reconcile pass, and only a backend that\n" +
+			"answers takes traffic.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var created balancerView
@@ -124,6 +167,14 @@ func newBalancerCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&req.Protocol, "protocol", "tcp", "tcp or udp")
 	cmd.Flags().StringVar(&req.Algorithm, "algorithm", "round_robin",
 		"round_robin or source_hash, which keeps one client on one backend")
+	cmd.Flags().StringVar(&req.Check, "check", "none",
+		"none, tcp, or http: what makes a backend count as up")
+	cmd.Flags().StringVar(&req.CheckPath, "check-path", "",
+		"path an http check asks for, defaults to /")
+	cmd.Flags().IntVar(&req.Rise, "rise", 0,
+		"consecutive passes before a backend takes traffic, defaults to 2")
+	cmd.Flags().IntVar(&req.Fall, "fall", 0,
+		"consecutive failures before a backend stops taking traffic, defaults to 2")
 	cmd.Flags().StringSliceVar(&req.Instances, "instance", nil,
 		"backend instance id, repeatable")
 	must(cmd.MarkFlagRequired("name"))

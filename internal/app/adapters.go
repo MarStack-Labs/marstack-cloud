@@ -157,10 +157,11 @@ func (s balancerMembers) Member(ctx context.Context, instanceID string) (balance
 
 	nic, err := s.networks.NICOf(ctx, instanceID)
 	if err != nil {
-		return balancer.Member{ProjectID: in.ProjectID}, nil
+		return balancer.Member{ProjectID: in.ProjectID, NodeID: in.NodeID}, nil
 	}
 	return balancer.Member{
 		ProjectID: in.ProjectID,
+		NodeID:    in.NodeID,
 		Address:   nic.IP,
 		Running:   in.Observed == instance.ObservedRunning,
 	}, nil
