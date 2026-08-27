@@ -5,9 +5,16 @@ package qemu
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
+
+const hotplugPorts = 8
+
+func portID(index int) string {
+	return "rp" + strconv.Itoa(index)
+}
 
 func (r *Runtime) SyncDisks(instanceID string, disks []workload.Disk) (int, error) {
 	if len(disks) == 0 {
