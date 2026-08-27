@@ -20,9 +20,10 @@ import (
 )
 
 const (
-	testProject = "prj-test"
-	testVolume  = "vol-1"
-	testNode    = "n-1"
+	testProject   = "prj-test"
+	testVolume    = "vol-1"
+	testVolumeAka = "data"
+	testNode      = "n-1"
 )
 
 type stubVolumes struct {
@@ -30,10 +31,11 @@ type stubVolumes struct {
 }
 
 func (s stubVolumes) Source(_ context.Context, volumeID, projectID string) (Source, error) {
-	if volumeID != testVolume || projectID != testProject {
+	known := volumeID == testVolume || volumeID == testVolumeAka
+	if !known || projectID != testProject {
 		return Source{}, fault.NotFound("volume_not_found", "no volume with that id exists")
 	}
-	return Source{ProjectID: projectID, NodeID: s.nodeID, Name: "data"}, nil
+	return Source{ID: testVolume, ProjectID: projectID, NodeID: s.nodeID, Name: testVolumeAka}, nil
 }
 
 func newTestModule(t *testing.T) (http.Handler, *Module, string) {
@@ -532,5 +534,55 @@ func TestAScheduleOnAnotherProjectsVolumeIsOutOfReach(t *testing.T) {
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestABackupTakenByVolumeNameStillPointsAtTheVolumeID(t *testing.T) {
+	h, _, _ := newTestModule(t)
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes/"+testVolumeAka+"/backups",
+		`{"name":"by-name"}`)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created response
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.VolumeID != testVolume {
+		t.Fatalf("volume = %q, want %q: an agent matches its volumes by id, so a name "+
+			"stored here is a backup no node will ever pick up", created.VolumeID, testVolume)
+	}
+}
+
+func TestAScheduleSetByVolumeNameStillPointsAtTheVolumeID(t *testing.T) {
+	h, m, _ := newTestModule(t)
+	ctx := context.Background()
+
+	rec := request(t, h, http.MethodPut, "/v1/volumes/"+testVolumeAka+"/schedule",
+		`{"every":"1h","keep":2}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("set schedule: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var sc scheduleResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &sc); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if sc.VolumeID != testVolume {
+		t.Fatalf("volume = %q, want %q", sc.VolumeID, testVolume)
+	}
+
+	byID, err := m.svc.scheduleOf(ctx, testVolume, testProject)
+	if err != nil {
+		t.Fatalf("the schedule cannot be found by the volume id: %v", err)
+	}
+	byName, err := m.svc.scheduleOf(ctx, testVolumeAka, testProject)
+	if err != nil {
+		t.Fatalf("the schedule cannot be found by the volume name: %v", err)
+	}
+	if byID.ID != byName.ID {
+		t.Fatal("the name and the id found different schedules")
 	}
 }

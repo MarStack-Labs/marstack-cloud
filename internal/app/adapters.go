@@ -263,5 +263,10 @@ func (s backupVolumes) Source(
 	if err != nil {
 		return backup.Source{}, err
 	}
-	return backup.Source{ProjectID: v.ProjectID, NodeID: v.NodeID, Name: v.Name}, nil
+	return backup.Source{
+		ID:        v.ID,
+		ProjectID: v.ProjectID,
+		NodeID:    v.NodeID,
+		Name:      v.Name,
+	}, nil
 }

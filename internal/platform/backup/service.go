@@ -57,7 +57,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Backup, erro
 		ID:         ids.New("bkp"),
 		ProjectID:  params.ProjectID,
 		ScheduleID: params.ScheduleID,
-		VolumeID:   params.VolumeID,
+		VolumeID:   source.ID,
 		NodeID:     source.NodeID,
 		Name:       params.Name,
 		State:      StatePending,
@@ -84,11 +84,13 @@ func (s *service) listForVolume(ctx context.Context, volumeID, projectID string)
 		return nil, fault.Unavailable("volumes_unavailable",
 			"the platform cannot look up which node holds the volume")
 	}
-	if _, err := s.volumes.Source(ctx, volumeID, projectID); err != nil {
+
+	source, err := s.volumes.Source(ctx, volumeID, projectID)
+	if err != nil {
 		return nil, err
 	}
 
-	backups, err := s.repo.listForVolume(ctx, volumeID)
+	backups, err := s.repo.listForVolume(ctx, source.ID)
 	if err != nil {
 		return nil, translate(err)
 	}
@@ -241,7 +243,9 @@ func (s *service) setSchedule(ctx context.Context, params ScheduleParams) (Sched
 		return Schedule{}, fault.Unavailable("volumes_unavailable",
 			"the platform cannot look up the volume")
 	}
-	if _, err := s.volumes.Source(ctx, params.VolumeID, params.ProjectID); err != nil {
+
+	source, err := s.volumes.Source(ctx, params.VolumeID, params.ProjectID)
+	if err != nil {
 		return Schedule{}, err
 	}
 
@@ -249,7 +253,7 @@ func (s *service) setSchedule(ctx context.Context, params ScheduleParams) (Sched
 	sc := Schedule{
 		ID:        ids.New("bsc"),
 		ProjectID: params.ProjectID,
-		VolumeID:  params.VolumeID,
+		VolumeID:  source.ID,
 		Every:     every,
 		Keep:      params.Keep,
 		NextAt:    now.Add(every),
@@ -257,7 +261,7 @@ func (s *service) setSchedule(ctx context.Context, params ScheduleParams) (Sched
 		UpdatedAt: now,
 	}
 
-	if existing, err := s.repo.scheduleOf(ctx, params.VolumeID); err == nil {
+	if existing, err := s.repo.scheduleOf(ctx, source.ID); err == nil {
 		sc.ID = existing.ID
 		sc.CreatedAt = existing.CreatedAt
 		sc.LastAt = existing.LastAt
@@ -276,11 +280,13 @@ func (s *service) scheduleOf(ctx context.Context, volumeID, projectID string) (S
 		return Schedule{}, fault.Unavailable("volumes_unavailable",
 			"the platform cannot look up the volume")
 	}
-	if _, err := s.volumes.Source(ctx, volumeID, projectID); err != nil {
+
+	source, err := s.volumes.Source(ctx, volumeID, projectID)
+	if err != nil {
 		return Schedule{}, err
 	}
 
-	sc, err := s.repo.scheduleOf(ctx, volumeID)
+	sc, err := s.repo.scheduleOf(ctx, source.ID)
 	if errors.Is(err, errNotFound) {
 		return Schedule{}, fault.NotFound("schedule_not_found",
 			"that volume carries no backup schedule")
@@ -300,10 +306,11 @@ func (s *service) schedulesIn(ctx context.Context, projectID string) ([]Schedule
 }
 
 func (s *service) removeSchedule(ctx context.Context, volumeID, projectID string) error {
-	if _, err := s.scheduleOf(ctx, volumeID, projectID); err != nil {
+	sc, err := s.scheduleOf(ctx, volumeID, projectID)
+	if err != nil {
 		return err
 	}
-	if err := s.repo.deleteSchedule(ctx, volumeID); err != nil {
+	if err := s.repo.deleteSchedule(ctx, sc.VolumeID); err != nil {
 		return fault.Internal(err)
 	}
 	return nil

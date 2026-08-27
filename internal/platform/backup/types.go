@@ -60,6 +60,7 @@ type ScheduleParams struct {
 }
 
 type Source struct {
+	ID        string
 	ProjectID string
 	NodeID    string
 	Name      string

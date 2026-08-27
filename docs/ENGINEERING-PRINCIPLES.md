@@ -114,6 +114,10 @@ make check      # vet + test + security scans
   duplicated on purpose: importing the project module from every other module to share a constant
   would break the rule that modules do not depend on each other. Never change the literal - a
   shipped migration is history.
+- Every route that takes a volume accepts a name or an id, so anything stored must be the id that
+  `Volumes.Source` resolves - never the string the caller typed. The agent matches its volumes by
+  id; a name stored in `backups.volume_id` is a backup no node ever picks up, and it fails silently
+  because the pending guard then blocks every retry.
 - Backup retention runs in two places on purpose: when a backup becomes ready, and on every sweep.
   The first is when the count actually changes; the second is what makes a lowered `keep` take
   effect without waiting for the next copy. Removing either leaves a real gap.
