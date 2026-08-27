@@ -220,7 +220,7 @@ func (r *Runtime) ensureVolume(disk workload.Disk) (string, error) {
 
 	path := filepath.Join(r.volumeDir(), disk.ID+".qcow2")
 	if _, err := os.Stat(path); err == nil {
-		return path, nil
+		return path, restrict(path)
 	}
 
 	args := []string{"create"}
