@@ -37,6 +37,7 @@ type Config struct {
 	DataDir           string
 	RequestTimeout    time.Duration
 	SchedulerInterval time.Duration
+	Now               func() time.Time
 }
 
 func (c Config) withDefaults() Config {
@@ -95,7 +96,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	forwards := forward.New(st, forwardAddresses{networks: networks, instances: instances}, log)
 	firewalls := firewall.New(st, log)
 	projects := project.New(st, log)
-	tokens := token.New(st, log)
+	tokens := token.New(st, log, cfg.Now)
 	tokens.UseProjects(projects)
 	projects.UseOccupancy(projectOccupancy{tokens: tokens})
 	usages := usage.New(st, log)

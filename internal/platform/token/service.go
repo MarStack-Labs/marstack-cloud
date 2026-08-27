@@ -55,6 +55,19 @@ func (s *service) create(ctx context.Context, params CreateParams) (Token, strin
 		return Token{}, "", err
 	}
 
+	lifetime, err := ParseLifetime(params.ExpiresIn)
+	if err != nil {
+		return Token{}, "", fault.Invalid("invalid_lifetime", err.Error())
+	}
+	if lifetime < 0 {
+		return Token{}, "", fault.Invalid("invalid_lifetime",
+			"a lifetime in the past would create a token nobody can use")
+	}
+	if lifetime > MaxLifetime {
+		return Token{}, "", fault.Invalid("invalid_lifetime",
+			"a lifetime beyond ten years is the same as no lifetime, so say so instead")
+	}
+
 	secret, err := newSecret()
 	if err != nil {
 		return Token{}, "", fault.Internal(err)
@@ -68,6 +81,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Token, strin
 		ProjectID:  params.ProjectID,
 		CreatedAt:  now,
 		LastUsedAt: now,
+	}
+	if lifetime > 0 {
+		t.ExpiresAt = now.Add(lifetime)
 	}
 
 	if err := s.repo.insert(ctx, t, hashOf(secret)); err != nil {
@@ -90,7 +106,13 @@ func (s *service) verify(ctx context.Context, secret string) (Identity, error) {
 		return Identity{}, err
 	}
 
-	if err := s.repo.touch(ctx, identity.ID, s.now()); err != nil {
+	now := s.now()
+	if !identity.ExpiresAt.IsZero() && !now.Before(identity.ExpiresAt) {
+		return Identity{}, fault.Unauthenticated("token_expired",
+			"the bearer token expired on "+identity.ExpiresAt.Format(time.RFC3339))
+	}
+
+	if err := s.repo.touch(ctx, identity.ID, now); err != nil {
 		return identity, nil
 	}
 	return identity, nil
@@ -105,23 +127,26 @@ func (s *service) list(ctx context.Context) ([]Token, error) {
 }
 
 func (s *service) remove(ctx context.Context, id string) error {
-	admins, err := s.repo.countByRole(ctx, RoleAdmin)
+	tokens, err := s.repo.list(ctx)
 	if err != nil {
 		return translate(err)
 	}
 
-	tokens, err := s.repo.list(ctx)
-	if err != nil {
-		return translate(err)
+	now := s.now()
+	usableAdmins := 0
+	for _, t := range tokens {
+		if t.Role == RoleAdmin && !t.Expired(now) {
+			usableAdmins++
+		}
 	}
 
 	for _, t := range tokens {
 		if t.ID != id {
 			continue
 		}
-		if t.Role == RoleAdmin && admins == 1 {
+		if t.Role == RoleAdmin && !t.Expired(now) && usableAdmins == 1 {
 			return fault.Conflict("last_admin_token",
-				"this is the only admin token, and revoking it locks everyone out")
+				"this is the only admin token that still works, and revoking it locks everyone out")
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
@@ -18,8 +19,8 @@ type Module struct {
 	handler *handler
 }
 
-func New(st *store.Store, log *slog.Logger) *Module {
-	svc := newService(newRepository(st), nil)
+func New(st *store.Store, log *slog.Logger, now func() time.Time) *Module {
+	svc := newService(newRepository(st), now)
 	return &Module{
 		log:     log,
 		svc:     svc,
@@ -70,6 +71,11 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "token",
 			Index:  6,
 			SQL:    `CREATE UNIQUE INDEX tokens_name_unique ON tokens (project_id, name)`,
+		},
+		{
+			Module: "token",
+			Index:  7,
+			SQL:    `ALTER TABLE tokens ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''`,
 		},
 	}
 }

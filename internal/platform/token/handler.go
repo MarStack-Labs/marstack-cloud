@@ -12,6 +12,7 @@ type createRequest struct {
 	Name      string `json:"name"`
 	Role      string `json:"role"`
 	ProjectID string `json:"project_id,omitempty"`
+	ExpiresIn string `json:"expires_in,omitempty"`
 }
 
 type response struct {
@@ -22,6 +23,8 @@ type response struct {
 	Secret     string `json:"secret,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	LastUsedAt string `json:"last_used_at"`
+	ExpiresAt  string `json:"expires_at,omitempty"`
+	Expired    bool   `json:"expired,omitempty"`
 }
 
 type listResponse struct {
@@ -37,6 +40,8 @@ func toResponse(t Token, secret string) response {
 		Secret:     secret,
 		CreatedAt:  t.CreatedAt.Format(time.RFC3339Nano),
 		LastUsedAt: t.LastUsedAt.Format(time.RFC3339Nano),
+		ExpiresAt:  stampOf(t.ExpiresAt),
+		Expired:    t.Expired(time.Now().UTC()),
 	}
 }
 
@@ -57,7 +62,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	t, secret, err := h.svc.create(r.Context(),
-		CreateParams{Name: req.Name, Role: req.Role, ProjectID: target})
+		CreateParams{Name: req.Name, Role: req.Role, ProjectID: target, ExpiresIn: req.ExpiresIn})
 	if err != nil {
 		return err
 	}

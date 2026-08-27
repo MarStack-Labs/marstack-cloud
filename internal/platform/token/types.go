@@ -20,6 +20,11 @@ type Token struct {
 	ProjectID  string
 	CreatedAt  time.Time
 	LastUsedAt time.Time
+	ExpiresAt  time.Time
+}
+
+func (t Token) Expired(now time.Time) bool {
+	return !t.ExpiresAt.IsZero() && !now.Before(t.ExpiresAt)
 }
 
 type Identity struct {
@@ -27,12 +32,14 @@ type Identity struct {
 	Name      string
 	Role      string
 	ProjectID string
+	ExpiresAt time.Time
 }
 
 type CreateParams struct {
 	Name      string
 	Role      string
 	ProjectID string
+	ExpiresIn string
 }
 
 func Roles() []string {

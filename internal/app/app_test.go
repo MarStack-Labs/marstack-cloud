@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
@@ -153,4 +154,25 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 		}
 		a.Close()
 	}
+}
+
+func newTickingApp(t *testing.T) (*testApp, *time.Time) {
+	t.Helper()
+
+	dir := t.TempDir()
+	now := time.Now().UTC()
+
+	a, err := New(context.Background(),
+		Config{DataDir: dir, Now: func() time.Time { return now }},
+		logging.New("error", io.Discard))
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	t.Cleanup(func() { a.Close() })
+
+	raw, err := os.ReadFile(filepath.Join(dir, token.BootstrapFileName))
+	if err != nil {
+		t.Fatalf("read the bootstrap token: %v", err)
+	}
+	return &testApp{App: a, secret: strings.TrimSpace(string(raw))}, &now
 }

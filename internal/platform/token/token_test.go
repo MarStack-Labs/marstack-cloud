@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
@@ -24,7 +25,7 @@ func newTestModule(t *testing.T) (*Module, string) {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	m := New(st, logging.New("error", io.Discard))
+	m := New(st, logging.New("error", io.Discard), nil)
 	m.UseProjects(knownProjects{defaultProjectID: true})
 	if err := st.Migrate(ctx, m.Migrations()); err != nil {
 		t.Fatalf("migrate: %v", err)
@@ -178,5 +179,110 @@ func TestTwoTokensNeverShareASecret(t *testing.T) {
 			t.Fatal("two tokens got the same secret")
 		}
 		seen[secret] = true
+	}
+}
+
+func TestALifetimeIsReadInDaysAndWeeksAsWellAsHours(t *testing.T) {
+	for text, want := range map[string]time.Duration{
+		"":    0,
+		"12h": 12 * time.Hour,
+		"90m": 90 * time.Minute,
+		"30d": 30 * 24 * time.Hour,
+		"4w":  4 * 7 * 24 * time.Hour,
+	} {
+		got, err := ParseLifetime(text)
+		if err != nil {
+			t.Fatalf("%q: %v", text, err)
+		}
+		if got != want {
+			t.Fatalf("%q = %v, want %v", text, got, want)
+		}
+	}
+
+	for _, text := range []string{"soon", "30 days", "1y", "d"} {
+		if _, err := ParseLifetime(text); err == nil {
+			t.Fatalf("%q was accepted", text)
+		}
+	}
+}
+
+func TestAnExpiredTokenIsRefused(t *testing.T) {
+	m, _ := newTestModule(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	m.svc.now = func() time.Time { return now }
+
+	_, secret, err := m.svc.create(ctx,
+		CreateParams{Name: "short", Role: RoleMember, ExpiresIn: "1h"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	if _, err := m.Verify(ctx, secret); err != nil {
+		t.Fatalf("the token was refused while it was still valid: %v", err)
+	}
+
+	m.svc.now = func() time.Time { return now.Add(time.Hour + time.Second) }
+	if _, err := m.Verify(ctx, secret); err == nil {
+		t.Fatal("an expired token still authenticated")
+	}
+}
+
+func TestATokenWithNoLifetimeNeverExpires(t *testing.T) {
+	m, _ := newTestModule(t)
+	ctx := context.Background()
+
+	_, secret, err := m.svc.create(ctx, CreateParams{Name: "forever", Role: RoleMember})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	m.svc.now = func() time.Time { return time.Now().UTC().Add(100 * 365 * 24 * time.Hour) }
+	if _, err := m.Verify(ctx, secret); err != nil {
+		t.Fatalf("a token without a lifetime expired anyway: %v", err)
+	}
+}
+
+func TestALifetimeInThePastIsRefused(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	if _, _, err := m.svc.create(context.Background(),
+		CreateParams{Name: "born-dead", Role: RoleMember, ExpiresIn: "-1h"}); err == nil {
+		t.Fatal("a token that was already expired was created")
+	}
+}
+
+func TestAnExpiredAdminDoesNotCountAsTheLastOne(t *testing.T) {
+	m, dir := newTestModule(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	m.svc.now = func() time.Time { return now }
+	if err := m.EnsureBootstrap(ctx, dir); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+
+	stale, _, err := m.svc.create(ctx, CreateParams{Name: "stale", Role: RoleAdmin, ExpiresIn: "1h"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	m.svc.now = func() time.Time { return now.Add(2 * time.Hour) }
+
+	tokens, err := m.svc.list(ctx)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	var bootstrapID string
+	for _, one := range tokens {
+		if one.Name == BootstrapName {
+			bootstrapID = one.ID
+		}
+	}
+
+	if err := m.svc.remove(ctx, bootstrapID); err == nil {
+		t.Fatalf("the only admin token that still works was revoked because an expired one "+
+			"made the count look like two (stale = %s)", stale.ID)
 	}
 }

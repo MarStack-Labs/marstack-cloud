@@ -105,10 +105,27 @@ marstack token list
 ```
 
 ```
-NAME        ID                  ROLE    LAST USED
-bm-1        tok-38158xayggpk6   node    2026-08-26T16:19:47
-bootstrap   tok-sb510112ps6gw   admin   2026-08-26T16:19:48
+NAME        ID                  ROLE    PROJECT       EXPIRES               LAST USED
+bm-1        tok-38158xayggpk6   node    prj-default   never                 2026-08-26T16:19:47
+bootstrap   tok-sb510112ps6gw   admin   prj-default   never                 2026-08-26T16:19:48
+ci          tok-bgs077af71e5j   member  prj-default   2026-09-26T02:11:04   2026-08-27T09:02:11
 ```
+
+A token can be given a lifetime, and after it the token stops working:
+
+```sh
+marstack token create --name ci --role member --ttl 30d
+```
+
+Lifetimes read as `12h`, `90m`, `30d` or `4w`. Without `--ttl` a token never
+expires, which is the right default for an agent and the wrong one for a
+person. An expired token answers `401 token_expired` and stays in the listing
+marked `(expired)`, so an outage explains itself instead of looking like a
+revoked token. Revoking still works the way it always did.
+
+The rule that the last admin token cannot be revoked counts only tokens that
+still work — an expired admin token does not keep you from locking yourself
+out, so it does not pretend to.
 
 A node gets its own token, and it cannot do an operator's work with it:
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 )
@@ -392,4 +393,71 @@ func TestTheBootstrapTokenLandsInTheDefaultProject(t *testing.T) {
 		return
 	}
 	t.Fatal("the bootstrap token is missing")
+}
+
+func TestAnExpiredTokenIsRefusedByTheAPI(t *testing.T) {
+	a, clock := newTickingApp(t)
+
+	rec := do(t, a, http.MethodPost, "/v1/tokens",
+		strings.NewReader(`{"name":"brief","role":"member","expires_in":"1h"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created struct {
+		Secret    string `json:"secret"`
+		ExpiresAt string `json:"expires_at"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.ExpiresAt == "" {
+		t.Fatal("the token reports no expiry, so nobody could tell it was temporary")
+	}
+
+	if rec := doAs(t, a, created.Secret, http.MethodGet, "/v1/instances", nil); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want the token to work while it is valid", rec.Code)
+	}
+
+	*clock = clock.Add(2 * time.Hour)
+
+	rec = doAs(t, a, created.Secret, http.MethodGet, "/v1/instances", nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body.Error.Code != "token_expired" {
+		t.Fatalf("code = %q, want an answer that names why", body.Error.Code)
+	}
+}
+
+func TestARefusedExpiredTokenIsRecorded(t *testing.T) {
+	a, clock := newTickingApp(t)
+
+	rec := do(t, a, http.MethodPost, "/v1/tokens",
+		strings.NewReader(`{"name":"brief","role":"member","expires_in":"1h"}`))
+	var created struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	*clock = clock.Add(2 * time.Hour)
+	doAs(t, a, created.Secret, http.MethodDelete, "/v1/networks/nw-1", nil)
+
+	for _, entry := range auditEntries(t, a) {
+		if entry.Status == http.StatusUnauthorized {
+			return
+		}
+	}
+	t.Fatal("an expired token was turned away without a trace, so nobody could explain the outage")
 }
