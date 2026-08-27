@@ -22,6 +22,7 @@ type Volume struct {
 	NodeID      string
 	InstanceID  string
 	RestoreFrom string
+	BackupID    string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -59,6 +60,7 @@ type CreateParams struct {
 	ProjectID string
 	Name      string
 	SizeGiB   int
+	BackupID  string
 }
 
 type Placement struct {

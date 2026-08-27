@@ -119,13 +119,85 @@ sudo MARSTACK_TOKEN=$(cat /etc/marstack/token) marstack agent --name bm-1
 
 | Role | May call |
 |---|---|
-| `admin` | everything |
-| `node` | register, heartbeat, its own desired state, the dns zone, the image catalog |
+| `admin` | everything in its project, plus projects, tokens and the audit trail |
+| `member` | the resources in its project, and nothing administrative |
+| `node` | register, heartbeat, its own desired state, the dns zone, its image and firewall view |
 
 A node token asking for `/v1/instances` gets 403, and creating an instance with
 one gets 403 too, so a compromised node cannot schedule work or read the whole
-platform. Secrets are stored as a sha256 hash and never appear in a listing.
-The only admin token cannot be revoked, because that locks everyone out.
+platform. A member token asking for `/v1/tokens` gets 403, so it cannot mint
+itself an admin. Secrets are stored as a sha256 hash and never appear in a
+listing. The only admin token cannot be revoked, because that locks everyone
+out.
+
+## Projects
+
+A project owns instances, networks, volumes, images, firewalls and published
+ports. Every token belongs to exactly one project, and a request only ever sees
+rows carrying that project id — whatever the caller's role. Roles decide which
+kinds of operation a token may perform, not which project it can reach, so an
+operator who needs another project mints a token there.
+
+```sh
+marstack project create --name payments
+marstack token create --name pay-dev --role member --project prj-9wq0ha4c1tnx6
+```
+
+Reaching an id in another project answers `404`, not `403`. A `403` would
+confirm the id exists, which is itself something one tenant should not learn
+about another.
+
+Names are unique per project, so two teams can each run an instance called
+`web`. Two things stay global on purpose, because they are physical rather than
+policy: a network range, since routing here carries no encapsulation and
+10.20.0.4 has exactly one destination on the wire; and a node port, since only
+one process can own port 80 on a machine. The first project to ask takes
+10.20.0.0/16, and every project after that is carved a free /16 out of
+10.0.0.0/8.
+
+The default project, `prj-default`, exists from the first start and cannot be
+deleted — every migration backfills existing rows against that id. A project
+holding anything cannot be deleted either.
+
+## Backups
+
+A snapshot lives inside the volume file, on the node that holds it. That
+protects a volume from a bad write or a failed upgrade, but not from losing the
+node: if the disk goes, the snapshots go with it. A backup is the other half —
+it copies the volume off the node.
+
+```sh
+marstack backup create vol-7dn7y7vsn7218 --name before-upgrade
+marstack backup list
+```
+
+```
+NAME             ID                  VOLUME             STATE   SIZE      CREATED
+before-upgrade   bkp-x91fa47b7zrza   vol-7dn7y7vsn7218  ready   41156608  2026-08-27T02:11:04
+```
+
+The control plane records the backup as `pending` against the node that holds
+the volume. On its next reconcile that node copies the volume with `qemu-img
+convert`, streams it to the control plane, and the control plane records the
+size and a sha256 of what it actually received. A volume attached to a running
+instance is skipped rather than copied, for the same reason snapshots are: the
+qemu process holds the write lock.
+
+Restoring makes a new volume rather than overwriting a live one:
+
+```sh
+marstack volume create --name restored --size-gib 10 --from-backup bkp-x91fa47b7zrza
+marstack volume attach restored --instance i-7dn7y7vsn7218
+```
+
+The agent notices the volume names a backup, fetches the bytes before anything
+starts, and writes them as the volume file. Recovering from a node that is gone
+for good works the same way, because the bytes never lived only on that node.
+
+The bytes land in `<data-dir>/backups/` on the control plane. That makes the
+control plane the thing worth protecting — which is honest, and better than
+having no copy off the node at all. Shipping them to object storage instead is
+a later change to one interface.
 
 The CLI reads `--token`, then `MARSTACK_TOKEN`, then `--token-file`, then
 `MARSTACK_TOKEN_FILE`. Nothing is read implicitly from a default path.
@@ -460,6 +532,8 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 14  published ports + firewall                        done
 15  usage metrics + load aware placement              done
 16  audit trail                                       done
+17  projects and per-project scoping                  done
+18  off-node volume backup and restore                done
 ```
 
 ## License

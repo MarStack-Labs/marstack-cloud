@@ -9,8 +9,9 @@ import (
 )
 
 type createRequest struct {
-	Name    string `json:"name"`
-	SizeGiB int    `json:"size_gib"`
+	Name     string `json:"name"`
+	SizeGiB  int    `json:"size_gib"`
+	BackupID string `json:"from_backup,omitempty"`
 }
 
 type attachRequest struct {
@@ -71,6 +72,7 @@ type response struct {
 	NodeID      string             `json:"node_id,omitempty"`
 	InstanceID  string             `json:"instance_id,omitempty"`
 	RestoreFrom string             `json:"restore_from,omitempty"`
+	BackupID    string             `json:"backup_id,omitempty"`
 	Snapshots   []snapshotResponse `json:"snapshots,omitempty"`
 	CreatedAt   string             `json:"created_at"`
 	UpdatedAt   string             `json:"updated_at"`
@@ -89,6 +91,7 @@ func toResponse(v Volume) response {
 		NodeID:      v.NodeID,
 		InstanceID:  v.InstanceID,
 		RestoreFrom: v.RestoreFrom,
+		BackupID:    v.BackupID,
 		CreatedAt:   v.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:   v.UpdatedAt.Format(time.RFC3339Nano),
 	}
@@ -108,6 +111,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		ProjectID: scope.From(r.Context()).ProjectID,
 		Name:      req.Name,
 		SizeGiB:   req.SizeGiB,
+		BackupID:  req.BackupID,
 	})
 	if err != nil {
 		return err

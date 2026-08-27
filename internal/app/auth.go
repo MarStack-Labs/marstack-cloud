@@ -47,6 +47,10 @@ var nodePaths = []string{
 	"PUT /v1/nodes/{id}/usage",
 	"GET /v1/nodes/{id}/images",
 	"GET /v1/nodes/{id}/firewalls",
+	"GET /v1/nodes/{id}/backups",
+	"PUT /v1/nodes/{id}/backups/{backupID}/content",
+	"POST /v1/nodes/{id}/backups/{backupID}/failure",
+	"GET /v1/nodes/{id}/backups/{backupID}/content",
 	"GET /v1/dns/records",
 }
 
@@ -75,6 +79,13 @@ var memberPaths = []string{
 	"POST /v1/volumes/{id}/detach",
 	"GET /v1/volumes/{id}/snapshots",
 	"POST /v1/volumes/{id}/snapshots",
+
+	"GET /v1/volumes/{id}/backups",
+	"POST /v1/volumes/{id}/backups",
+
+	"GET /v1/backups",
+	"GET /v1/backups/{id}",
+	"DELETE /v1/backups/{id}",
 
 	"GET /v1/snapshots",
 	"DELETE /v1/snapshots/{id}",

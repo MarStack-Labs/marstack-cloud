@@ -107,7 +107,12 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 
 	a.collectGarbage(ctx, state.Instances, state.Networks)
 	a.tidyVolumes(state.Volumes)
+	a.restoreVolumes(ctx, a.currentNodeID(), state.Volumes, state.Instances)
 	a.applySnapshots(ctx, state.Volumes, state.Instances, report)
+
+	if report {
+		a.runBackups(ctx, a.currentNodeID(), state.Volumes, state.Instances)
+	}
 	a.tidyImages(ctx, state.Instances, report)
 
 	if report {

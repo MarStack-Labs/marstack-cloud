@@ -85,11 +85,13 @@ func newRootCmd() *cobra.Command {
 		newNetworkCmd(g),
 		newImageCmd(g),
 		newVolumeCmd(g),
+		newBackupCmd(g),
 		newForwardCmd(g),
 		newFirewallCmd(g),
 		newUsageCmd(g),
 		newAuditCmd(g),
 		newTokenCmd(g),
+		newProjectCmd(g),
 		newNodeCmd(g),
 	)
 	return root

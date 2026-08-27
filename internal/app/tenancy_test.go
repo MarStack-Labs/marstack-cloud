@@ -338,3 +338,59 @@ func TestSnapshotsOfAnotherProjectsVolumeAreOutOfReach(t *testing.T) {
 		t.Fatalf("tenant-b sees %d snapshots, want none", got)
 	}
 }
+
+func TestAVolumeCannotBeRestoredFromABackupThatDoesNotExist(t *testing.T) {
+	a := newTestApp(t)
+
+	rec := do(t, a, http.MethodPost, "/v1/volumes",
+		strings.NewReader(`{"name":"restored","size_gib":1,"from_backup":"bkp-nope"}`))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: a typo here would silently create an empty disk "+
+			"where the operator expected their data", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestBackupsAreScopedToTheirProject(t *testing.T) {
+	a := newTestApp(t)
+
+	other := newProject(t, a, "tenant-b")
+	theirs := tokenIn(t, a, "b-dev", other)
+
+	if got := countAt(t, a, theirs, "/v1/backups", "backups"); got != 0 {
+		t.Fatalf("tenant-b sees %d backups, want none", got)
+	}
+
+	volumeID := createIn(t, a, a.secret, "/v1/volumes", `{"name":"data","size_gib":1}`)
+	rec := doAs(t, a, theirs, http.MethodGet, "/v1/volumes/"+volumeID+"/backups", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d: the backup list names what was on that disk",
+			rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestABackupNeedsANodeHoldingTheVolume(t *testing.T) {
+	a := newTestApp(t)
+
+	volumeID := createIn(t, a, a.secret, "/v1/volumes", `{"name":"data","size_gib":1}`)
+	rec := do(t, a, http.MethodPost, "/v1/volumes/"+volumeID+"/backups",
+		strings.NewReader(`{"name":"nightly"}`))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: an unattached volume has no bytes anywhere",
+			rec.Code, http.StatusConflict)
+	}
+}
+
+func TestAMemberMayBackUpButNotReachTheNodeTransfer(t *testing.T) {
+	a := newTestApp(t)
+	secret := memberToken(t, a)
+
+	if rec := doAs(t, a, secret, http.MethodGet, "/v1/backups", nil); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want a member to see its own backups", rec.Code)
+	}
+
+	rec := doAs(t, a, secret, http.MethodGet, "/v1/nodes/n-1/backups", nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d: the node queue is not an operator endpoint",
+			rec.Code, http.StatusForbidden)
+	}
+}

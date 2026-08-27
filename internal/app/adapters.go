@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
@@ -185,4 +186,18 @@ type projectOccupancy struct {
 
 func (o projectOccupancy) ResourcesIn(ctx context.Context, projectID string) (int, error) {
 	return o.tokens.CountIn(ctx, projectID)
+}
+
+type backupVolumes struct {
+	volumes *volume.Module
+}
+
+func (s backupVolumes) Source(
+	ctx context.Context, volumeID, projectID string,
+) (backup.Source, error) {
+	v, err := s.volumes.Find(ctx, volumeID, projectID)
+	if err != nil {
+		return backup.Source{}, err
+	}
+	return backup.Source{ProjectID: v.ProjectID, NodeID: v.NodeID, Name: v.Name}, nil
 }

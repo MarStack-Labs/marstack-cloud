@@ -102,8 +102,28 @@ make check      # vet + test + security scans
   mechanism (parse a bearer token, hash it, compare) belongs to `platform/token`; the policy of
   which role may call which path belongs to the composition root, where every route is already
   visible. A module that checked roles itself would have to know about roles.
-- `app.nodePaths` is the whole authorisation policy for node tokens. Adding an agent-facing route
-  without adding it there makes agents fail with 403 at runtime, not at compile time.
+- `app.nodePaths` and `app.memberPaths` are the whole authorisation policy for those roles. Adding
+  a route without adding it there makes callers fail with 403 at runtime, not at compile time. They
+  are allow-lists, not deny-lists, so a forgotten entry fails closed - keep it that way.
+- Scoping is by project, not by role. A handler reads `scope.From(ctx).ProjectID` and passes it to
+  its service as an argument; services never read the context. A module that branched on role would
+  have to know the role vocabulary, which is why `/v1/projects` is administrative in its entirety
+  rather than role-checked inside the project module.
+- The literal `'prj-default'` appears in a migration in several modules. It is the default project
+  id that existing rows are backfilled against, and it must match `project.DefaultID`. It is
+  duplicated on purpose: importing the project module from every other module to share a constant
+  would break the rule that modules do not depend on each other. Never change the literal - a
+  shipped migration is history.
+- A snapshot and a backup protect against different things. A snapshot is internal to the qcow2
+  file on the node, so it survives a bad write but dies with the disk. A backup is a copy held by
+  the control plane. Do not "simplify" one into the other; the whole point is that they fail
+  independently.
+- The agent has two HTTP clients. `http` carries a 15 second timeout, which is right for reconcile
+  calls and wrong for moving a volume. Backup content goes through `transfer`, whose timeout is
+  measured in minutes. Sending a body through the wrong one truncates it at 15 seconds.
+- `qemu-img` cannot read a volume that a running qemu holds. Snapshots, backups and restores all
+  skip a volume whose instance the runtime reports as running, and that check must stay in front of
+  every one of them.
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead

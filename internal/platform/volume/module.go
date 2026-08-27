@@ -24,6 +24,14 @@ func New(st *store.Store, instances Instances, log *slog.Logger) *Module {
 	}
 }
 
+func (m *Module) UseBackups(b Backups) {
+	m.svc.backups = b
+}
+
+func (m *Module) Find(ctx context.Context, nameOrID, projectID string) (Volume, error) {
+	return m.svc.resolveIn(ctx, nameOrID, projectID)
+}
+
 func (m *Module) Name() string {
 	return "volume"
 }
@@ -90,6 +98,11 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "volume",
 			Index:  9,
 			SQL:    `CREATE UNIQUE INDEX volumes_name_unique ON volumes (project_id, name)`,
+		},
+		{
+			Module: "volume",
+			Index:  10,
+			SQL:    `ALTER TABLE volumes ADD COLUMN backup_id TEXT NOT NULL DEFAULT ''`,
 		},
 	}
 }

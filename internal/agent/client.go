@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	callTimeout  = 15 * time.Second
-	maxErrorBody = 1 << 16
+	callTimeout     = 15 * time.Second
+	transferTimeout = 30 * time.Minute
+	maxErrorBody    = 1 << 16
 )
 
 type nodeView struct {
@@ -98,6 +99,7 @@ type client struct {
 	endpoint string
 	secret   string
 	http     *http.Client
+	transfer *http.Client
 }
 
 func newClient(endpoint, secret string) *client {
@@ -105,6 +107,7 @@ func newClient(endpoint, secret string) *client {
 		endpoint: strings.TrimRight(endpoint, "/"),
 		secret:   secret,
 		http:     &http.Client{Timeout: callTimeout},
+		transfer: &http.Client{Timeout: transferTimeout},
 	}
 }
 
@@ -158,6 +161,7 @@ type volumeView struct {
 	SizeGiB     int            `json:"size_gib"`
 	InstanceID  string         `json:"instance_id,omitempty"`
 	RestoreFrom string         `json:"restore_from,omitempty"`
+	BackupID    string         `json:"backup_id,omitempty"`
 	Snapshots   []snapshotView `json:"snapshots,omitempty"`
 }
 
@@ -363,4 +367,76 @@ func errorCode(body io.Reader) string {
 		return ""
 	}
 	return envelope.Error.Code
+}
+
+type backupView struct {
+	ID       string `json:"id"`
+	VolumeID string `json:"volume_id"`
+	Name     string `json:"name"`
+	State    string `json:"state"`
+}
+
+type backupsBody struct {
+	Backups []backupView `json:"backups"`
+}
+
+type backupFailureBody struct {
+	Message string `json:"message"`
+}
+
+func (c *client) pendingBackups(ctx context.Context, nodeID string) ([]backupView, error) {
+	var out backupsBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/backups", nil, &out)
+	return out.Backups, err
+}
+
+func (c *client) failBackup(ctx context.Context, nodeID, id, message string) error {
+	return c.do(ctx, http.MethodPost,
+		"/v1/nodes/"+nodeID+"/backups/"+id+"/failure", backupFailureBody{Message: message}, nil)
+}
+
+func (c *client) uploadBackup(ctx context.Context, nodeID, id string, content io.Reader) error {
+	path := "/v1/nodes/" + nodeID + "/backups/" + id + "/content"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint+path, content)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+
+	res, err := c.transfer.Do(req)
+	if err != nil {
+		return fmt.Errorf("upload the backup: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode >= http.StatusBadRequest {
+		return &statusError{Status: res.StatusCode, Code: errorCode(res.Body)}
+	}
+	return nil
+}
+
+func (c *client) fetchBackup(ctx context.Context, nodeID, id string) (io.ReadCloser, error) {
+	path := "/v1/nodes/" + nodeID + "/backups/" + id + "/content"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+
+	res, err := c.transfer.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch the backup: %w", err)
+	}
+	if res.StatusCode >= http.StatusBadRequest {
+		defer res.Body.Close()
+		return nil, &statusError{Status: res.StatusCode, Code: errorCode(res.Body)}
+	}
+	return res.Body, nil
 }

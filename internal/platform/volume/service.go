@@ -15,10 +15,15 @@ type Instances interface {
 	Placement(ctx context.Context, instanceID string) (Placement, error)
 }
 
+type Backups interface {
+	Restorable(ctx context.Context, id, projectID string) (int64, error)
+}
+
 type clock func() time.Time
 
 type service struct {
 	repo      *repository
+	backups   Backups
 	instances Instances
 	now       clock
 }
@@ -40,11 +45,22 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 		))
 	}
 
+	if params.BackupID != "" {
+		if s.backups == nil {
+			return Volume{}, fault.Unavailable("backups_unavailable",
+				"the platform cannot look up backups")
+		}
+		if _, err := s.backups.Restorable(ctx, params.BackupID, params.ProjectID); err != nil {
+			return Volume{}, err
+		}
+	}
+
 	now := s.now()
 	v := Volume{
 		ID:        ids.New("vol"),
 		ProjectID: params.ProjectID,
 		Name:      params.Name,
+		BackupID:  params.BackupID,
 		SizeGiB:   params.SizeGiB,
 		CreatedAt: now,
 		UpdatedAt: now,

@@ -10,6 +10,7 @@ type tokenView struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	Role       string `json:"role"`
+	ProjectID  string `json:"project_id"`
 	Secret     string `json:"secret,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	LastUsedAt string `json:"last_used_at"`
@@ -19,14 +20,14 @@ type tokenListView struct {
 	Tokens []tokenView `json:"tokens"`
 }
 
-var tokenHeaders = []string{"NAME", "ID", "ROLE", "LAST USED"}
+var tokenHeaders = []string{"NAME", "ID", "ROLE", "PROJECT", "LAST USED"}
 
 func tokenRow(t tokenView) []string {
 	used := t.LastUsedAt
 	if len(used) > 19 {
 		used = used[:19]
 	}
-	return []string{t.Name, t.ID, t.Role, used}
+	return []string{t.Name, t.ID, t.Role, t.ProjectID, used}
 }
 
 func newTokenCmd(g *globals) *cobra.Command {
@@ -41,16 +42,20 @@ func newTokenCmd(g *globals) *cobra.Command {
 
 func newTokenCreateCmd(g *globals) *cobra.Command {
 	var req struct {
-		Name string `json:"name"`
-		Role string `json:"role"`
+		Name      string `json:"name"`
+		Role      string `json:"role"`
+		ProjectID string `json:"project_id,omitempty"`
 	}
 
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a token, printing the secret once",
 		Long: "Create a token, printing the secret once.\n\n" +
-			"Role admin can call everything. Role node can only call the endpoints an agent\n" +
-			"needs, so a compromised node cannot schedule work or read the whole platform.",
+			"Role admin can call everything in its project, and administers projects, tokens\n" +
+			"and the audit trail. Role member manages resources in its project only. Role node\n" +
+			"can only call the endpoints an agent needs, so a compromised node cannot schedule\n" +
+			"work or read the whole platform.\n\n" +
+			"A token without --project lands in the project of the token that created it.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var created tokenView
@@ -73,7 +78,8 @@ func newTokenCreateCmd(g *globals) *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&req.Name, "name", "", "token name, unique within the platform")
-	cmd.Flags().StringVar(&req.Role, "role", "admin", "admin or node")
+	cmd.Flags().StringVar(&req.Role, "role", "admin", "admin, member or node")
+	cmd.Flags().StringVar(&req.ProjectID, "project", "", "project the token works in")
 	must(cmd.MarkFlagRequired("name"))
 
 	return cmd

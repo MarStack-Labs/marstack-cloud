@@ -54,8 +54,9 @@ func newVolumeCmd(g *globals) *cobra.Command {
 
 func newVolumeCreateCmd(g *globals) *cobra.Command {
 	var req struct {
-		Name    string `json:"name"`
-		SizeGiB int    `json:"size_gib"`
+		Name       string `json:"name"`
+		SizeGiB    int    `json:"size_gib"`
+		FromBackup string `json:"from_backup,omitempty"`
 	}
 
 	cmd := &cobra.Command{
@@ -71,8 +72,10 @@ func newVolumeCreateCmd(g *globals) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&req.Name, "name", "", "volume name, unique within the platform")
+	cmd.Flags().StringVar(&req.Name, "name", "", "volume name, unique within the project")
 	cmd.Flags().IntVar(&req.SizeGiB, "size-gib", 0, "size in GiB")
+	cmd.Flags().StringVar(&req.FromBackup, "from-backup", "",
+		"restore from this backup instead of starting empty")
 	must(cmd.MarkFlagRequired("name"))
 	must(cmd.MarkFlagRequired("size-gib"))
 

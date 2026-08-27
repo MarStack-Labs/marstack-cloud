@@ -136,6 +136,24 @@ answers with the caller's project. One path, one audience.
 Modules never learn about roles. `/v1/projects` is administrative in its entirety, so the project
 module has no role check inside it — the composition root simply keeps members off those routes.
 
+## Data protection
+
+Two mechanisms with different failure domains, deliberately not merged:
+
+| | Lives in | Survives | Does not survive |
+|---|---|---|---|
+| snapshot | the qcow2 file on the node | a bad write, a failed upgrade | losing the node |
+| backup | the control plane's vault | losing the node | losing the control plane |
+
+A backup is created as `pending` against the node that currently holds the volume. That node copies
+the volume on its next reconcile and streams it to `PUT /v1/nodes/{id}/backups/{id}/content`, which
+records the size and a sha256 of the bytes that actually arrived. Restoring never overwrites a live
+volume: a new volume is created naming the backup, and the agent fetches the content before
+anything starts.
+
+The runtime exposes this through `workload.VolumeArchiver`, a capability interface alongside
+`VolumeKeeper`. A runtime that has no volumes simply does not implement it, and the agent skips it.
+
 ## Roadmap shape
 
 Modules are added one at a time, each with its own migrations and routes:

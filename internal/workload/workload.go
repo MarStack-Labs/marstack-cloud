@@ -1,6 +1,9 @@
 package workload
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 type Phase string
 
@@ -131,6 +134,12 @@ type Sampler interface {
 type VolumeKeeper interface {
 	PruneVolumes(keep []string) error
 	SyncSnapshots(plans []SnapshotPlan) []SnapshotState
+}
+
+type VolumeArchiver interface {
+	HasVolume(volumeID string) bool
+	ExportVolume(volumeID string) (io.ReadCloser, error)
+	ImportVolume(volumeID string, content io.Reader) error
 }
 
 type Runtime interface {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/firewall"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
@@ -61,6 +62,7 @@ type App struct {
 	modules   []Module
 	networks  *network.Module
 	projects  *project.Module
+	backups   *backup.Module
 	tokens    *token.Module
 	trail     *audit.Module
 	scheduler *scheduler.Scheduler
@@ -82,6 +84,14 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 
 	a := &App{cfg: cfg, log: log, store: st, networks: networks}
 	volumes := volume.New(st, volumeInstances{instances: instances}, log)
+
+	backups, err := backup.New(st, cfg.DataDir, log)
+	if err != nil {
+		st.Close()
+		return nil, err
+	}
+	backups.UseVolumes(backupVolumes{volumes: volumes})
+	volumes.UseBackups(backups)
 	forwards := forward.New(st, forwardAddresses{networks: networks, instances: instances}, log)
 	firewalls := firewall.New(st, log)
 	projects := project.New(st, log)
@@ -93,6 +103,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.trail = trail
 	a.tokens = tokens
 	a.projects = projects
+	a.backups = backups
 
 	a.modules = []Module{
 		system.New(st, log),
@@ -102,6 +113,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		dns.New(log, dnsInstances{instances: instances}, networks),
 		image.New(st, log),
 		volumes,
+		backups,
 		forwards,
 		firewalls,
 		usages,
@@ -157,6 +169,9 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 }
 
 func (a *App) Close() error {
+	if a.backups != nil {
+		a.backups.Close()
+	}
 	return a.store.Close()
 }
 

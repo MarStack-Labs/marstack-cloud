@@ -17,7 +17,7 @@ var (
 	errTaken     = errors.New("volume already attached")
 )
 
-const columns = `id, project_id, name, size_gib, node_id, instance_id, restore_from, created_at, updated_at`
+const columns = `id, project_id, name, size_gib, node_id, instance_id, restore_from, backup_id, created_at, updated_at`
 
 const snapshotColumns = `id, volume_id, name, state, message, size_bytes, created_at`
 
@@ -31,8 +31,8 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, v Volume) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO volumes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		v.ID, v.ProjectID, v.Name, v.SizeGiB, v.NodeID, v.InstanceID, v.RestoreFrom,
+		`INSERT INTO volumes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		v.ID, v.ProjectID, v.Name, v.SizeGiB, v.NodeID, v.InstanceID, v.RestoreFrom, v.BackupID,
 		v.CreatedAt.Format(time.RFC3339Nano), v.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -293,7 +293,7 @@ func scan(row scanner) (Volume, error) {
 	var created, updated string
 
 	if err := row.Scan(&v.ID, &v.ProjectID, &v.Name, &v.SizeGiB, &v.NodeID, &v.InstanceID,
-		&v.RestoreFrom, &created, &updated); err != nil {
+		&v.RestoreFrom, &v.BackupID, &created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Volume{}, err
 		}
