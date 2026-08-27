@@ -32,8 +32,8 @@ func (r *Runtime) SyncDisks(instanceID string, disks []workload.Disk) (int, erro
 	}
 
 	plugged := 0
-	for index, disk := range disks {
-		id := "vol" + strconv.Itoa(index)
+	for _, disk := range disks {
+		id := diskDeviceID(disk.ID)
 		if present[id] {
 			continue
 		}

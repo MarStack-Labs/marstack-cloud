@@ -265,21 +265,21 @@ func (r *Runtime) arguments(
 	}
 
 	for index, path := range volumes {
-		keyFile := spec.Volumes[index].KeyFile
-		if keyFile != "" {
-			args = append(args,
-				"-object", "secret,id=vkey"+strconv.Itoa(index)+",file="+keyFile)
+		disk := spec.Volumes[index]
+		id := diskDeviceID(disk.ID)
+
+		if disk.KeyFile != "" {
+			args = append(args, "-object", "secret,id="+id+"key,file="+disk.KeyFile)
 		}
 
-		id := "vol" + strconv.Itoa(index)
 		drive := "id=" + id + ",if=none,format=qcow2,file=" + path
-		if keyFile != "" {
-			drive += ",encrypt.key-secret=vkey" + strconv.Itoa(index)
+		if disk.KeyFile != "" {
+			drive += ",encrypt.key-secret=" + id + "key"
 		}
 
 		args = append(args,
 			"-drive", drive,
-			"-device", "virtio-blk-pci,drive="+id+",serial="+spec.Volumes[index].Name,
+			"-device", "virtio-blk-pci,drive="+id+",serial="+disk.Name,
 		)
 	}
 
