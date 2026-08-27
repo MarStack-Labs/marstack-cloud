@@ -103,12 +103,32 @@ to the client — it is logged with the request id instead.
 ## Request pipeline
 
 ```
-RequestID → Recover → AccessLog → SecureHeaders → Timeout → mux → module handler
+RequestID → Recover → AccessLog → SecureHeaders → Timeout → auditTrail → authenticate
+          → mux → module handler
 ```
 
 Ordering matters: `RequestID` runs first so every later layer can log it, and `Recover` wraps
 everything after it so a panic in any handler becomes a logged `500` rather than a dropped
-connection.
+connection. `auditTrail` sits outside `authenticate` so a refused request is still recorded.
+
+## Tenancy
+
+Every token belongs to exactly one project, and a project is the unit a resource is owned by.
+Scoping is not a role check: a request may only see rows carrying its own `project_id`, whatever
+the caller's role. Roles decide *which kinds of operation* a token may perform, not *which project*
+it can reach — so an operator who needs another project mints a token there.
+
+`kernel/scope` carries the caller's project, token and role in the request context.
+`authenticate` puts it there; module handlers read it and pass the project down to their service as
+an ordinary argument. Services never read the context, so they stay testable without HTTP.
+
+The role vocabulary lives in `platform/token`; the policy of which role reaches which route lives in
+`app` as three allow-lists — `nodePaths`, `memberPaths`, and admin, which is everything. Allow-lists
+rather than deny-lists: a route added without a policy entry fails closed with a `403` instead of
+being silently reachable.
+
+Modules never learn about roles. `/v1/projects` is administrative in its entirety, so the project
+module has no role check inside it — the composition root simply keeps members off those routes.
 
 ## Roadmap shape
 
@@ -116,7 +136,7 @@ Modules are added one at a time, each with its own migrations and routes:
 
 ```
 system     health, version                        done
-identity   projects, tokens, authorization
+identity   projects, tokens, authorization        done
 node       registry, join tokens, heartbeat
 instance   the single instance object
 image      registry pull, layer store

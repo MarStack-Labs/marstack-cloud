@@ -25,10 +25,54 @@ func newTestModule(t *testing.T) (*Module, string) {
 	t.Cleanup(func() { st.Close() })
 
 	m := New(st, logging.New("error", io.Discard))
+	m.UseProjects(knownProjects{defaultProjectID: true})
 	if err := st.Migrate(ctx, m.Migrations()); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	return m, dir
+}
+
+type knownProjects map[string]bool
+
+func (k knownProjects) Exists(_ context.Context, id string) (bool, error) {
+	return k[id], nil
+}
+
+func TestATokenCannotBePlacedInAProjectThatDoesNotExist(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	_, _, err := m.svc.create(context.Background(),
+		CreateParams{Name: "stray", Role: RoleMember, ProjectID: "prj-nope"})
+	if err == nil {
+		t.Fatal("the token was created, so it would authorise work in a project nobody can see")
+	}
+}
+
+func TestATokenWithoutAProjectLandsInTheDefaultOne(t *testing.T) {
+	m, _ := newTestModule(t)
+
+	created, _, err := m.svc.create(context.Background(),
+		CreateParams{Name: "unplaced", Role: RoleMember})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if created.ProjectID != defaultProjectID {
+		t.Fatalf("project = %q, want the default project", created.ProjectID)
+	}
+}
+
+func TestTwoProjectsMayEachHaveATokenOfTheSameName(t *testing.T) {
+	m, _ := newTestModule(t)
+	m.UseProjects(knownProjects{defaultProjectID: true, "prj-other": true})
+	ctx := context.Background()
+
+	if _, _, err := m.svc.create(ctx, CreateParams{Name: "ci", Role: RoleMember}); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if _, _, err := m.svc.create(ctx,
+		CreateParams{Name: "ci", Role: RoleMember, ProjectID: "prj-other"}); err != nil {
+		t.Fatalf("second: %v: a name is only taken inside its own project", err)
+	}
 }
 
 func TestBootstrapHappensOnceAndLandsInAFile(t *testing.T) {

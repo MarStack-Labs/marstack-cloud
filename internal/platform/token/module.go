@@ -55,6 +55,22 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  3,
 			SQL:    `CREATE UNIQUE INDEX tokens_secret_unique ON tokens (secret_hash)`,
 		},
+		{
+			Module: "token",
+			Index:  4,
+			SQL: `ALTER TABLE tokens ADD COLUMN project_id TEXT NOT NULL
+				DEFAULT '` + defaultProjectID + `'`,
+		},
+		{
+			Module: "token",
+			Index:  5,
+			SQL:    `DROP INDEX tokens_name_unique`,
+		},
+		{
+			Module: "token",
+			Index:  6,
+			SQL:    `CREATE UNIQUE INDEX tokens_name_unique ON tokens (project_id, name)`,
+		},
 	}
 }
 
@@ -62,6 +78,10 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/tokens", httpx.Wrap(m.log, m.handler.create))
 	mux.Handle("GET /v1/tokens", httpx.Wrap(m.log, m.handler.list))
 	mux.Handle("DELETE /v1/tokens/{id}", httpx.Wrap(m.log, m.handler.delete))
+}
+
+func (m *Module) UseProjects(p Projects) {
+	m.svc.projects = p
 }
 
 func (m *Module) Verify(ctx context.Context, secret string) (Identity, error) {
@@ -88,4 +108,8 @@ func (m *Module) EnsureBootstrap(ctx context.Context, dir string) error {
 		"note", "read it once, then revoke it after making your own",
 	)
 	return nil
+}
+
+func (m *Module) CountIn(ctx context.Context, projectID string) (int, error) {
+	return m.svc.countIn(ctx, projectID)
 }

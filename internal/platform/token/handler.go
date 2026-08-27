@@ -5,17 +5,20 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type createRequest struct {
-	Name string `json:"name"`
-	Role string `json:"role"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
+	ProjectID string `json:"project_id,omitempty"`
 }
 
 type response struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	Role       string `json:"role"`
+	ProjectID  string `json:"project_id"`
 	Secret     string `json:"secret,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	LastUsedAt string `json:"last_used_at"`
@@ -30,6 +33,7 @@ func toResponse(t Token, secret string) response {
 		ID:         t.ID,
 		Name:       t.Name,
 		Role:       t.Role,
+		ProjectID:  t.ProjectID,
 		Secret:     secret,
 		CreatedAt:  t.CreatedAt.Format(time.RFC3339Nano),
 		LastUsedAt: t.LastUsedAt.Format(time.RFC3339Nano),
@@ -46,7 +50,14 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	t, secret, err := h.svc.create(r.Context(), CreateParams{Name: req.Name, Role: req.Role})
+	caller := scope.From(r.Context())
+	target := req.ProjectID
+	if target == "" {
+		target = caller.ProjectID
+	}
+
+	t, secret, err := h.svc.create(r.Context(),
+		CreateParams{Name: req.Name, Role: req.Role, ProjectID: target})
 	if err != nil {
 		return err
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/project"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
@@ -59,6 +60,7 @@ type App struct {
 	store     *store.Store
 	modules   []Module
 	networks  *network.Module
+	projects  *project.Module
 	tokens    *token.Module
 	trail     *audit.Module
 	scheduler *scheduler.Scheduler
@@ -82,11 +84,15 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	volumes := volume.New(st, volumeInstances{instances: instances}, log)
 	forwards := forward.New(st, forwardAddresses{networks: networks}, log)
 	firewalls := firewall.New(st, log)
+	projects := project.New(st, log)
 	tokens := token.New(st, log)
+	tokens.UseProjects(projects)
+	projects.UseOccupancy(projectOccupancy{tokens: tokens})
 	usages := usage.New(st, log)
 	trail := audit.New(st, log)
 	a.trail = trail
 	a.tokens = tokens
+	a.projects = projects
 
 	a.modules = []Module{
 		system.New(st, log),
@@ -100,6 +106,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		firewalls,
 		usages,
 		trail,
+		projects,
 		tokens,
 	}
 	instances.UseVolumes(volumes)
@@ -116,6 +123,11 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.scheduler.UseLoad(nodeLoad{usage: usages, now: time.Now})
 
 	if err := a.migrate(ctx); err != nil {
+		st.Close()
+		return nil, err
+	}
+
+	if _, err := a.projects.EnsureDefault(ctx); err != nil {
 		st.Close()
 		return nil, err
 	}

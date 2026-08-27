@@ -8,6 +8,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 )
 
@@ -49,8 +50,57 @@ var nodePaths = []string{
 	"GET /v1/firewalls",
 }
 
+var memberPaths = []string{
+	"GET /v1/version",
+	"GET /v1/usage",
+	"GET /v1/dns/records",
+
+	"GET /v1/instances",
+	"POST /v1/instances",
+	"GET /v1/instances/{id}",
+	"DELETE /v1/instances/{id}",
+	"POST /v1/instances/{id}/start",
+	"POST /v1/instances/{id}/stop",
+
+	"GET /v1/networks",
+	"POST /v1/networks",
+	"GET /v1/networks/{id}",
+	"DELETE /v1/networks/{id}",
+
+	"GET /v1/volumes",
+	"POST /v1/volumes",
+	"GET /v1/volumes/{id}",
+	"DELETE /v1/volumes/{id}",
+	"POST /v1/volumes/{id}/attach",
+	"POST /v1/volumes/{id}/detach",
+	"GET /v1/volumes/{id}/snapshots",
+	"POST /v1/volumes/{id}/snapshots",
+
+	"GET /v1/snapshots",
+	"DELETE /v1/snapshots/{id}",
+	"POST /v1/snapshots/{id}/restore",
+
+	"GET /v1/images",
+	"POST /v1/images",
+	"GET /v1/images/{id}",
+	"DELETE /v1/images/{id}",
+
+	"GET /v1/firewalls",
+	"POST /v1/firewalls",
+	"GET /v1/firewalls/{id}",
+	"PUT /v1/firewalls/{id}/rules",
+	"DELETE /v1/firewalls/{id}",
+
+	"GET /v1/forwards",
+	"POST /v1/forwards",
+	"DELETE /v1/forwards/{id}",
+}
+
 func authenticate(verify verifier, log *slog.Logger) httpx.Middleware {
-	allowed := nodeRules()
+	allowed := map[string]func(*http.Request) bool{
+		token.RoleNode:   allowList(nodePaths),
+		token.RoleMember: allowList(memberPaths),
+	}
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -67,23 +117,32 @@ func authenticate(verify verifier, log *slog.Logger) httpx.Middleware {
 
 			noteIdentity(r.Context(), identity)
 
-			if identity.Role != token.RoleAdmin && !allowed(r) {
-				log.Warn("a node token was refused an operator endpoint",
-					"token", identity.Name, "method", r.Method, "path", r.URL.Path,
-					"request_id", httpx.RequestIDFrom(r.Context()))
-				httpx.WriteFault(w, fault.Forbidden("role_forbidden",
-					"a node token may only call the endpoints an agent needs"))
-				return
+			if identity.Role != token.RoleAdmin {
+				reachable, known := allowed[identity.Role]
+				if !known || !reachable(r) {
+					log.Warn("a token was refused an endpoint its role cannot reach",
+						"token", identity.Name, "role", identity.Role,
+						"method", r.Method, "path", r.URL.Path,
+						"request_id", httpx.RequestIDFrom(r.Context()))
+					httpx.WriteFault(w, fault.Forbidden("role_forbidden",
+						"this token's role may not call that endpoint"))
+					return
+				}
 			}
 
-			next.ServeHTTP(w, r)
+			next.ServeHTTP(w, r.WithContext(scope.With(r.Context(), scope.Scope{
+				ProjectID: identity.ProjectID,
+				TokenID:   identity.ID,
+				TokenName: identity.Name,
+				Role:      identity.Role,
+			})))
 		})
 	}
 }
 
-func nodeRules() func(*http.Request) bool {
+func allowList(patterns []string) func(*http.Request) bool {
 	mux := http.NewServeMux()
-	for _, pattern := range nodePaths {
+	for _, pattern := range patterns {
 		mux.Handle(pattern, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
 )
@@ -169,4 +170,12 @@ func (s dnsInstances) AllInstances(ctx context.Context) ([]dns.InstanceRef, erro
 		refs = append(refs, dns.InstanceRef{ID: in.ID, Name: in.Name, NetworkID: in.NetworkID})
 	}
 	return refs, nil
+}
+
+type projectOccupancy struct {
+	tokens *token.Module
+}
+
+func (o projectOccupancy) ResourcesIn(ctx context.Context, projectID string) (int, error) {
+	return o.tokens.CountIn(ctx, projectID)
 }

@@ -16,7 +16,7 @@ var (
 	errNameTaken = errors.New("token name already exists")
 )
 
-const columns = `id, name, role, secret_hash, created_at, last_used_at`
+const columns = `id, name, role, project_id, secret_hash, created_at, last_used_at`
 
 type repository struct {
 	db *sql.DB
@@ -28,8 +28,8 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, t Token, hash string) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO tokens (`+columns+`) VALUES (?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Name, t.Role, hash,
+		`INSERT INTO tokens (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Name, t.Role, t.ProjectID, hash,
 		t.CreatedAt.Format(time.RFC3339Nano), t.LastUsedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -44,8 +44,8 @@ func (r *repository) insert(ctx context.Context, t Token, hash string) error {
 func (r *repository) byHash(ctx context.Context, hash string) (Identity, error) {
 	var identity Identity
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, role FROM tokens WHERE secret_hash = ?`, hash,
-	).Scan(&identity.ID, &identity.Name, &identity.Role)
+		`SELECT id, name, role, project_id FROM tokens WHERE secret_hash = ?`, hash,
+	).Scan(&identity.ID, &identity.Name, &identity.Role, &identity.ProjectID)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return Identity{}, errNotFound
@@ -67,7 +67,7 @@ func (r *repository) touch(ctx context.Context, id string, at time.Time) error {
 
 func (r *repository) list(ctx context.Context) ([]Token, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, role, created_at, last_used_at FROM tokens ORDER BY name`)
+		`SELECT id, name, role, project_id, created_at, last_used_at FROM tokens ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list tokens: %w", err)
 	}
@@ -77,7 +77,7 @@ func (r *repository) list(ctx context.Context) ([]Token, error) {
 	for rows.Next() {
 		var t Token
 		var created, used string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Role, &created, &used); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Role, &t.ProjectID, &created, &used); err != nil {
 			return nil, fmt.Errorf("scan token: %w", err)
 		}
 
@@ -128,4 +128,14 @@ func (r *repository) countByRole(ctx context.Context, role string) (int, error) 
 
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "unique")
+}
+
+func (r *repository) countInProject(ctx context.Context, projectID string) (int, error) {
+	var count int
+	err := r.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM tokens WHERE project_id = ?`, projectID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count tokens in project: %w", err)
+	}
+	return count, nil
 }

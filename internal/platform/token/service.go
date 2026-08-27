@@ -24,9 +24,14 @@ var encoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPaddin
 
 type clock func() time.Time
 
+type Projects interface {
+	Exists(ctx context.Context, id string) (bool, error)
+}
+
 type service struct {
-	repo *repository
-	now  clock
+	repo     *repository
+	projects Projects
+	now      clock
 }
 
 func newService(repo *repository, now clock) *service {
@@ -43,6 +48,12 @@ func (s *service) create(ctx context.Context, params CreateParams) (Token, strin
 	if err := validate.OneOf("role", params.Role, Roles()...); err != nil {
 		return Token{}, "", err
 	}
+	if params.ProjectID == "" {
+		params.ProjectID = defaultProjectID
+	}
+	if err := s.requireProject(ctx, params.ProjectID); err != nil {
+		return Token{}, "", err
+	}
 
 	secret, err := newSecret()
 	if err != nil {
@@ -54,6 +65,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Token, strin
 		ID:         ids.New("tok"),
 		Name:       params.Name,
 		Role:       params.Role,
+		ProjectID:  params.ProjectID,
 		CreatedAt:  now,
 		LastUsedAt: now,
 	}
@@ -135,6 +147,21 @@ func (s *service) ensureBootstrap(ctx context.Context) (string, error) {
 	return secret, nil
 }
 
+func (s *service) requireProject(ctx context.Context, id string) error {
+	if s.projects == nil {
+		return fault.Internal(errors.New("no project source is wired, so a token cannot be placed"))
+	}
+
+	exists, err := s.projects.Exists(ctx, id)
+	if err != nil {
+		return fault.Internal(err)
+	}
+	if !exists {
+		return fault.Invalid("unknown_project", "no project with that id exists")
+	}
+	return nil
+}
+
 func newSecret() (string, error) {
 	raw := make([]byte, secretBytes)
 	if _, err := rand.Read(raw); err != nil {
@@ -159,4 +186,12 @@ func translate(err error) error {
 	default:
 		return err
 	}
+}
+
+func (s *service) countIn(ctx context.Context, projectID string) (int, error) {
+	count, err := s.repo.countInProject(ctx, projectID)
+	if err != nil {
+		return 0, translate(err)
+	}
+	return count, nil
 }

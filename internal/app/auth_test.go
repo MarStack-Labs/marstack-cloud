@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 )
 
 func nodeToken(t *testing.T, a *testApp) string {
@@ -294,4 +296,96 @@ func TestARefusedNodeTokenIsNamed(t *testing.T) {
 		return
 	}
 	t.Fatal("the refusal was not recorded")
+}
+
+func memberToken(t *testing.T, a *testApp) string {
+	t.Helper()
+
+	rec := do(t, a, http.MethodPost, "/v1/tokens",
+		strings.NewReader(`{"name":"dev-1","role":"member"}`))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create a member token: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var created struct {
+		Secret    string `json:"secret"`
+		ProjectID string `json:"project_id"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if created.ProjectID == "" {
+		t.Fatal("the token names no project, so nothing could scope its work")
+	}
+	return created.Secret
+}
+
+func TestAMemberTokenWorksOnResourcesButNotOnGovernance(t *testing.T) {
+	a := newTestApp(t)
+	secret := memberToken(t, a)
+
+	for _, path := range []string{"/v1/instances", "/v1/volumes", "/v1/networks", "/v1/firewalls"} {
+		t.Run("allows "+path, func(t *testing.T) {
+			if rec := doAs(t, a, secret, http.MethodGet, path, nil); rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+			}
+		})
+	}
+
+	for _, path := range []string{"/v1/tokens", "/v1/audit", "/v1/projects", "/v1/nodes"} {
+		t.Run("refuses "+path, func(t *testing.T) {
+			if rec := doAs(t, a, secret, http.MethodGet, path, nil); rec.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want %d: a member administers nothing",
+					rec.Code, http.StatusForbidden)
+			}
+		})
+	}
+}
+
+func TestAMemberCannotMintTokens(t *testing.T) {
+	a := newTestApp(t)
+	secret := memberToken(t, a)
+
+	rec := doAs(t, a, secret, http.MethodPost, "/v1/tokens",
+		strings.NewReader(`{"name":"escalated","role":"admin"}`))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d: minting an admin token is privilege escalation",
+			rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestAMemberCannotCreateAProject(t *testing.T) {
+	a := newTestApp(t)
+	secret := memberToken(t, a)
+
+	rec := doAs(t, a, secret, http.MethodPost, "/v1/projects",
+		strings.NewReader(`{"name":"mine"}`))
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusForbidden)
+	}
+}
+
+func TestTheBootstrapTokenLandsInTheDefaultProject(t *testing.T) {
+	a := newTestApp(t)
+
+	var list struct {
+		Tokens []struct {
+			Name      string `json:"name"`
+			ProjectID string `json:"project_id"`
+		} `json:"tokens"`
+	}
+	if err := json.Unmarshal(do(t, a, http.MethodGet, "/v1/tokens", nil).Body.Bytes(), &list); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+
+	for _, entry := range list.Tokens {
+		if entry.Name != token.BootstrapName {
+			continue
+		}
+		if entry.ProjectID == "" {
+			t.Fatal("the bootstrap token names no project, so it could not create scoped work")
+		}
+		return
+	}
+	t.Fatal("the bootstrap token is missing")
 }
