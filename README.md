@@ -820,6 +820,22 @@ so a check run on one platform never compiles the other's files — `_linux.go`
 code is invisible to a macOS `go vet`, and the non-Linux stubs are invisible on
 the runner. Building both catches a stub that fell behind its interface.
 
+`gosec` runs with six rules excluded, and the reason is the same for all of
+them: they cannot tell a host file from a file being placed inside a guest.
+`G204` fires on every `exec.Command` with computed arguments, which is what an
+agent driving `qemu-img`, `ip` and `nft` does all day — and these are argv
+arrays, not shell strings, so the injection the rule warns about is not
+available. `G301`, `G302` and `G306` want every file at 0600, but
+`internal/runtime/microvm` writes a guest's `/sbin/init`, which has to be 0755.
+`G304` and `G703` fire on paths the agent composed itself from validated ids and
+on the operator's own `--token-file`.
+
+Excluding them was worth doing carefully rather than quickly. Reading the
+findings first turned up two real defects the rules had buried: the cloud-init
+seed ISO, which carries the console password, was world-readable at 0644, and so
+was every volume file `qemu-img create` produced — a guest's whole disk readable
+by any local process. Both are 0600 now.
+
 Two things are deliberately absent. `gitleaks-action` needs a paid licence for
 organisations, so CI installs the gitleaks binary and runs it directly. CodeQL
 needs GitHub Advanced Security to upload results on a private repository, so its

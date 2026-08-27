@@ -237,6 +237,9 @@ func (r *Runtime) ensureVolume(disk workload.Disk) (string, error) {
 		return "", fmt.Errorf("create volume %s: %w: %s",
 			disk.Name, err, strings.TrimSpace(string(out)))
 	}
+	if err := restrict(path); err != nil {
+		return "", err
+	}
 
 	r.log.Info("volume created",
 		"volume", disk.Name, "size_gib", disk.SizeGiB, "encrypted", disk.KeyFile != "")
@@ -330,7 +333,7 @@ func (r *Runtime) prepareDisk(spec workload.Spec, base string) error {
 		if out, err := blank.CombinedOutput(); err != nil {
 			return fmt.Errorf("create blank disk: %w: %s", err, strings.TrimSpace(string(out)))
 		}
-		return nil
+		return restrict(disk)
 	}
 
 	create := exec.Command("qemu-img", "create",
@@ -341,6 +344,13 @@ func (r *Runtime) prepareDisk(spec workload.Spec, base string) error {
 	)
 	if out, err := create.CombinedOutput(); err != nil {
 		return fmt.Errorf("create overlay disk: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return restrict(disk)
+}
+
+func restrict(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("restrict %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }

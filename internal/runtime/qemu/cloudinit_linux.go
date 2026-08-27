@@ -18,12 +18,12 @@ const consoleUser = "ubuntu"
 
 func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 	dir := filepath.Join(r.instanceDir(spec.InstanceID), "seed")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create seed directory: %w", err)
 	}
 
 	meta := "instance-id: " + spec.InstanceID + "\nlocal-hostname: " + spec.Name + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "meta-data"), []byte(meta), 0o640); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "meta-data"), []byte(meta), 0o600); err != nil {
 		return "", fmt.Errorf("write meta-data: %w", err)
 	}
 
@@ -38,12 +38,12 @@ func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 	if len(spec.Command) > 0 {
 		user += "runcmd:\n  - " + shellQuote(spec.Command) + "\n"
 	}
-	if err := os.WriteFile(filepath.Join(dir, "user-data"), []byte(user), 0o640); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "user-data"), []byte(user), 0o600); err != nil {
 		return "", fmt.Errorf("write user-data: %w", err)
 	}
 
 	if err := os.WriteFile(filepath.Join(dir, "network-config"),
-		[]byte(networkConfig(spec)), 0o640); err != nil {
+		[]byte(networkConfig(spec)), 0o600); err != nil {
 		return "", fmt.Errorf("write network-config: %w", err)
 	}
 
@@ -58,6 +58,9 @@ func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 	)
 	if out, err := build.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build cloud-init seed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	if err := os.Chmod(iso, 0o600); err != nil {
+		return "", fmt.Errorf("restrict the cloud-init seed: %w", err)
 	}
 	return iso, nil
 }
