@@ -10,6 +10,7 @@ type auditEntryView struct {
 	At        string `json:"at"`
 	Actor     string `json:"actor"`
 	Role      string `json:"role"`
+	ProjectID string `json:"project_id,omitempty"`
 	Method    string `json:"method"`
 	Path      string `json:"path"`
 	Status    int    `json:"status"`
@@ -20,7 +21,7 @@ type auditListView struct {
 	Entries []auditEntryView `json:"entries"`
 }
 
-var auditHeaders = []string{"WHEN", "ACTOR", "ROLE", "METHOD", "PATH", "STATUS"}
+var auditHeaders = []string{"WHEN", "ACTOR", "ROLE", "PROJECT", "METHOD", "PATH", "STATUS"}
 
 func auditRow(e auditEntryView) []string {
 	actor := e.Actor
@@ -31,7 +32,12 @@ func auditRow(e auditEntryView) []string {
 	if role == "" {
 		role = "-"
 	}
-	return []string{shortStamp(e.At), actor, role, e.Method, e.Path, strconv.Itoa(e.Status)}
+	project := e.ProjectID
+	if project == "" {
+		project = "-"
+	}
+	return []string{shortStamp(e.At), actor, role, project, e.Method, e.Path,
+		strconv.Itoa(e.Status)}
 }
 
 func newAuditCmd(g *globals) *cobra.Command {
