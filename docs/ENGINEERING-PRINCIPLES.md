@@ -118,6 +118,13 @@ make check      # vet + test + security scans
   file on the node, so it survives a bad write but dies with the disk. A backup is a copy held by
   the control plane. Do not "simplify" one into the other; the whole point is that they fail
   independently.
+- `httpx.Timeout` wraps `http.TimeoutHandler`, which buffers the whole response in memory and
+  cuts it off at the deadline. That is right for an API call and fatal for moving a volume, so
+  `app.streamingPaths` names the routes that skip it. Adding a route that streams bytes without
+  adding it there gives a truncated body at 30 seconds, and a memory spike on the way.
+- `statusRecorder` implements `Unwrap`. Without it `http.NewResponseController` cannot reach the
+  real connection, and setting a deadline silently returns `ErrNotSupported`. Any new
+  `ResponseWriter` wrapper needs the same method.
 - The agent has two HTTP clients. `http` carries a 15 second timeout, which is right for reconcile
   calls and wrong for moving a volume. Backup content goes through `transfer`, whose timeout is
   measured in minutes. Sending a body through the wrong one truncates it at 15 seconds.

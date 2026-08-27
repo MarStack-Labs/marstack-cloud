@@ -1,12 +1,19 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/project"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 )
 
 func newProject(t *testing.T, a *testApp, name string) string {
@@ -392,5 +399,42 @@ func TestAMemberMayBackUpButNotReachTheNodeTransfer(t *testing.T) {
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want %d: the node queue is not an operator endpoint",
 			rec.Code, http.StatusForbidden)
+	}
+}
+
+func newSlowApp(t *testing.T, timeout time.Duration) *testApp {
+	t.Helper()
+
+	dir := t.TempDir()
+	a, err := New(context.Background(),
+		Config{DataDir: dir, RequestTimeout: timeout}, logging.New("error", io.Discard))
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	t.Cleanup(func() { a.Close() })
+
+	raw, err := os.ReadFile(filepath.Join(dir, token.BootstrapFileName))
+	if err != nil {
+		t.Fatalf("read the bootstrap token: %v", err)
+	}
+	return &testApp{App: a, secret: strings.TrimSpace(string(raw))}
+}
+
+func TestMovingABackupIsNotBoundByTheRequestTimeout(t *testing.T) {
+	a := newSlowApp(t, time.Nanosecond)
+
+	rec := do(t, a, http.MethodGet, "/v1/instances", nil)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d: an ordinary request is still bounded",
+			rec.Code, http.StatusServiceUnavailable)
+	}
+
+	rec = do(t, a, http.MethodGet, "/v1/nodes/n-1/backups/bkp-nope/content", nil)
+	if rec.Code == http.StatusServiceUnavailable {
+		t.Fatal("moving a volume was cut off by the request timeout, so any backup larger " +
+			"than a few seconds of transfer could never finish")
+	}
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want the handler to have actually run", rec.Code)
 	}
 }

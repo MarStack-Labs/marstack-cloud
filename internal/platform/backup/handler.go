@@ -55,6 +55,12 @@ type handler struct {
 	svc *service
 }
 
+func unbounded(w http.ResponseWriter) {
+	control := http.NewResponseController(w)
+	_ = control.SetReadDeadline(time.Time{})
+	_ = control.SetWriteDeadline(time.Time{})
+}
+
 func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 	req, err := httpx.Decode[createRequest](w, r)
 	if err != nil {
@@ -120,6 +126,8 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) upload(w http.ResponseWriter, r *http.Request) error {
+	unbounded(w)
+
 	b, err := h.svc.store(r.Context(), r.PathValue("id"), r.PathValue("nodeID"), r.Body)
 	if err != nil {
 		return err
@@ -141,6 +149,8 @@ func (h *handler) fail(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) download(w http.ResponseWriter, r *http.Request) error {
+	unbounded(w)
+
 	file, size, err := h.svc.content(r.Context(), r.PathValue("id"))
 	if err != nil {
 		return err

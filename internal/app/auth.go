@@ -54,6 +54,11 @@ var nodePaths = []string{
 	"GET /v1/dns/records",
 }
 
+var streamingPaths = []string{
+	"PUT /v1/nodes/{id}/backups/{backupID}/content",
+	"GET /v1/nodes/{id}/backups/{backupID}/content",
+}
+
 var memberPaths = []string{
 	"GET /v1/version",
 	"GET /v1/usage",

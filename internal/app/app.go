@@ -197,7 +197,7 @@ func (a *App) buildRouter() http.Handler {
 		httpx.Recover(a.log),
 		httpx.AccessLog(a.log),
 		httpx.SecureHeaders(),
-		httpx.Timeout(a.cfg.RequestTimeout),
+		httpx.Timeout(a.cfg.RequestTimeout, allowList(streamingPaths)),
 		auditTrail(a.trail),
 		authenticate(a.tokens, a.log),
 	)

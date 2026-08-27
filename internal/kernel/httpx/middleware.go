@@ -76,9 +76,18 @@ func SecureHeaders() Middleware {
 	}
 }
 
-func Timeout(d time.Duration) Middleware {
+func Timeout(d time.Duration, streaming func(*http.Request) bool) Middleware {
 	return func(next http.Handler) http.Handler {
-		return http.TimeoutHandler(next, d, `{"error":{"code":"timeout","message":"request timed out"}}`)
+		bounded := http.TimeoutHandler(next, d,
+			`{"error":{"code":"timeout","message":"request timed out"}}`)
+
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if streaming != nil && streaming(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			bounded.ServeHTTP(w, r)
+		})
 	}
 }
 
@@ -90,6 +99,10 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(status int) {
 	r.status = status
 	r.ResponseWriter.WriteHeader(status)
+}
+
+func (r *statusRecorder) Unwrap() http.ResponseWriter {
+	return r.ResponseWriter
 }
 
 func Observe(next http.Handler, w http.ResponseWriter, r *http.Request) int {
