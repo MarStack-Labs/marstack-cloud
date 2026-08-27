@@ -586,3 +586,48 @@ func TestAScheduleSetByVolumeNameStillPointsAtTheVolumeID(t *testing.T) {
 		t.Fatal("the name and the id found different schedules")
 	}
 }
+
+func TestRetentionFollowsTheScheduleThatMadeTheCopy(t *testing.T) {
+	h, m, _ := newTestModule(t)
+	ctx := context.Background()
+
+	now := time.Now().UTC()
+	m.svc.now = func() time.Time { return now }
+
+	first := setSchedule(t, h, "1h", 1)
+
+	for range 3 {
+		now = now.Add(time.Hour + time.Second)
+		if _, _, err := m.svc.sweep(ctx); err != nil {
+			t.Fatalf("sweep: %v", err)
+		}
+
+		backups, err := m.svc.listIn(ctx, testProject)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, b := range backups {
+			if b.State == StatePending {
+				upload(t, h, b.ID, "bytes-"+b.Name)
+			}
+		}
+	}
+
+	replaced := setSchedule(t, h, "2h", 1)
+	if replaced.ID != first.ID {
+		t.Fatal("replacing a schedule should keep its id")
+	}
+
+	backups, err := m.svc.listIn(ctx, testProject)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(backups) != 1 {
+		names := make([]string, 0, len(backups))
+		for _, b := range backups {
+			names = append(names, b.Name)
+		}
+		t.Fatalf("kept %v, want one: retention must follow the schedule that made a copy, "+
+			"not whichever schedule the volume happens to carry now", names)
+	}
+}

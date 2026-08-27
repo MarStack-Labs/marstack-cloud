@@ -147,7 +147,11 @@ func (s *service) store(ctx context.Context, id, nodeID string, content io.Reade
 	b.UpdatedAt = at
 
 	if b.ScheduleID != "" {
-		if sc, err := s.repo.scheduleOf(ctx, b.VolumeID); err == nil && sc.ID == b.ScheduleID {
+		sc, err := s.repo.scheduleByID(ctx, b.ScheduleID)
+		if err != nil && !errors.Is(err, errNotFound) {
+			return b, fault.Internal(err)
+		}
+		if err == nil {
 			if _, err := s.retain(ctx, sc); err != nil {
 				return b, fault.Internal(err)
 			}

@@ -189,6 +189,20 @@ func (r *repository) scheduleOf(ctx context.Context, volumeID string) (Schedule,
 	return sc, nil
 }
 
+func (r *repository) scheduleByID(ctx context.Context, id string) (Schedule, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+scheduleColumns+` FROM backup_schedules WHERE id = ?`, id)
+
+	sc, err := scanSchedule(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Schedule{}, errNotFound
+	}
+	if err != nil {
+		return Schedule{}, fmt.Errorf("read backup schedule: %w", err)
+	}
+	return sc, nil
+}
+
 func (r *repository) schedulesIn(ctx context.Context, projectID string) ([]Schedule, error) {
 	return r.querySchedules(ctx,
 		`SELECT `+scheduleColumns+` FROM backup_schedules WHERE project_id = ? ORDER BY next_at`,
