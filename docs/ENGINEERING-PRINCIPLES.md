@@ -233,9 +233,10 @@ make check      # vet + test + security scans
 - A bucket keeps `samples`, `cpu_sum` and `cpu_peak` separately so both the average and the peak are
   real. Peak is the number that answers a capacity question, and it cannot be recovered from an
   average, so `MAX` in the upsert is load bearing.
-- Container memory reports zero for every container, while vms and microvms report real numbers.
-  That is the agent's cgroup sampling, not the history, and it is why a container's history looks
-  flat. Fixing it is a separate job in `runtime`/`agent`, not in `platform/usage`.
+- Memory is carried in MiB everywhere, and an idle container really does use about 120 KiB, so it
+  reads 0 MiB. That is truncation in the unit, not a broken sampler: `container.Sample` reads
+  `memory.current` correctly and a busy container reports 99% cpu. Do not "fix" it by rounding up,
+  which replaces an accurate zero with an invented one - change the unit or leave it.
 - `GET /v1/usage` is scoped to the caller's project and `GET /v1/usage/nodes` is administrative.
   They were one unscoped route, which let any member read every project's instance load and the
   node ids behind it. Splitting them follows the same precedent as images and firewalls: one path,

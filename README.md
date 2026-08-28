@@ -759,11 +759,12 @@ Instance history is scoped to your project and node history is administrative,
 the same split the snapshot uses. Asking for a node through the instance route
 answers 404 rather than 403, like everywhere else.
 
-**Container memory currently reads zero.** Every vm and microvm reports real
-numbers; every container reports `0 MiB`, in the snapshot as well as the history.
-That is a gap in how the agent samples a container's cgroup, not in the history,
-and it makes this feature much less useful for the most common isolation until it
-is fixed.
+**Memory is reported in MiB, which rounds a small container to zero.** An idle
+container is genuinely about 120 KiB — a busybox shell and nothing else — so it
+reads `0 MiB` while a vm reads hundreds. The number is accurate rather than
+missing: a container pinned at a busy loop reports `99.0%` cpu and its cgroup
+memory reads back exactly, it just cannot be expressed in whole MiB. If seeing
+small containers matters, the unit is the thing to change, not the sampler.
 
 ## Taking a node out for maintenance
 
