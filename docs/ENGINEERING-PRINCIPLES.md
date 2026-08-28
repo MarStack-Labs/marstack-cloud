@@ -227,6 +227,15 @@ make check      # vet + test + security scans
   since serving one would mean the module knowing which callers are admins.
 - `events.Recorder.Record` returns no error on purpose. Recording must never fail the operation
   that caused it, so a write that fails is logged by the event module and dropped.
+- Usage history is downsampled on write into one-minute buckets, one UPSERT per report. Do not
+  "simplify" it into an append-only table: a node reporting every ten seconds with twenty instances
+  writes about 180k rows a day, and the read then has to aggregate on every request.
+- A bucket keeps `samples`, `cpu_sum` and `cpu_peak` separately so both the average and the peak are
+  real. Peak is the number that answers a capacity question, and it cannot be recovered from an
+  average, so `MAX` in the upsert is load bearing.
+- Container memory reports zero for every container, while vms and microvms report real numbers.
+  That is the agent's cgroup sampling, not the history, and it is why a container's history looks
+  flat. Fixing it is a separate job in `runtime`/`agent`, not in `platform/usage`.
 - `GET /v1/usage` is scoped to the caller's project and `GET /v1/usage/nodes` is administrative.
   They were one unscoped route, which let any member read every project's instance load and the
   node ids behind it. Splitting them follows the same precedent as images and firewalls: one path,

@@ -726,6 +726,45 @@ ones are dropped in the background. If you need events past that, take them out
 to somewhere built for retention; this is here so an operator can answer a
 question now, not to be a system of record.
 
+## Asking what happened earlier
+
+Usage used to be one row per subject: the latest sample and nothing else. There
+was no way to ask whether something was busy an hour ago.
+
+Samples are now folded into one-minute buckets as they arrive:
+
+```sh
+marstack usage history n-tcvkwmvckcq62 --window 30m
+```
+
+```
+n-tcvkwmvckcq62 over 30m0s, 5 buckets
+
+cpu     ▁▁▁▁▁  avg 1.9%  peak 2.1%
+memory  ▃▃▃▃▃  avg 2247Mi  peak 2257Mi
+
+oldest 2026-08-28T10:02:00   newest 2026-08-28T10:06:00
+```
+
+Downsampling on write is what makes this affordable in SQLite: one UPSERT per
+report into the current bucket, not one row per sample. Each bucket keeps the
+sample count, the running sum and the peak, so average and peak are both real
+rather than one being guessed from the other. **Peak is the number that matters
+for capacity** — an average hides the spike that mattered.
+
+A day is kept and older buckets are dropped in the background. It is a ring, not
+an archive; point a real metrics stack at it if you need to keep more.
+
+Instance history is scoped to your project and node history is administrative,
+the same split the snapshot uses. Asking for a node through the instance route
+answers 404 rather than 403, like everywhere else.
+
+**Container memory currently reads zero.** Every vm and microvm reports real
+numbers; every container reports `0 MiB`, in the snapshot as well as the history.
+That is a gap in how the agent samples a container's cgroup, not in the history,
+and it makes this feature much less useful for the most common isolation until it
+is fixed.
+
 ## Taking a node out for maintenance
 
 A node used to lose its workloads exactly one way: by stopping answering. To
@@ -1277,6 +1316,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 30  services: hold a replica count                    done
 31  a balancer that follows a service                 done
 32  cordon and drain a node                           done
+33  bounded usage history                             done
 ```
 
 ## License

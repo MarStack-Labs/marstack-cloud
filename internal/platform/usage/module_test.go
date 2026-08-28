@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
@@ -158,5 +159,120 @@ func TestBadReportsAreRejected(t *testing.T) {
 	body := read(t, h)
 	if len(body.Instances) != 0 {
 		t.Fatalf("instances = %+v, want a sample with no id dropped rather than stored", body.Instances)
+	}
+}
+
+func TestSamplesInDifferentMinutesLandInDifferentBuckets(t *testing.T) {
+	h, m := newTestModule(t)
+
+	clock := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+	m.svc.now = func() time.Time { return clock }
+
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/usage",
+		`{"cpu_percent":10,"memory_used_mib":100,"memory_mib":6000}`)
+
+	clock = clock.Add(30 * time.Second)
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/usage",
+		`{"cpu_percent":20,"memory_used_mib":200,"memory_mib":6000}`)
+
+	clock = clock.Add(40 * time.Second)
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/usage",
+		`{"cpu_percent":90,"memory_used_mib":300,"memory_mib":6000}`)
+
+	found, err := m.svc.historyOf(context.Background(), "n-1", time.Hour)
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(found.Buckets) != 2 {
+		t.Fatalf("buckets = %d, want two: the first minute held two samples and the second one",
+			len(found.Buckets))
+	}
+	if found.Buckets[0].Samples != 2 || found.Buckets[0].CPUPeak != 20 {
+		t.Fatalf("first = %+v, want two samples peaking at 20", found.Buckets[0])
+	}
+	if found.Buckets[1].Samples != 1 || found.Buckets[1].CPUPeak != 90 {
+		t.Fatalf("second = %+v, want one sample at 90", found.Buckets[1])
+	}
+	if !found.Buckets[1].At.After(found.Buckets[0].At) {
+		t.Fatal("buckets came back out of order")
+	}
+}
+
+func TestAWindowOnlyReachesBackAsFarAsAsked(t *testing.T) {
+	h, m := newTestModule(t)
+
+	clock := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+	m.svc.now = func() time.Time { return clock }
+
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/usage",
+		`{"cpu_percent":10,"memory_used_mib":100,"memory_mib":6000}`)
+
+	clock = clock.Add(2 * time.Hour)
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/usage",
+		`{"cpu_percent":20,"memory_used_mib":200,"memory_mib":6000}`)
+
+	recent, err := m.svc.historyOf(context.Background(), "n-1", 30*time.Minute)
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(recent.Buckets) != 1 {
+		t.Fatalf("buckets = %d, want only the one inside the window", len(recent.Buckets))
+	}
+
+	all, err := m.svc.historyOf(context.Background(), "n-1", 3*time.Hour)
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	if len(all.Buckets) != 2 {
+		t.Fatalf("buckets = %d, want both with a wider window", len(all.Buckets))
+	}
+}
+
+func TestAWindowIsCappedRatherThanRefused(t *testing.T) {
+	h, m := newTestModule(t)
+
+	clock := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+	m.svc.now = func() time.Time { return clock }
+	request(t, h, http.MethodPut, "/v1/nodes/n-1/usage",
+		`{"cpu_percent":10,"memory_used_mib":100,"memory_mib":6000}`)
+
+	if _, err := m.svc.historyOf(context.Background(), "n-1", 400*time.Hour); err != nil {
+		t.Fatalf("a window past the retention should be capped, not refused: %v", err)
+	}
+}
+
+func TestOldBucketsArePruned(t *testing.T) {
+	_, m := newTestModule(t)
+	ctx := context.Background()
+
+	clock := time.Date(2026, 8, 28, 10, 0, 0, 0, time.UTC)
+	m.svc.now = func() time.Time { return clock }
+
+	report := func() {
+		m.svc.record(ctx, Report{Node: NodeSample{
+			NodeID: "n-1", CPUPercent: 5, MemoryUsedMiB: 100, MemoryMiB: 6000,
+		}})
+	}
+
+	report()
+	oldest := bucketOf(clock)
+
+	clock = clock.Add((HistoryBuckets + 10) * BucketSize)
+	for range PruneEvery {
+		report()
+	}
+
+	buckets, err := m.svc.repo.history(ctx, "n-1", 0)
+	if err != nil {
+		t.Fatalf("history: %v", err)
+	}
+	for _, bucket := range buckets {
+		if bucketOf(bucket.At) == oldest {
+			t.Fatal("a bucket older than the retention window survived, so the table grows " +
+				"without bound")
+		}
+	}
+	if len(buckets) == 0 {
+		t.Fatal("pruning took everything, including the buckets inside the window")
 	}
 }

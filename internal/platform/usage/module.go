@@ -16,7 +16,7 @@ type Module struct {
 }
 
 func New(st *store.Store, log *slog.Logger) *Module {
-	svc := newService(newRepository(st), nil)
+	svc := newService(newRepository(st), log, nil)
 	return &Module{
 		log:     log,
 		svc:     svc,
@@ -57,12 +57,34 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  3,
 			SQL:    `CREATE INDEX instance_usage_node_id ON instance_usage (node_id)`,
 		},
+		{
+			Module: "usage",
+			Index:  4,
+			SQL: `CREATE TABLE usage_history (
+				subject     TEXT    NOT NULL,
+				bucket      INTEGER NOT NULL,
+				samples     INTEGER NOT NULL DEFAULT 0,
+				cpu_sum     REAL    NOT NULL DEFAULT 0,
+				cpu_peak    REAL    NOT NULL DEFAULT 0,
+				memory_sum  INTEGER NOT NULL DEFAULT 0,
+				memory_peak INTEGER NOT NULL DEFAULT 0,
+				memory_mib  INTEGER NOT NULL DEFAULT 0,
+				PRIMARY KEY (subject, bucket)
+			)`,
+		},
+		{
+			Module: "usage",
+			Index:  5,
+			SQL:    `CREATE INDEX usage_history_bucket ON usage_history (bucket)`,
+		},
 	}
 }
 
 func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/usage", httpx.Wrap(m.log, m.handler.list))
 	mux.Handle("GET /v1/usage/nodes", httpx.Wrap(m.log, m.handler.listNodes))
+	mux.Handle("GET /v1/usage/history", httpx.Wrap(m.log, m.handler.history))
+	mux.Handle("GET /v1/usage/nodes/history", httpx.Wrap(m.log, m.handler.nodeHistory))
 	mux.Handle("PUT /v1/nodes/{nodeID}/usage", httpx.Wrap(m.log, m.handler.report))
 }
 

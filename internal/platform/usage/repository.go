@@ -119,3 +119,78 @@ func (r *repository) forget(ctx context.Context, nodeID string) error {
 	}
 	return nil
 }
+
+func (r *repository) accumulate(ctx context.Context, bucket int64, samples []Bucket, subjects []string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	for i, subject := range subjects {
+		sample := samples[i]
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO usage_history
+				(subject, bucket, samples, cpu_sum, cpu_peak, memory_sum, memory_peak, memory_mib)
+				VALUES (?, ?, 1, ?, ?, ?, ?, ?)
+				ON CONFLICT (subject, bucket) DO UPDATE SET
+					samples = samples + 1,
+					cpu_sum = cpu_sum + excluded.cpu_sum,
+					cpu_peak = MAX(cpu_peak, excluded.cpu_peak),
+					memory_sum = memory_sum + excluded.memory_sum,
+					memory_peak = MAX(memory_peak, excluded.memory_peak),
+					memory_mib = excluded.memory_mib`,
+			subject, bucket, sample.CPUPeak, sample.CPUPeak,
+			sample.MemoryPeak, sample.MemoryPeak, sample.MemoryMiB)
+		if err != nil {
+			return fmt.Errorf("accumulate usage: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *repository) history(ctx context.Context, subject string, from int64) ([]Bucket, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT bucket, samples, cpu_sum, cpu_peak, memory_sum, memory_peak, memory_mib
+			FROM usage_history WHERE subject = ? AND bucket >= ? ORDER BY bucket`,
+		subject, from)
+	if err != nil {
+		return nil, fmt.Errorf("read usage history: %w", err)
+	}
+	defer rows.Close()
+
+	buckets := make([]Bucket, 0, 64)
+	for rows.Next() {
+		var (
+			at        int64
+			samples   int
+			cpuSum    float64
+			cpuPeak   float64
+			memorySum int
+		)
+		var bucket Bucket
+		if err := rows.Scan(&at, &samples, &cpuSum, &cpuPeak, &memorySum,
+			&bucket.MemoryPeak, &bucket.MemoryMiB); err != nil {
+			return nil, fmt.Errorf("scan a bucket: %w", err)
+		}
+
+		bucket.At = time.Unix(at*int64(BucketSize/time.Second), 0).UTC()
+		bucket.Samples = samples
+		bucket.CPUPeak = cpuPeak
+		if samples > 0 {
+			bucket.CPUAverage = cpuSum / float64(samples)
+			bucket.MemoryAverage = memorySum / samples
+		}
+		buckets = append(buckets, bucket)
+	}
+	return buckets, rows.Err()
+}
+
+func (r *repository) pruneHistory(ctx context.Context, before int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM usage_history WHERE bucket < ?`, before)
+	if err != nil {
+		return fmt.Errorf("prune usage history: %w", err)
+	}
+	return nil
+}
