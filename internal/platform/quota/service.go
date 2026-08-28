@@ -161,9 +161,15 @@ func refusal(d dimension) string {
 	if unit != "" {
 		unit = " " + unit
 	}
-	return fmt.Sprintf("the project is limited to %d%s of %s and already holds %d%s, "+
+
+	allowance := fmt.Sprintf("%d %s", d.limit, d.name)
+	if d.unit != "" {
+		allowance = fmt.Sprintf("%d %s of %s", d.limit, d.unit, d.name)
+	}
+
+	return fmt.Sprintf("the project is limited to %s and already holds %d%s, "+
 		"so %d%s more would not fit",
-		d.limit, unit, d.name, d.consumed, unit, d.claim, unit)
+		allowance, d.consumed, unit, d.claim, unit)
 }
 
 func (s *service) remove(ctx context.Context, projectID string) error {
