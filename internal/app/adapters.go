@@ -7,6 +7,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/balancer"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/event"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
@@ -17,6 +18,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/webhook"
 )
 
 type nodeSource struct {
@@ -185,6 +187,38 @@ func (s balancerMembers) Member(ctx context.Context, instanceID string) (balance
 		Address:   nic.IP,
 		Running:   in.Observed == instance.ObservedRunning,
 	}, nil
+}
+
+type webhookEvents struct {
+	events *event.Module
+}
+
+func (w webhookEvents) Since(
+	ctx context.Context, afterID int64, limit int,
+) ([]webhook.Event, error) {
+	entries, err := w.events.Since(ctx, afterID, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]webhook.Event, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, webhook.Event{
+			ID:        entry.ID,
+			At:        entry.At,
+			ProjectID: entry.ProjectID,
+			Kind:      entry.Kind,
+			Subject:   entry.Subject,
+			NodeID:    entry.NodeID,
+			Message:   entry.Message,
+			Severity:  entry.Severity,
+		})
+	}
+	return out, nil
+}
+
+func (w webhookEvents) NewestID(ctx context.Context) (int64, error) {
+	return w.events.NewestID(ctx)
 }
 
 type usageWorkloads struct {

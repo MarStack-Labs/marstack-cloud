@@ -726,6 +726,80 @@ ones are dropped in the background. If you need events past that, take them out
 to somewhere built for retention; this is here so an operator can answer a
 question now, not to be a system of record.
 
+## Telling somebody an event happened
+
+Events could only be asked for. A platform that knows a workload is restarting in
+a loop but cannot say so is half useful, so an endpoint can subscribe:
+
+```sh
+marstack webhook create --name ops --url http://192.168.107.2:9999/hook --kind "instance.*"
+```
+
+```
+NAME   ID                 STATE    KINDS        URL
+ops    wh-panss0sas12n0   active   instance.*   http://192.168.107.2:9999/hook
+
+signing secret: whsec_...
+this is the only time it is shown
+```
+
+Each delivery is a POST signed with HMAC-SHA256 of the body in
+`Marstack-Signature`, verified end to end against a real receiver:
+
+```
+instance.placed      sig_valid=True  {'kind': 'instance.placed',    'subject': 'i-0s5f...', 'attempt': 1}
+instance.running     sig_valid=True  {'kind': 'instance.running',   'subject': 'i-0s5f...', 'attempt': 1}
+instance.restarted   sig_valid=True  {'kind': 'instance.restarted', 'subject': 'i-0s5f...', 'attempt': 1}
+```
+
+`instance.*` matches a family; naming no kinds means everything in the project.
+
+**Nothing pushes into the webhook module.** It walks the event table from a
+persisted cursor, so recording an event never waits on HTTP, a restart resumes
+where it stopped, and an event is fanned out exactly once. A new subscription
+starts from now rather than replaying history.
+
+Delivery is queued and retried with a growing backoff, then given up on:
+
+```
+WHEN                  KIND                 STATE       TRIES   WHY
+2026-08-28T16:59:06   instance.restarted   delivered   1       -
+2026-08-28T17:00:11   instance.restarted   pending     1       dial tcp 192.168.107.2:9999: connect: connection refused
+2026-08-28T16:59:36   instance.restarted   pending     3       dial tcp 192.168.107.2:9999: connect: connection refused
+```
+
+A target that is briefly down loses nothing; a target that is gone stops being
+retried instead of queueing forever.
+
+### The URL is caller-chosen, so it is a way in
+
+Posting to an address somebody else picked makes the control plane a request
+forwarder. Three things stop that being useful to an attacker:
+
+- **Loopback and link-local are refused at the dial**, not at create. Checking
+  the URL then connecting is a race a DNS answer can win, so the check runs on
+  the address actually being connected to:
+
+```
+$ marstack webhook deliveries loopback
+KIND                 STATE     TRIES   WHY
+instance.restarted   pending   1       refusing to post to loopback: that is the control plane itself
+```
+
+- **Redirects are not followed.** A `302` to `127.0.0.1` would otherwise walk
+  straight around the check.
+- **No credentials are ever attached**, and credentials in the URL are refused
+  at create rather than silently dropped.
+
+Private ranges *are* allowed, because that is where a private fleet lives. The
+addresses worth refusing are the ones that mean something specific: the control
+plane itself and a metadata service.
+
+**The signing secret is stored recoverable**, unlike an API token, because
+signing needs it. A stolen control-plane database therefore exposes webhook
+secrets, which is true of every webhook implementation and worth knowing rather
+than assuming otherwise.
+
 ## Asking what happened earlier
 
 Usage used to be one row per subject: the latest sample and nothing else. There
@@ -1318,6 +1392,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 31  a balancer that follows a service                 done
 32  cordon and drain a node                           done
 33  bounded usage history                             done
+34  webhooks: tell somebody an event happened         done
 ```
 
 ## License

@@ -66,6 +66,14 @@ func (m *Module) Record(ctx context.Context, entry events.Entry) {
 	m.svc.record(ctx, entry)
 }
 
+func (m *Module) Since(ctx context.Context, afterID int64, limit int) ([]Entry, error) {
+	return m.svc.since(ctx, afterID, limit)
+}
+
+func (m *Module) NewestID(ctx context.Context) (int64, error) {
+	return m.svc.newestID(ctx)
+}
+
 func (m *Module) Count(ctx context.Context) (int, error) {
 	return m.svc.count(ctx)
 }

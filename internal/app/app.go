@@ -31,6 +31,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/webhook"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -80,6 +81,7 @@ type App struct {
 	projects  *project.Module
 	backups   *backup.Module
 	services  *service.Module
+	webhooks  *webhook.Module
 	tokens    *token.Module
 	trail     *audit.Module
 	scheduler *scheduler.Scheduler
@@ -113,6 +115,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	keys := keypair.New(st, log)
 	events := event.New(st, log)
 	services := service.New(st, log)
+	webhooks := webhook.New(st, log)
 	projects := project.New(st, log)
 	quotas := quota.New(st, log)
 	tokens := token.New(st, log, cfg.Now)
@@ -143,6 +146,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.projects = projects
 	a.backups = backups
 	a.services = services
+	a.webhooks = webhooks
 
 	a.modules = []Module{
 		system.New(st, log),
@@ -162,6 +166,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		quotas,
 		events,
 		services,
+		webhooks,
 		keys,
 		tokens,
 	}
@@ -173,6 +178,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	services.UseWorkloads(serviceWorkloads{instances: instances})
 	services.UseEvents(events)
 	balancers.UseServices(services)
+	webhooks.UseEvents(webhookEvents{events: events})
 	instances.UseFirewalls(firewalls)
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},
@@ -301,6 +307,7 @@ func (a *App) Run(ctx context.Context) error {
 	go a.scheduler.Run(ctx)
 	go a.backups.Run(ctx)
 	go a.services.Run(ctx)
+	go a.webhooks.Run(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

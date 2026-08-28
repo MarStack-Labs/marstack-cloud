@@ -218,6 +218,29 @@ asked for thirty does not hand the scheduler thirty placements at once. And it d
 blocked reason and clears it on any pass that reaches the target, because a service stuck behind a
 quota is a condition that repeats - the same lesson the scheduler taught about `instance.stranded`.
 
+## Webhooks
+
+The event module gave the platform a memory; this gives it a voice. The question was how delivery
+connects to recording, and there were two shapes: `event` calls `webhook` when it records, or
+`webhook` walks the event table from a cursor.
+
+The cursor won, for three reasons that all point the same way. `Record` returns no error and must
+never block, so doing HTTP inside it is wrong. A persisted cursor makes fan-out exactly-once across
+a control-plane restart, which an in-memory call cannot promise. And it keeps the dependency one way:
+`webhook` declares `Events` and `app` adapts it, while `event` stays unaware anything is listening.
+
+Delivery is a queue, not a call. A row per delivery with an attempt count and a next-attempt time
+means a briefly unreachable target loses nothing and an unreachable one stops being retried, and
+both are inspectable afterwards rather than only in a log.
+
+The security work is where the real thinking went. A webhook URL is attacker-controlled by
+construction, so the module is a request forwarder unless stopped. The guard therefore runs in
+`net.Dialer.Control`, on the address actually being connected to, because validating a hostname and
+then connecting is a race that a second DNS answer wins. Redirects are refused for the same reason:
+a `302` to loopback walks around any check made earlier. What is refused is deliberately narrow -
+loopback and link-local - because private ranges are where a private fleet lives, and refusing them
+would make the feature useless while buying nothing.
+
 ## Events
 
 `audit` was already there and does not answer the question. It records requests: actor, method,

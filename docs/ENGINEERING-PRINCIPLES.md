@@ -210,6 +210,23 @@ make check      # vet + test + security scans
 - Probe thresholds live in the agent's memory, so an agent restart re-earns every verdict from
   scratch. The control-plane grace is what stops that from looking like an outage; it must stay
   comfortably larger than the reconcile interval.
+- The webhook module walks the event table from a persisted cursor rather than being called when an
+  event is recorded. `events.Recorder.Record` must never wait on HTTP or fail, and a cursor is what
+  makes fan-out exactly-once across a restart. Do not "simplify" it into a direct call.
+- A fresh cursor is seeded to the newest event id, not to zero. Otherwise the first pass after
+  adding a webhook replays the whole ring at it.
+- A webhook target is an address the caller chose, which makes the control plane a request
+  forwarder if it is not guarded. The guard runs in `net.Dialer.Control` on the address actually
+  dialled, not on the parsed URL: checking a hostname then connecting is a race a DNS answer wins.
+  Redirects are not followed for the same reason.
+- Loopback and link-local are refused; private ranges are allowed on purpose, because a private
+  fleet lives there. The refusals are the addresses that mean something specific - the control plane
+  itself, and a metadata service.
+- `AllowLoopbackBecauseThisIsATest` exists because `httptest` binds loopback and the guard refuses
+  it. The name is ugly so nobody reaches for it in production. The guard itself is unit tested
+  separately, and one app test deliberately does not call it so the refusal stays covered.
+- A webhook signing secret is stored recoverable, unlike an API token, because signing needs it.
+  It is shown once on create and never served again, but a stolen database exposes it.
 - `audit` records calls somebody made; `event` records what the platform did with no caller.
   They are not the same table and neither replaces the other. Audit is admin-only because it is
   governance; events are member-readable because they are about the caller's own workloads.

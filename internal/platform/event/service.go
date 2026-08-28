@@ -104,6 +104,17 @@ func (s *service) list(ctx context.Context, filter Filter) ([]Entry, error) {
 	return s.repo.list(ctx, filter)
 }
 
+func (s *service) since(ctx context.Context, afterID int64, limit int) ([]Entry, error) {
+	if limit <= 0 || limit > MaxLimit {
+		limit = MaxLimit
+	}
+	return s.repo.since(ctx, afterID, limit)
+}
+
+func (s *service) newestID(ctx context.Context) (int64, error) {
+	return s.repo.newestID(ctx)
+}
+
 func (s *service) count(ctx context.Context) (int, error) {
 	return s.repo.count(ctx)
 }

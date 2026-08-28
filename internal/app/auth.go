@@ -70,6 +70,14 @@ var memberPaths = []string{
 	"GET /v1/dns/records",
 	"GET /v1/events",
 
+	"GET /v1/webhooks",
+	"GET /v1/webhooks/{id}",
+	"GET /v1/webhooks/{id}/deliveries",
+	"POST /v1/webhooks",
+	"POST /v1/webhooks/{id}/pause",
+	"POST /v1/webhooks/{id}/resume",
+	"DELETE /v1/webhooks/{id}",
+
 	"GET /v1/services",
 	"GET /v1/services/{id}",
 	"POST /v1/services",
