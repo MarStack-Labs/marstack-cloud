@@ -227,6 +227,11 @@ make check      # vet + test + security scans
   since serving one would mean the module knowing which callers are admins.
 - `events.Recorder.Record` returns no error on purpose. Recording must never fail the operation
   that caused it, so a write that fails is logged by the event module and dropped.
+- Anything the scheduler does runs again on the next pass, so an event emitted there needs to be
+  keyed on a transition, not on a condition. `instance.placed` is safe because a placed instance
+  stops being pending; `instance.stranded` is not, which is why the scheduler keeps a set of the
+  instances it has already reported and clears it when they stop being stranded. A held placement
+  emits nothing at all for the same reason - the reason is already on the instance.
 - `kernel/events` holds the `Entry` and `Recorder` only. Storage lives in `platform/event`, and
   producers depend on the kernel interface so five modules do not each declare an identical one -
   the same reasoning that moved the keyring into `kernel/sealed`.

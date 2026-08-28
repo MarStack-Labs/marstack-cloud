@@ -62,6 +62,7 @@ func (s instanceSource) PendingPlacement(ctx context.Context) ([]scheduler.Pendi
 	for _, in := range waiting {
 		pending = append(pending, scheduler.Pending{
 			ID:        in.ID,
+			ProjectID: in.ProjectID,
 			Name:      in.Name,
 			NetworkID: in.NetworkID,
 			Group:     in.Group,
@@ -81,6 +82,7 @@ func (s instanceSource) StrandedOn(ctx context.Context, nodeIDs []string) ([]sch
 	for _, in := range stranded {
 		out = append(out, scheduler.Stranded{
 			ID:        in.ID,
+			ProjectID: in.ProjectID,
 			Name:      in.Name,
 			NodeID:    in.NodeID,
 			Isolation: string(in.Isolation),

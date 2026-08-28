@@ -681,6 +681,16 @@ WHEN                  SEVERITY   KIND                 SUBJECT           MESSAGE
 2026-08-28T06:24:21   info       instance.running     i-xe25vnmf91kzw   observed pending to running
 ```
 
+Five things record themselves today:
+
+| Kind | When |
+|---|---|
+| `instance.placed` | the scheduler chose a node |
+| `instance.running` / `.stopped` / `.failed` / `.restarted` | the observed state moved |
+| `instance.rescheduled` | its node stopped answering and it was released |
+| `instance.stranded` | its node stopped answering and its disk means it cannot move |
+| `backup.ready` / `backup.failed` | a copy landed, or a node gave up on one |
+
 Filter by what you are chasing:
 
 ```sh
@@ -700,6 +710,13 @@ wrong is how a log becomes noise. An agent restarting forgets its restart
 counters, so it re-reports every workload it adopts with the count reset to
 zero. That is a changed row and not a changed workload, and it is deliberately
 not an event: restarting an agent holding a dozen instances records nothing.
+
+A placement held by a strict group is deliberately *not* an event: the scheduler
+retries it every pass, so it would write a row every few seconds for as long as
+the instance waits. The reason already lives on the instance itself. The same
+thought applies to a workload stranded on a dead node, which the scheduler also
+revisits every pass — that one is recorded, but only on the pass where it starts
+being stranded, and again only if its node recovers and dies a second time.
 
 Events are project-scoped like everything else, and a viewer can read them —
 seeing why your own instance died is the least a read-only role should offer.

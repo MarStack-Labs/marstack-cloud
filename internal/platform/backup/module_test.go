@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
@@ -843,5 +844,94 @@ func TestTheBackupModuleNeverOpensTheEnvelopeItCarries(t *testing.T) {
 	if strings.Contains(body, "sealed-volume-key") {
 		t.Fatal("the wrapped volume key is served to operators, and a key that travels on " +
 			"every list is a key that ends up in a log")
+	}
+}
+
+type recorder struct {
+	entries []events.Entry
+}
+
+func (r *recorder) Record(_ context.Context, entry events.Entry) {
+	r.entries = append(r.entries, entry)
+}
+
+func (r *recorder) of(kind string) []events.Entry {
+	matching := []events.Entry{}
+	for _, entry := range r.entries {
+		if entry.Kind == kind {
+			matching = append(matching, entry)
+		}
+	}
+	return matching
+}
+
+func TestABackupBecomingReadyIsRecorded(t *testing.T) {
+	h, m, _ := newTestModule(t)
+
+	seen := &recorder{}
+	m.UseEvents(seen)
+
+	created := newBackup(t, h, "nightly")
+	if rec := upload(t, h, created.ID, "some bytes"); rec.Code != http.StatusOK {
+		t.Fatalf("upload: %d %s", rec.Code, rec.Body.String())
+	}
+
+	ready := seen.of("backup.ready")
+	if len(ready) != 1 {
+		t.Fatalf("events = %+v, want the backup landing recorded", seen.entries)
+	}
+	if ready[0].Subject != testVolume {
+		t.Fatalf("subject = %q, want the volume it protects", ready[0].Subject)
+	}
+	if ready[0].ProjectID != testProject {
+		t.Fatalf("project = %q, want it set or the event is invisible", ready[0].ProjectID)
+	}
+	if ready[0].Severity != events.Info {
+		t.Fatalf("severity = %q, want info", ready[0].Severity)
+	}
+}
+
+func TestANodeGivingUpOnABackupIsRecorded(t *testing.T) {
+	h, m, _ := newTestModule(t)
+
+	seen := &recorder{}
+	m.UseEvents(seen)
+
+	created := newBackup(t, h, "nightly")
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/v1/nodes/"+testNode+"/backups/"+created.ID+"/failure",
+		strings.NewReader(`{"message":"qemu-img could not read the volume"}`))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent && rec.Code != http.StatusOK {
+		t.Fatalf("report failure: %d %s", rec.Code, rec.Body.String())
+	}
+
+	failed := seen.of("backup.failed")
+	if len(failed) != 1 {
+		t.Fatalf("events = %+v, want the failure recorded", seen.entries)
+	}
+	if failed[0].Severity != events.Error {
+		t.Fatalf("severity = %q, want error: a backup that did not happen is not routine",
+			failed[0].Severity)
+	}
+	if !strings.Contains(failed[0].Message, "could not read the volume") {
+		t.Fatalf("message = %q, want the reason the node gave", failed[0].Message)
+	}
+}
+
+func TestAReUploadOfAReadyBackupRecordsNothingNew(t *testing.T) {
+	h, m, _ := newTestModule(t)
+
+	seen := &recorder{}
+	m.UseEvents(seen)
+
+	created := newBackup(t, h, "nightly")
+	upload(t, h, created.ID, "some bytes")
+	upload(t, h, created.ID, "some bytes")
+
+	if ready := seen.of("backup.ready"); len(ready) != 1 {
+		t.Fatalf("events = %d, want one rather than one per retry", len(ready))
 	}
 }

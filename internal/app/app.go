@@ -115,6 +115,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	tokens := token.New(st, log, cfg.Now)
 
 	backups.UseVolumes(backupVolumes{volumes: volumes})
+	backups.UseEvents(events)
 	volumes.UseBackups(volumeBackups{backups: backups})
 	volumes.UseKeys(sealed.NewKeyring(cfg.BackupKeys))
 	tokens.UseProjects(projects)
@@ -173,6 +174,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	)
 
 	a.scheduler.UseLoad(nodeLoad{usage: usages, now: time.Now})
+	a.scheduler.UseEvents(events)
 
 	if err := a.migrate(ctx); err != nil {
 		st.Close()

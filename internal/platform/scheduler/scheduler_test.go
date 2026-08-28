@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
 )
 
@@ -493,5 +494,106 @@ func TestWithoutStrictAGroupDoublesUpRatherThanStall(t *testing.T) {
 	}
 	if len(instances.assignments) != 1 {
 		t.Fatalf("assignments = %+v, want it placed anyway", instances.assignments)
+	}
+}
+
+type collector struct {
+	entries []events.Entry
+}
+
+func (c *collector) Record(_ context.Context, entry events.Entry) {
+	c.entries = append(c.entries, entry)
+}
+
+func (c *collector) of(kind string) []events.Entry {
+	matching := []events.Entry{}
+	for _, entry := range c.entries {
+		if entry.Kind == kind {
+			matching = append(matching, entry)
+		}
+	}
+	return matching
+}
+
+func TestAStrandedWorkloadIsRecordedOnceRatherThanEveryTick(t *testing.T) {
+	nodes := &fakeNodes{unreachable: []string{"n-dead"}}
+	instances := &fakeInstances{stranded: []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "db", NodeID: "n-dead", Isolation: "vm"},
+	}}
+
+	seen := &collector{}
+	s := newTestScheduler(nodes, instances)
+	s.UseEvents(seen)
+
+	for range 5 {
+		if err := s.Tick(context.Background()); err != nil {
+			t.Fatalf("tick: %v", err)
+		}
+	}
+
+	stranded := seen.of("instance.stranded")
+	if len(stranded) != 1 {
+		t.Fatalf("events = %d, want one rather than one per pass while the node stays dead",
+			len(stranded))
+	}
+	if stranded[0].Severity != events.Error {
+		t.Fatalf("severity = %q, want error: nothing will move it", stranded[0].Severity)
+	}
+	if stranded[0].ProjectID != "prj-default" {
+		t.Fatalf("project = %q, want it set or the event is invisible", stranded[0].ProjectID)
+	}
+}
+
+func TestAStrandedWorkloadIsRecordedAgainAfterItsNodeRecovers(t *testing.T) {
+	nodes := &fakeNodes{unreachable: []string{"n-dead"}}
+	instances := &fakeInstances{stranded: []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "db", NodeID: "n-dead", Isolation: "vm"},
+	}}
+
+	seen := &collector{}
+	s := newTestScheduler(nodes, instances)
+	s.UseEvents(seen)
+
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	nodes.unreachable = nil
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	nodes.unreachable = []string{"n-dead"}
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if stranded := seen.of("instance.stranded"); len(stranded) != 2 {
+		t.Fatalf("events = %d, want it recorded again after the node came back and died again",
+			len(stranded))
+	}
+}
+
+func TestReleasingAStrandedContainerIsRecorded(t *testing.T) {
+	nodes := &fakeNodes{unreachable: []string{"n-dead"}}
+	instances := &fakeInstances{stranded: []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "web", NodeID: "n-dead",
+			Isolation: "container"},
+	}}
+
+	seen := &collector{}
+	s := newTestScheduler(nodes, instances)
+	s.UseEvents(seen)
+
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	moved := seen.of("instance.rescheduled")
+	if len(moved) != 1 {
+		t.Fatalf("events = %+v, want the release recorded", moved)
+	}
+	if moved[0].NodeID != "n-dead" {
+		t.Fatalf("node_id = %q, want the node it was released from", moved[0].NodeID)
 	}
 }

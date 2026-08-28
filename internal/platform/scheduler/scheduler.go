@@ -4,7 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+	"sync"
 	"time"
+
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 )
 
 const (
@@ -23,6 +26,7 @@ type Candidate struct {
 
 type Pending struct {
 	ID        string
+	ProjectID string
 	Name      string
 	NetworkID string
 	Group     string
@@ -31,6 +35,7 @@ type Pending struct {
 
 type Stranded struct {
 	ID        string
+	ProjectID string
 	Name      string
 	NodeID    string
 	Isolation string
@@ -69,9 +74,13 @@ type Scheduler struct {
 	instances InstanceSource
 	addresses AddressSource
 	loads     LoadSource
+	events    events.Recorder
 	log       *slog.Logger
 	interval  time.Duration
 	grace     time.Duration
+
+	strandedMu sync.Mutex
+	stranded   map[string]bool
 }
 
 func New(
@@ -92,6 +101,17 @@ func New(
 		interval:  interval,
 		grace:     DefaultStrandedGrace,
 	}
+}
+
+func (s *Scheduler) UseEvents(recorder events.Recorder) {
+	s.events = recorder
+}
+
+func (s *Scheduler) note(ctx context.Context, entry events.Entry) {
+	if s.events == nil {
+		return
+	}
+	s.events.Record(ctx, entry)
 }
 
 func (s *Scheduler) UseLoad(loads LoadSource) {
@@ -178,6 +198,14 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		}
 		s.log.Info("instance placed",
 			"instance", p.ID, "name", p.Name, "node", target.Name, "group", p.Group)
+		s.note(ctx, events.Entry{
+			ProjectID: p.ProjectID,
+			Kind:      "instance.placed",
+			Subject:   p.ID,
+			NodeID:    target.ID,
+			Message:   "scheduled onto " + target.Name,
+			Severity:  events.Info,
+		})
 
 		if s.addresses == nil || p.NetworkID == "" {
 			continue
@@ -197,6 +225,7 @@ func (s *Scheduler) releaseStranded(ctx context.Context) error {
 		return err
 	}
 	if len(lost) == 0 {
+		s.forgetRecovered(nil)
 		return nil
 	}
 
@@ -205,10 +234,25 @@ func (s *Scheduler) releaseStranded(ctx context.Context) error {
 		return err
 	}
 
+	seen := make(map[string]bool, len(stranded))
 	for _, in := range stranded {
+		seen[in.ID] = true
+
 		if in.Isolation != movableIsolation {
 			s.log.Warn("leaving a workload on an unreachable node because moving it would lose its disk",
 				"instance", in.ID, "name", in.Name, "isolation", in.Isolation, "node", in.NodeID)
+			if s.alreadyStranded(in.ID) {
+				continue
+			}
+			s.note(ctx, events.Entry{
+				ProjectID: in.ProjectID,
+				Kind:      "instance.stranded",
+				Subject:   in.ID,
+				NodeID:    in.NodeID,
+				Message: "its node stopped answering, and isolation " + in.Isolation +
+					" cannot be moved without losing its disk",
+				Severity: events.Error,
+			})
 			continue
 		}
 
@@ -219,9 +263,43 @@ func (s *Scheduler) releaseStranded(ctx context.Context) error {
 		}
 		s.log.Info("released a workload from an unreachable node",
 			"instance", in.ID, "name", in.Name, "node", in.NodeID)
+		s.note(ctx, events.Entry{
+			ProjectID: in.ProjectID,
+			Kind:      "instance.rescheduled",
+			Subject:   in.ID,
+			NodeID:    in.NodeID,
+			Message:   "released from a node that stopped answering, waiting for a new one",
+			Severity:  events.Warn,
+		})
 	}
 
+	s.forgetRecovered(seen)
 	return nil
+}
+
+func (s *Scheduler) alreadyStranded(instanceID string) bool {
+	s.strandedMu.Lock()
+	defer s.strandedMu.Unlock()
+
+	if s.stranded == nil {
+		s.stranded = map[string]bool{}
+	}
+	if s.stranded[instanceID] {
+		return true
+	}
+	s.stranded[instanceID] = true
+	return false
+}
+
+func (s *Scheduler) forgetRecovered(seen map[string]bool) {
+	s.strandedMu.Lock()
+	defer s.strandedMu.Unlock()
+
+	for id := range s.stranded {
+		if !seen[id] {
+			delete(s.stranded, id)
+		}
+	}
 }
 
 func bestFor(

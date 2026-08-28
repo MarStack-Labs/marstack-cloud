@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type eventBody struct {
@@ -53,7 +54,7 @@ func TestAWorkloadComingUpIsRecorded(t *testing.T) {
 	}
 	reportState(t, a, nodeID, id, `{"observed_state":"running"}`)
 
-	entries := readEvents(t, a, a.secret, "?subject="+id)
+	entries := readEvents(t, a, a.secret, "?subject="+id+"&kind=instance.running")
 	if len(entries) != 1 {
 		t.Fatalf("events = %+v, want the one transition", entries)
 	}
@@ -118,7 +119,8 @@ func TestRepeatingTheSameStateRecordsNothing(t *testing.T) {
 		reportState(t, a, nodeID, id, `{"observed_state":"running"}`)
 	}
 
-	if entries := readEvents(t, a, a.secret, "?subject="+id); len(entries) != 1 {
+	entries := readEvents(t, a, a.secret, "?subject="+id+"&kind=instance.running")
+	if len(entries) != 1 {
 		t.Fatalf("events = %d, want one rather than one per report", len(entries))
 	}
 }
@@ -227,11 +229,14 @@ func TestEventsComeBackNewestFirst(t *testing.T) {
 	reportState(t, a, nodeID, id, `{"observed_state":"failed","message":"died"}`)
 
 	entries := readEvents(t, a, a.secret, "?subject="+id)
-	if len(entries) != 2 {
-		t.Fatalf("events = %d, want both transitions", len(entries))
+	if len(entries) < 2 {
+		t.Fatalf("events = %d, want at least both transitions", len(entries))
 	}
 	if entries[0].Kind != "instance.failed" {
 		t.Fatalf("first = %q, want the newest first", entries[0].Kind)
+	}
+	if entries[len(entries)-1].Kind != "instance.placed" {
+		t.Fatalf("last = %q, want the oldest last", entries[len(entries)-1].Kind)
 	}
 }
 
@@ -254,7 +259,46 @@ func TestAnAgentForgettingItsRestartCountIsNotATransition(t *testing.T) {
 				"nothing happened to the workload", entry.Kind)
 		}
 	}
-	if len(entries) != 2 {
-		t.Fatalf("events = %d, want the two real transitions", len(entries))
+	kinds := map[string]int{}
+	for _, entry := range entries {
+		kinds[entry.Kind]++
+	}
+	if kinds["instance.running"] != 1 || kinds["instance.restarted"] != 1 {
+		t.Fatalf("kinds = %v, want exactly the two real transitions", kinds)
+	}
+}
+
+func TestPlacingAnInstanceIsRecorded(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	id := newInstance(t, a, a.secret, "web-1")
+	if placed := waitForPlacement(t, a, id); placed == "" {
+		t.Fatal("never placed")
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		entries := readEvents(t, a, a.secret, "?subject="+id+"&kind=instance.placed")
+		if len(entries) == 1 {
+			if entries[0].NodeID != nodeID {
+				t.Fatalf("node_id = %q, want the node it landed on", entries[0].NodeID)
+			}
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("placing an instance recorded nothing")
+}
+
+func TestPlacementIsRecordedOnceRatherThanEveryTick(t *testing.T) {
+	a, _ := newBalancingApp(t)
+
+	id := newInstance(t, a, a.secret, "web-1")
+	waitForPlacement(t, a, id)
+	time.Sleep(150 * time.Millisecond)
+
+	entries := readEvents(t, a, a.secret, "?subject="+id+"&kind=instance.placed")
+	if len(entries) != 1 {
+		t.Fatalf("events = %d, want one rather than one per scheduling pass", len(entries))
 	}
 }

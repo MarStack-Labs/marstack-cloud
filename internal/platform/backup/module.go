@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
@@ -132,6 +133,10 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("PUT /v1/nodes/{nodeID}/backups/{id}/content", httpx.Wrap(m.log, m.handler.upload))
 	mux.Handle("POST /v1/nodes/{nodeID}/backups/{id}/failure", httpx.Wrap(m.log, m.handler.fail))
 	mux.Handle("GET /v1/nodes/{nodeID}/backups/{id}/content", httpx.Wrap(m.log, m.handler.download))
+}
+
+func (m *Module) UseEvents(recorder events.Recorder) {
+	m.svc.events = recorder
 }
 
 func (m *Module) UseVolumes(v Volumes) {

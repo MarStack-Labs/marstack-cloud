@@ -7,6 +7,9 @@ import (
 	"io"
 	"time"
 
+	"strconv"
+
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/interval"
@@ -23,7 +26,22 @@ type service struct {
 	repo    *repository
 	vault   *vault
 	volumes Volumes
+	events  events.Recorder
 	now     clock
+}
+
+func (s *service) note(ctx context.Context, b Backup, kind, message string, severity events.Severity) {
+	if s.events == nil {
+		return
+	}
+	s.events.Record(ctx, events.Entry{
+		ProjectID: b.ProjectID,
+		Kind:      kind,
+		Subject:   b.VolumeID,
+		NodeID:    b.NodeID,
+		Message:   message,
+		Severity:  severity,
+	})
 }
 
 func newService(repo *repository, vault *vault, now clock) *service {
@@ -136,6 +154,7 @@ func (s *service) store(ctx context.Context, id, nodeID string, content io.Reade
 		if markErr != nil {
 			return Backup{}, fault.Internal(markErr)
 		}
+		s.note(ctx, b, "backup.failed", b.ID+": "+err.Error(), events.Error)
 		return Backup{}, fault.Internal(err)
 	}
 
@@ -150,6 +169,8 @@ func (s *service) store(ctx context.Context, id, nodeID string, content io.Reade
 	b.Checksum = stored.Checksum
 	b.KeyID = stored.KeyID
 	b.UpdatedAt = at
+	s.note(ctx, b, "backup.ready", b.ID+" holds "+strconv.FormatInt(stored.Size, 10)+" bytes",
+		events.Info)
 
 	if b.ScheduleID != "" {
 		sc, err := s.repo.scheduleByID(ctx, b.ScheduleID)
@@ -176,7 +197,11 @@ func (s *service) fail(ctx context.Context, id, nodeID, message string) error {
 	if message == "" {
 		message = "the node could not copy the volume"
 	}
-	return translate(s.repo.mark(ctx, b.ID, StateFailed, message, 0, "", "", s.now()))
+	if err := s.repo.mark(ctx, b.ID, StateFailed, message, 0, "", "", s.now()); err != nil {
+		return translate(err)
+	}
+	s.note(ctx, b, "backup.failed", b.ID+": "+message, events.Error)
+	return nil
 }
 
 func (s *service) content(ctx context.Context, id string) (io.ReadCloser, int64, error) {
