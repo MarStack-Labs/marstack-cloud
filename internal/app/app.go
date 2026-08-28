@@ -136,6 +136,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		volumes:   volumes,
 	})
 	usages := usage.New(st, log)
+	usages.UseWorkloads(usageWorkloads{instances: instances})
 	trail := audit.New(st, log)
 	a.trail = trail
 	a.tokens = tokens

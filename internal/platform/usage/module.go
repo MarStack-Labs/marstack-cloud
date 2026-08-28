@@ -62,7 +62,16 @@ func (m *Module) Migrations() []store.Migration {
 
 func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/usage", httpx.Wrap(m.log, m.handler.list))
+	mux.Handle("GET /v1/usage/nodes", httpx.Wrap(m.log, m.handler.listNodes))
 	mux.Handle("PUT /v1/nodes/{nodeID}/usage", httpx.Wrap(m.log, m.handler.report))
+}
+
+type Workloads interface {
+	IDsIn(ctx context.Context, projectID string) ([]string, error)
+}
+
+func (m *Module) UseWorkloads(workloads Workloads) {
+	m.svc.workloads = workloads
 }
 
 func (m *Module) Nodes(ctx context.Context) ([]NodeSample, error) {

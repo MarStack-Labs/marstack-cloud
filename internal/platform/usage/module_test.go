@@ -24,6 +24,7 @@ func newTestModule(t *testing.T) (http.Handler, *Module) {
 	t.Cleanup(func() { st.Close() })
 
 	m := New(st, logging.New("error", io.Discard))
+	m.UseWorkloads(everyWorkload{})
 	if err := st.Migrate(ctx, m.Migrations()); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -54,11 +55,25 @@ func request(t *testing.T, h http.Handler, method, path, body string) *httptest.
 func read(t *testing.T, h http.Handler) listResponse {
 	t.Helper()
 
-	var body listResponse
-	if err := json.Unmarshal(request(t, h, http.MethodGet, "/v1/usage", "").Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
+	var nodes listResponse
+	if err := json.Unmarshal(
+		request(t, h, http.MethodGet, "/v1/usage/nodes", "").Body.Bytes(), &nodes); err != nil {
+		t.Fatalf("decode nodes: %v", err)
 	}
-	return body
+
+	var instances listResponse
+	if err := json.Unmarshal(
+		request(t, h, http.MethodGet, "/v1/usage", "").Body.Bytes(), &instances); err != nil {
+		t.Fatalf("decode instances: %v", err)
+	}
+
+	return listResponse{Nodes: nodes.Nodes, Instances: instances.Instances}
+}
+
+type everyWorkload struct{}
+
+func (everyWorkload) IDsIn(context.Context, string) ([]string, error) {
+	return []string{"i-1", "i-2", "i-3", "i-4"}, nil
 }
 
 func TestANodeReportReplacesTheLastOne(t *testing.T) {

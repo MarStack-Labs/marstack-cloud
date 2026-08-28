@@ -12,8 +12,9 @@ const MaxSamples = 512
 type clock func() time.Time
 
 type service struct {
-	repo *repository
-	now  clock
+	repo      *repository
+	workloads Workloads
+	now       clock
 }
 
 func newService(repo *repository, now clock) *service {
@@ -59,8 +60,34 @@ func (s *service) nodes(ctx context.Context) ([]NodeSample, error) {
 	return s.repo.nodes(ctx)
 }
 
-func (s *service) instances(ctx context.Context) ([]InstanceSample, error) {
-	return s.repo.instances(ctx)
+func (s *service) instancesIn(ctx context.Context, projectID string) ([]InstanceSample, error) {
+	if s.workloads == nil {
+		return nil, fault.Unavailable("workloads_unavailable",
+			"the platform cannot tell which project an instance belongs to")
+	}
+
+	held, err := s.workloads.IDsIn(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	wanted := make(map[string]bool, len(held))
+	for _, id := range held {
+		wanted[id] = true
+	}
+
+	all, err := s.repo.instances(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	mine := make([]InstanceSample, 0, len(all))
+	for _, sample := range all {
+		if wanted[sample.InstanceID] {
+			mine = append(mine, sample)
+		}
+	}
+	return mine, nil
 }
 
 func (s *service) forget(ctx context.Context, nodeID string) error {

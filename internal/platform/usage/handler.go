@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type reportRequest struct {
@@ -76,21 +77,13 @@ func (h *handler) report(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
+func (h *handler) listNodes(w http.ResponseWriter, r *http.Request) error {
 	nodes, err := h.svc.nodes(r.Context())
 	if err != nil {
 		return err
 	}
 
-	instances, err := h.svc.instances(r.Context())
-	if err != nil {
-		return err
-	}
-
-	body := listResponse{
-		Nodes:     make([]nodeResponse, 0, len(nodes)),
-		Instances: make([]instanceResponse, 0, len(instances)),
-	}
+	body := listResponse{Nodes: make([]nodeResponse, 0, len(nodes)), Instances: []instanceResponse{}}
 	for _, sample := range nodes {
 		body.Nodes = append(body.Nodes, nodeResponse{
 			NodeID:        sample.NodeID,
@@ -99,6 +92,21 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 			MemoryMiB:     sample.MemoryMiB,
 			ReportedAt:    sample.ReportedAt.Format(time.RFC3339Nano),
 		})
+	}
+
+	httpx.Write(w, http.StatusOK, body)
+	return nil
+}
+
+func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
+	instances, err := h.svc.instancesIn(r.Context(), scope.From(r.Context()).ProjectID)
+	if err != nil {
+		return err
+	}
+
+	body := listResponse{
+		Nodes:     []nodeResponse{},
+		Instances: make([]instanceResponse, 0, len(instances)),
 	}
 	for _, sample := range instances {
 		body.Instances = append(body.Instances, instanceResponse{

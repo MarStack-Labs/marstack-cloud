@@ -38,13 +38,20 @@ func newUsageCmd(g *globals) *cobra.Command {
 		Use:   "usage",
 		Short: "Show what each node and instance is actually using",
 		Long: "Show what each node and instance is actually using.\n\n" +
-			"Only the latest sample is kept. This is not a time series - point a real\n" +
-			"metrics stack at it if you need history.",
+			"Instance usage is scoped to your project. Node load is administrative, since it\n" +
+			"is infrastructure rather than yours, so a member sees only the instance rows.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var view usageView
 			if err := g.client().do(cmd.Context(), "GET", "/v1/usage", nil, &view); err != nil {
 				return err
+			}
+
+			var nodes usageView
+			if err := g.client().do(
+				cmd.Context(), "GET", "/v1/usage/nodes", nil, &nodes,
+			); err == nil {
+				view.Nodes = nodes.Nodes
 			}
 
 			rows := make([][]string, 0, len(view.Nodes)+len(view.Instances))

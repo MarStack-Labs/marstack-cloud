@@ -227,6 +227,13 @@ make check      # vet + test + security scans
   since serving one would mean the module knowing which callers are admins.
 - `events.Recorder.Record` returns no error on purpose. Recording must never fail the operation
   that caused it, so a write that fails is logged by the event module and dropped.
+- `GET /v1/usage` is scoped to the caller's project and `GET /v1/usage/nodes` is administrative.
+  They were one unscoped route, which let any member read every project's instance load and the
+  node ids behind it. Splitting them follows the same precedent as images and firewalls: one path,
+  one audience. Do not merge them back for convenience.
+- The usage module cannot see projects on its own, so it declares `Workloads.IDsIn` and filters what
+  it stores against the caller's project. A sample whose instance is not in the project is dropped
+  rather than hidden by the handler, so nothing downstream can accidentally serve it.
 - Cordon and drain are state on the node, not actions: `schedulable` and `draining` are set by the
   API and the scheduler makes them true on its next pass. That is what makes a drain idempotent and
   survivable across a control-plane restart, and it is why the drain call returns immediately.

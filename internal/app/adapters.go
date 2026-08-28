@@ -187,6 +187,23 @@ func (s balancerMembers) Member(ctx context.Context, instanceID string) (balance
 	}, nil
 }
 
+type usageWorkloads struct {
+	instances *instance.Module
+}
+
+func (w usageWorkloads) IDsIn(ctx context.Context, projectID string) ([]string, error) {
+	held, err := w.instances.ListIn(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(held))
+	for _, in := range held {
+		ids = append(ids, in.ID)
+	}
+	return ids, nil
+}
+
 type serviceWorkloads struct {
 	instances *instance.Module
 }

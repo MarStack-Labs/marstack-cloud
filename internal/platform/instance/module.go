@@ -99,6 +99,10 @@ func (m *Module) Delete(ctx context.Context, id, projectID string) error {
 	return m.svc.delete(ctx, id, projectID)
 }
 
+func (m *Module) ListIn(ctx context.Context, projectID string) ([]Instance, error) {
+	return m.svc.listIn(ctx, projectID)
+}
+
 func (m *Module) All(ctx context.Context) ([]Instance, error) {
 	return m.svc.list(ctx)
 }
