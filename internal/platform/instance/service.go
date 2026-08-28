@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
@@ -22,6 +24,7 @@ type service struct {
 	volumes   Volumes
 	forwards  Forwards
 	balancers Balancers
+	events    events.Recorder
 	firewalls Firewalls
 }
 
@@ -214,6 +217,8 @@ func (s *service) reportObserved(
 		return Instance{}, fault.Invalid("invalid_restarts", "restarts must not be negative")
 	}
 
+	before, beforeErr := s.repo.get(ctx, instanceID)
+
 	if err := s.repo.setObserved(
 		ctx, instanceID, nodeID, ObservedState(observed), message, restarts, s.now(),
 	); err != nil {
@@ -224,7 +229,58 @@ func (s *service) reportObserved(
 		return Instance{}, translate(err)
 	}
 
-	return s.get(ctx, instanceID)
+	after, err := s.get(ctx, instanceID)
+	if err != nil {
+		return Instance{}, err
+	}
+	if beforeErr == nil {
+		s.noteTransition(ctx, before, after)
+	}
+	return after, nil
+}
+
+func (s *service) noteTransition(ctx context.Context, before, after Instance) {
+	if s.events == nil {
+		return
+	}
+	restarted := after.RestartCount > before.RestartCount
+	if before.Observed == after.Observed && !restarted {
+		return
+	}
+
+	entry := events.Entry{
+		ProjectID: after.ProjectID,
+		Subject:   after.ID,
+		NodeID:    after.NodeID,
+		Message:   after.ObservedMessage,
+	}
+
+	switch {
+	case restarted:
+		entry.Kind = "instance.restarted"
+		entry.Severity = events.Warn
+		entry.Message = "restart " + strconv.Itoa(after.RestartCount) + ": " + after.ObservedMessage
+	case after.Observed == ObservedRunning:
+		entry.Kind = "instance.running"
+		entry.Severity = events.Info
+	case after.Observed == ObservedFailed:
+		entry.Kind = "instance.failed"
+		entry.Severity = events.Error
+	case after.Observed == ObservedStopped:
+		entry.Kind = "instance.stopped"
+		entry.Severity = events.Info
+	case after.Observed == ObservedPending:
+		entry.Kind = "instance.pending"
+		entry.Severity = events.Warn
+	default:
+		entry.Kind = "instance." + string(after.Observed)
+		entry.Severity = events.Info
+	}
+
+	if entry.Message == "" {
+		entry.Message = "observed " + string(before.Observed) + " to " + string(after.Observed)
+	}
+	s.events.Record(ctx, entry)
 }
 
 func (s *service) pendingPlacement(ctx context.Context) ([]Instance, error) {

@@ -67,6 +67,7 @@ var memberPaths = []string{
 	"GET /v1/usage",
 	"GET /v1/quota",
 	"GET /v1/dns/records",
+	"GET /v1/events",
 
 	"GET /v1/keys",
 	"POST /v1/keys",

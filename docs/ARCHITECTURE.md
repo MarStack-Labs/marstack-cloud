@@ -155,6 +155,33 @@ simultaneous creates can both pass. That is stated in the README rather than pap
 the fix would be a cross-module transaction and the boundary is worth more than the last percent of
 strictness here.
 
+## Events
+
+`audit` was already there and does not answer the question. It records requests: actor, method,
+path, status. The things an operator actually chases - a workload restarting in a loop, a backend
+leaving a balancer - have no request behind them, so they were only ever in a log file on a node.
+
+The module that fixes that had two possible shapes. Either producers post events, or the control
+plane derives them. Deriving won: the control plane already stores every observed-state transition
+and every health verdict, so an event is a difference between two rows it already had. That gives
+one writer instead of one per node, makes dedup a local comparison rather than distributed
+agreement, and means an event cannot be a claim a node makes about itself.
+
+The interface lives in `kernel/events` rather than being declared five times over. A timestamped
+record with a subject and a severity is mechanism, not domain, which is the same argument that put
+the keyring in `kernel/sealed`. `Record` returns nothing: recording is a side effect of an
+operation and must never be able to fail it.
+
+The hard part is not storage, it is deciding what counts as a transition. Live verification caught
+the first answer being wrong - an agent restart forgets its restart counters, re-reports every
+instance it adopts with the count reset, and the naive "did any field change" test turned one agent
+restart into a dozen rows claiming workloads had come up. A transition is now a changed observed
+state or a rising restart count, and nothing else.
+
+Retention is a ring, pruned in the same shape `audit` uses. That is a deliberate limit rather than
+a missing feature: this exists to answer a question now, and anything needing real retention should
+be shipped out to something built for it.
+
 ## Balancing
 
 `forward` and `balancer` both hand out ports on a node, and their spaces overlap: a published port

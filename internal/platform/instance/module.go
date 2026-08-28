@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
@@ -64,6 +65,10 @@ func (m *Module) UseForwards(forwards Forwards) {
 
 func (m *Module) UseBalancers(balancers Balancers) {
 	m.svc.balancers = balancers
+}
+
+func (m *Module) UseEvents(recorder events.Recorder) {
+	m.svc.events = recorder
 }
 
 func (m *Module) UseKeys(k Keys) {

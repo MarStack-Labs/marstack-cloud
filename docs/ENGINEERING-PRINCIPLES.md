@@ -210,6 +210,26 @@ make check      # vet + test + security scans
 - Probe thresholds live in the agent's memory, so an agent restart re-earns every verdict from
   scratch. The control-plane grace is what stops that from looking like an outage; it must stay
   comfortably larger than the reconcile interval.
+- `audit` records calls somebody made; `event` records what the platform did with no caller.
+  They are not the same table and neither replaces the other. Audit is admin-only because it is
+  governance; events are member-readable because they are about the caller's own workloads.
+- Nothing posts an event. Events are derived in the control plane from transitions it already
+  stores, which is why there is no agent API for them. Adding one would let a node assert history
+  it cannot prove, and would need dedup logic on the receiving side.
+- A transition is a changed observed state or a *rising* restart count. A falling one means an
+  agent restarted and forgot its in-memory counters, not that anything happened to the workload -
+  treating that as an event makes every agent restart write one row per adopted instance.
+- `event.list` fails closed: an empty project id returns nothing rather than everything. Every
+  token carries a project, so this cannot happen over HTTP, and the day it can, silence is the
+  safe answer.
+- An event with no project id is invisible to every caller, because reads are strictly
+  project-scoped. Producers must always set `ProjectID`; there is deliberately no "global" feed,
+  since serving one would mean the module knowing which callers are admins.
+- `events.Recorder.Record` returns no error on purpose. Recording must never fail the operation
+  that caused it, so a write that fails is logged by the event module and dropped.
+- `kernel/events` holds the `Entry` and `Recorder` only. Storage lives in `platform/event`, and
+  producers depend on the kernel interface so five modules do not each declare an identical one -
+  the same reasoning that moved the keyring into `kernel/sealed`.
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead

@@ -15,6 +15,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/balancer"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/event"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/firewall"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/image"
@@ -108,6 +109,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	balancers := balancer.New(st, log)
 	firewalls := firewall.New(st, log)
 	keys := keypair.New(st, log)
+	events := event.New(st, log)
 	projects := project.New(st, log)
 	quotas := quota.New(st, log)
 	tokens := token.New(st, log, cfg.Now)
@@ -152,12 +154,15 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		trail,
 		projects,
 		quotas,
+		events,
 		keys,
 		tokens,
 	}
 	instances.UseVolumes(volumes)
 	instances.UseForwards(forwards)
 	instances.UseBalancers(balancers)
+	instances.UseEvents(events)
+	balancers.UseEvents(events)
 	instances.UseFirewalls(firewalls)
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},

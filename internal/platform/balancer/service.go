@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
@@ -27,6 +28,7 @@ type service struct {
 	repo    *repository
 	members Members
 	ports   Ports
+	events  events.Recorder
 	now     clock
 }
 
@@ -330,10 +332,53 @@ func (s *service) reportHealth(ctx context.Context, nodeID string, reports []Rep
 		return nil
 	}
 
+	was := map[string]Backend{}
+	for _, b := range known {
+		for _, backend := range b.Backends {
+			was[b.ID+"/"+backend.InstanceID] = backend
+		}
+	}
+
 	if err := s.repo.saveHealth(ctx, wanted, s.now()); err != nil {
 		return translate(err)
 	}
+
+	for _, report := range wanted {
+		s.noteFlip(ctx, was[report.BalancerID+"/"+report.InstanceID], report)
+	}
 	return nil
+}
+
+func (s *service) noteFlip(ctx context.Context, before Backend, report Report) {
+	if s.events == nil {
+		return
+	}
+
+	after := ProbeFailing
+	if report.Healthy {
+		after = ProbePassing
+	}
+	if before.Probe == after {
+		return
+	}
+
+	entry := events.Entry{
+		Subject:  report.InstanceID,
+		Message:  "balancer " + report.BalancerID + ": " + report.Reason,
+		Kind:     "backend.down",
+		Severity: events.Warn,
+	}
+	if report.Healthy {
+		entry.Kind = "backend.up"
+		entry.Severity = events.Info
+		entry.Message = "balancer " + report.BalancerID + ": the probe passes"
+	}
+
+	if member, err := s.members.Member(ctx, report.InstanceID); err == nil {
+		entry.ProjectID = member.ProjectID
+		entry.NodeID = member.NodeID
+	}
+	s.events.Record(ctx, entry)
 }
 
 func (s *service) remove(ctx context.Context, projectID, id string) error {

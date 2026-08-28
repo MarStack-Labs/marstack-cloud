@@ -657,6 +657,58 @@ reach a machine that has already booted, and deleting one does not lock you out
 of a machine already carrying it. The serial console password still works and is
 still written to `<runtime-root>/vms/<id>/console-login`, mode 0600.
 
+## What the platform did while nobody was looking
+
+The audit trail answers "who called what". It cannot answer "why did my instance
+restart at 3am", because nothing called anything — the reconcile loop did it.
+Until now that only existed in a log file on the node:
+
+```sh
+ssh bm-2 && sudo tail -f /var/log/marstack-agent.log      # the old answer
+```
+
+Events are the same information, from the API:
+
+```sh
+marstack event --limit 5
+```
+
+```
+WHEN                  SEVERITY   KIND                 SUBJECT           MESSAGE
+2026-08-28T06:24:50   warn       instance.restarted   i-xe25vnmf91kzw   restart 3: restarted after exited with code 127: /bin/sh: httpd: not found
+2026-08-28T06:24:41   warn       instance.restarted   i-xe25vnmf91kzw   restart 2: restarted after exited with code 127: /bin/sh: httpd: not found
+2026-08-28T06:24:31   warn       instance.restarted   i-xe25vnmf91kzw   restart 1: restarted after exited with code 127: /bin/sh: httpd: not found
+2026-08-28T06:24:21   info       instance.running     i-xe25vnmf91kzw   observed pending to running
+```
+
+Filter by what you are chasing:
+
+```sh
+marstack event --subject i-xe25vnmf91kzw     # one resource
+marstack event --kind backend.down           # one kind of trouble
+marstack event --severity error              # only the bad news
+```
+
+**Nothing posts an event.** The control plane derives them from transitions it
+already stores: an instance's observed state changing, a balancer backend's
+probe verdict flipping. That means one writer instead of one per node, and an
+event cannot be a node's opinion — it is a difference between two rows the
+platform already had.
+
+It also means the definition of "a transition" has to be exact, and getting it
+wrong is how a log becomes noise. An agent restarting forgets its restart
+counters, so it re-reports every workload it adopts with the count reset to
+zero. That is a changed row and not a changed workload, and it is deliberately
+not an event: restarting an agent holding a dozen instances records nothing.
+
+Events are project-scoped like everything else, and a viewer can read them —
+seeing why your own instance died is the least a read-only role should offer.
+
+**It is a ring, not an archive.** The newest 20000 entries are kept and older
+ones are dropped in the background. If you need events past that, take them out
+to somewhere built for retention; this is here so an operator can answer a
+question now, not to be a system of record.
+
 ## Spreading one port across replicas
 
 A placement group keeps replicas off one machine, but on its own that only
@@ -1041,6 +1093,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 26  ssh keys for vm instances                         done
 27  load balancer across replicas                     done
 28  health checked backends                           done
+29  events: what the platform did on its own          done
 ```
 
 ## License

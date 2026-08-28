@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
@@ -126,6 +127,10 @@ func (m *Module) UseMembers(members Members) {
 
 func (m *Module) UsePorts(ports Ports) {
 	m.svc.ports = ports
+}
+
+func (m *Module) UseEvents(recorder events.Recorder) {
+	m.svc.events = recorder
 }
 
 func (m *Module) ReleaseInstance(ctx context.Context, instanceID string) error {
