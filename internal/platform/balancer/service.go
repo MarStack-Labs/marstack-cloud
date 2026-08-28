@@ -22,14 +22,19 @@ type Ports interface {
 	NodePortTaken(ctx context.Context, protocol string, port int) (bool, error)
 }
 
+type Services interface {
+	MembersOf(ctx context.Context, projectID, serviceID string) ([]string, error)
+}
+
 type clock func() time.Time
 
 type service struct {
-	repo    *repository
-	members Members
-	ports   Ports
-	events  events.Recorder
-	now     clock
+	repo     *repository
+	members  Members
+	ports    Ports
+	services Services
+	events   events.Recorder
+	now      clock
 }
 
 func newService(repo *repository, members Members, ports Ports, now clock) *service {
@@ -76,6 +81,21 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 	if err := thresholds(&params); err != nil {
 		return Balancer{}, err
 	}
+	if params.ServiceID != "" && len(params.Instances) > 0 {
+		return Balancer{}, fault.Invalid("backends_unused",
+			"a balancer that follows a service takes its backends from that service, so naming "+
+				"instances as well would leave two sets of expectations")
+	}
+	if params.ServiceID != "" {
+		if s.services == nil {
+			return Balancer{}, fault.Unavailable("services_unavailable",
+				"the platform cannot look up a service")
+		}
+		if _, err := s.services.MembersOf(ctx, params.ProjectID, params.ServiceID); err != nil {
+			return Balancer{}, fault.Invalid("unknown_service",
+				"no service named "+params.ServiceID+" exists in this project")
+		}
+	}
 	if len(params.Instances) > MaxBackends {
 		return Balancer{}, fault.Invalid("too_many_backends", fmt.Sprintf(
 			"a balancer takes at most %d backends", MaxBackends))
@@ -94,6 +114,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 		ListenPort: params.ListenPort,
 		TargetPort: params.TargetPort,
 		Algorithm:  params.Algorithm,
+		ServiceID:  params.ServiceID,
 		Check:      params.Check,
 		CheckPath:  params.CheckPath,
 		Rise:       params.Rise,
@@ -117,7 +138,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 	if err := s.repo.insert(ctx, b); err != nil {
 		return Balancer{}, s.translatePort(b, err)
 	}
-	return s.withHealth(ctx, b), nil
+	return s.resolve(ctx, b)
 }
 
 func (s *service) claimPort(ctx context.Context, protocol string, port int) error {
@@ -169,6 +190,9 @@ func (s *service) addBackend(ctx context.Context, projectID, id, instanceID stri
 	if err != nil {
 		return Balancer{}, err
 	}
+	if b.ServiceID != "" {
+		return Balancer{}, ownedByService(b)
+	}
 	if err := s.checkMember(ctx, projectID, instanceID); err != nil {
 		return Balancer{}, err
 	}
@@ -193,6 +217,9 @@ func (s *service) removeBackend(ctx context.Context, projectID, id, instanceID s
 	if err != nil {
 		return err
 	}
+	if b.ServiceID != "" {
+		return ownedByService(b)
+	}
 	if err := s.repo.forgetHealth(ctx, b.ID, instanceID); err != nil {
 		return translate(err)
 	}
@@ -206,12 +233,56 @@ func (s *service) removeBackend(ctx context.Context, projectID, id, instanceID s
 	return nil
 }
 
+func ownedByService(b Balancer) error {
+	return fault.Conflict("backends_owned_by_service",
+		"the backends of "+b.Name+" come from service "+b.ServiceID+
+			", so scale that service instead")
+}
+
+func (s *service) membership(ctx context.Context, b Balancer) (Balancer, error) {
+	if b.ServiceID == "" || s.services == nil {
+		return b, nil
+	}
+
+	ids, err := s.services.MembersOf(ctx, b.ProjectID, b.ServiceID)
+	if err != nil {
+		b.Backends = nil
+		return b, nil
+	}
+
+	health, err := s.repo.healthOf(ctx, b.ID)
+	if err != nil {
+		return b, err
+	}
+
+	backends := make([]Backend, 0, len(ids))
+	for _, id := range ids {
+		backend := Backend{InstanceID: id}
+		if known, seen := health[id]; seen {
+			backend.Probe = known.Probe
+			backend.Reason = known.Reason
+			backend.CheckedAt = known.CheckedAt
+		}
+		backends = append(backends, backend)
+	}
+	b.Backends = backends
+	return b, nil
+}
+
 func (s *service) get(ctx context.Context, projectID, id string) (Balancer, error) {
 	b, err := s.find(ctx, projectID, id)
 	if err != nil {
 		return Balancer{}, err
 	}
-	return s.withHealth(ctx, b), nil
+	return s.resolve(ctx, b)
+}
+
+func (s *service) resolve(ctx context.Context, b Balancer) (Balancer, error) {
+	held, err := s.membership(ctx, b)
+	if err != nil {
+		return Balancer{}, err
+	}
+	return s.withHealth(ctx, held), nil
 }
 
 func (s *service) find(ctx context.Context, projectID, id string) (Balancer, error) {
@@ -231,7 +302,11 @@ func (s *service) listIn(ctx context.Context, projectID string) ([]Balancer, err
 		return nil, translate(err)
 	}
 	for i := range balancers {
-		balancers[i] = s.withHealth(ctx, balancers[i])
+		resolved, err := s.resolve(ctx, balancers[i])
+		if err != nil {
+			return nil, err
+		}
+		balancers[i] = resolved
 	}
 	return balancers, nil
 }
@@ -243,7 +318,11 @@ func (s *service) forNode(ctx context.Context) ([]Balancer, error) {
 	}
 
 	for i := range balancers {
-		balancers[i] = s.withHealth(ctx, balancers[i])
+		resolved, err := s.resolve(ctx, balancers[i])
+		if err != nil {
+			return nil, err
+		}
+		balancers[i] = resolved
 	}
 	return balancers, nil
 }
@@ -309,7 +388,11 @@ func (s *service) reportHealth(ctx context.Context, nodeID string, reports []Rep
 
 	members := map[string]bool{}
 	for _, b := range known {
-		for _, backend := range b.Backends {
+		held, err := s.membership(ctx, b)
+		if err != nil {
+			return translate(err)
+		}
+		for _, backend := range held.Backends {
 			members[b.ID+"/"+backend.InstanceID] = true
 		}
 	}
@@ -334,7 +417,11 @@ func (s *service) reportHealth(ctx context.Context, nodeID string, reports []Rep
 
 	was := map[string]Backend{}
 	for _, b := range known {
-		for _, backend := range b.Backends {
+		held, err := s.membership(ctx, b)
+		if err != nil {
+			return translate(err)
+		}
+		for _, backend := range held.Backends {
 			was[b.ID+"/"+backend.InstanceID] = backend
 		}
 	}

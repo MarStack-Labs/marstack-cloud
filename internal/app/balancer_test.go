@@ -26,6 +26,7 @@ type balancerBody struct {
 	ListenPort int           `json:"listen_port"`
 	TargetPort int           `json:"target_port"`
 	Algorithm  string        `json:"algorithm"`
+	Service    string        `json:"service"`
 	Check      string        `json:"check"`
 	CheckPath  string        `json:"check_path"`
 	Rise       int           `json:"rise"`

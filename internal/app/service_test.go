@@ -409,3 +409,193 @@ func TestAServiceCreatesAtMostAFewReplicasPerPass(t *testing.T) {
 		t.Fatalf("members = %d, want it to reach ten over a few passes", len(held.Members))
 	}
 }
+
+func TestABalancerFollowingAServiceTakesItsReplicas(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	createService(t, a, a.secret,
+		`{"name":"pool","replicas":2,"isolation":"container","image":"alpine:3.20"}`)
+	settle(t, a, 1)
+
+	lb := createBalancer(t, a, a.secret,
+		`{"name":"front","target_port":80,"listen_port":8080,"service":"pool"}`)
+	if lb.Service != "pool" {
+		t.Fatalf("service = %q, want the balancer to name what it follows", lb.Service)
+	}
+	if len(lb.Backends) != 2 {
+		t.Fatalf("backends = %d, want the two replicas the service holds", len(lb.Backends))
+	}
+
+	for _, backend := range nodeBalancers(t, a, nodeID)[0].Backends {
+		if backend.InstanceID == "" {
+			t.Fatal("a node saw a backend with no instance")
+		}
+	}
+}
+
+func TestScalingAServiceMovesTheBalancerWithIt(t *testing.T) {
+	a, _ := newBalancingApp(t)
+
+	createService(t, a, a.secret,
+		`{"name":"pool","replicas":1,"isolation":"container","image":"alpine:3.20"}`)
+	settle(t, a, 1)
+	createBalancer(t, a, a.secret,
+		`{"name":"front","target_port":80,"listen_port":8080,"service":"pool"}`)
+
+	do(t, a, http.MethodPost, "/v1/services/pool/scale", strings.NewReader(`{"replicas":3}`))
+	settle(t, a, 1)
+
+	rec := do(t, a, http.MethodGet, "/v1/balancers/front", nil)
+	var grown balancerBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &grown); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(grown.Backends) != 3 {
+		t.Fatalf("backends = %d, want the balancer to follow the scale up without being told",
+			len(grown.Backends))
+	}
+
+	do(t, a, http.MethodPost, "/v1/services/pool/scale", strings.NewReader(`{"replicas":1}`))
+	settle(t, a, 1)
+
+	rec = do(t, a, http.MethodGet, "/v1/balancers/front", nil)
+	var shrunk balancerBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &shrunk); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(shrunk.Backends) != 1 {
+		t.Fatalf("backends = %d, want it to follow the scale down too", len(shrunk.Backends))
+	}
+}
+
+func TestBackendsOfAServiceBackedBalancerCannotBeEditedByHand(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	createService(t, a, a.secret,
+		`{"name":"pool","replicas":1,"isolation":"container","image":"alpine:3.20"}`)
+	settle(t, a, 1)
+	lb := createBalancer(t, a, a.secret,
+		`{"name":"front","target_port":80,"listen_port":8080,"service":"pool"}`)
+
+	stranger := runningInstance(t, a, a.secret, "outsider", nodeID)
+
+	rec := do(t, a, http.MethodPost, "/v1/balancers/"+lb.ID+"/backends",
+		strings.NewReader(`{"instance_id":"`+stranger+`"}`))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("add = %d, want %d: the service owns the set", rec.Code, http.StatusConflict)
+	}
+
+	held := lb.Backends[0].InstanceID
+	rec = do(t, a, http.MethodDelete, "/v1/balancers/"+lb.ID+"/backends/"+held, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("remove = %d, want %d", rec.Code, http.StatusConflict)
+	}
+}
+
+func TestABalancerCannotNameBothAServiceAndInstances(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	createService(t, a, a.secret,
+		`{"name":"pool","replicas":1,"isolation":"container","image":"alpine:3.20"}`)
+	id := runningInstance(t, a, a.secret, "web-1", nodeID)
+
+	rec := do(t, a, http.MethodPost, "/v1/balancers",
+		strings.NewReader(`{"name":"front","target_port":80,"listen_port":8080,
+			"service":"pool","instances":["`+id+`"]}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestABalancerRefusesAServiceThatDoesNotExist(t *testing.T) {
+	a, _ := newBalancingApp(t)
+
+	rec := do(t, a, http.MethodPost, "/v1/balancers",
+		strings.NewReader(`{"name":"front","target_port":80,"listen_port":8080,"service":"ghost"}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestABalancerCannotFollowAServiceInAnotherProject(t *testing.T) {
+	a, _ := newBalancingApp(t)
+
+	createService(t, a, a.secret,
+		`{"name":"pool","replicas":1,"isolation":"container","image":"alpine:3.20"}`)
+
+	other := tokenIn(t, a, "outsider", newProject(t, a, "other"))
+
+	rec := doAs(t, a, other, http.MethodPost, "/v1/balancers",
+		strings.NewReader(`{"name":"front","target_port":80,"listen_port":8081,"service":"pool"}`))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestHealthOfAServiceReplicaStillCounts(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+
+	createService(t, a, a.secret,
+		`{"name":"pool","replicas":1,"isolation":"container","image":"alpine:3.20"}`)
+	settle(t, a, 1)
+
+	lb := createBalancer(t, a, a.secret, `{"name":"front","target_port":80,"listen_port":8080,
+		"service":"pool","check":"tcp"}`)
+	replica := lb.Backends[0].InstanceID
+	if placed := waitForPlacement(t, a, replica); placed == "" {
+		t.Fatal("the replica was never placed on a node")
+	}
+
+	reportState(t, a, nodeID, replica, `{"observed_state":"running"}`)
+
+	rec := reportHealth(t, a, nodeID, `{"checks":[{"balancer_id":"`+lb.ID+
+		`","instance_id":"`+replica+`","healthy":true}]}`)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("report: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, a, http.MethodGet, "/v1/balancers/front", nil)
+	var checked balancerBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &checked); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if checked.Backends[0].Probe != "passing" {
+		t.Fatalf("probe = %q, want a report against a service replica to be kept",
+			checked.Backends[0].Probe)
+	}
+	if !checked.Backends[0].Healthy {
+		t.Fatalf("backend = %+v, want it healthy", checked.Backends[0])
+	}
+}
+
+func TestDeletingTheServiceLeavesTheBalancerEmptyRatherThanBroken(t *testing.T) {
+	a, _ := newBalancingApp(t)
+
+	createService(t, a, a.secret,
+		`{"name":"pool","replicas":1,"isolation":"container","image":"alpine:3.20"}`)
+	settle(t, a, 1)
+	createBalancer(t, a, a.secret,
+		`{"name":"front","target_port":80,"listen_port":8080,"service":"pool"}`)
+
+	rec := do(t, a, http.MethodDelete, "/v1/services/pool", nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("delete service: %d %s", rec.Code, rec.Body.String())
+	}
+
+	rec = do(t, a, http.MethodGet, "/v1/balancers/front", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("read balancer: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var orphaned balancerBody
+	if err := json.Unmarshal(rec.Body.Bytes(), &orphaned); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(orphaned.Backends) != 0 {
+		t.Fatalf("backends = %d, want none once the service is gone", len(orphaned.Backends))
+	}
+	if orphaned.Service != "pool" {
+		t.Fatalf("service = %q, want it still named so the operator knows where to look",
+			orphaned.Service)
+	}
+}

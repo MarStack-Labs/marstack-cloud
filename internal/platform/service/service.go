@@ -105,6 +105,19 @@ func (s *service) find(ctx context.Context, projectID, id string) (Service, erro
 	return svc, nil
 }
 
+func (s *service) membersOf(ctx context.Context, projectID, serviceID string) ([]string, error) {
+	svc, err := s.find(ctx, projectID, serviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(svc.Members))
+	for _, member := range svc.Members {
+		ids = append(ids, member.InstanceID)
+	}
+	return ids, nil
+}
+
 func (s *service) listIn(ctx context.Context, projectID string) ([]Service, error) {
 	services, err := s.repo.listIn(ctx, projectID)
 	if err != nil {

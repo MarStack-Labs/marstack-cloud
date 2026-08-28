@@ -155,6 +155,24 @@ simultaneous creates can both pass. That is stated in the README rather than pap
 the fix would be a cross-module transaction and the boundary is worth more than the last percent of
 strictness here.
 
+## A balancer that follows a service
+
+Two modules now have to agree on one set of instances, and there were three ways to arrange it: the
+service writes backends into the balancer, the balancer reads members from the service, or the
+composition root syncs them. The middle one won for the reason the event module already taught -
+derive, do not sync. A synced copy has an owner, an ordering, and a window where it is wrong; a
+derived view has none of those.
+
+So `balancer` declares `Services` with one method and resolves membership on every read. The cost is
+that the resolution has to be everywhere: the four read paths plus both loops inside `reportHealth`,
+where a missed call does not fail loudly but drops a node's probe report as coming from a
+non-member. That is the sharpest edge in this change and it is called out in `docs/ENGINEERING-PRINCIPLES.md`.
+
+The dependency runs one way only. `service` does not know balancers exist, which is what keeps the
+module boundary honest and is also why deleting a service leaves its balancer serving nothing
+instead of being refused: the alternative is a referential check that only a mutual dependency could
+enforce. The balancer keeps naming the service it followed so the empty set explains itself.
+
 ## Services
 
 A service is the first module that creates another module's resource. That shape needed a decision:

@@ -17,7 +17,7 @@ var (
 	errNameUsed = errors.New("balancer name already used")
 )
 
-const columns = `id, project_id, name, protocol, listen_port, target_port, algorithm, check_kind, check_path, rise, fall, created_at`
+const columns = `id, project_id, name, protocol, listen_port, target_port, algorithm, service_id, check_kind, check_path, rise, fall, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -35,9 +35,9 @@ func (r *repository) insert(ctx context.Context, b Balancer) error {
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO balancers (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO balancers (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		b.ID, b.ProjectID, b.Name, b.Protocol, b.ListenPort, b.TargetPort, b.Algorithm,
-		b.Check, b.CheckPath, b.Rise, b.Fall,
+		b.ServiceID, b.Check, b.CheckPath, b.Rise, b.Fall,
 		b.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -222,6 +222,40 @@ func (r *repository) backendsOf(ctx context.Context, balancerID string) ([]Backe
 	return backends, rows.Err()
 }
 
+func (r *repository) healthOf(ctx context.Context, balancerID string) (map[string]Backend, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT instance_id, healthy, reason, checked_at FROM balancer_health
+			WHERE balancer_id = ?`, balancerID)
+	if err != nil {
+		return nil, fmt.Errorf("list health: %w", err)
+	}
+	defer rows.Close()
+
+	health := map[string]Backend{}
+	for rows.Next() {
+		var (
+			backend Backend
+			passed  bool
+			checked string
+		)
+		if err := rows.Scan(&backend.InstanceID, &passed, &backend.Reason, &checked); err != nil {
+			return nil, fmt.Errorf("scan health: %w", err)
+		}
+
+		when, err := time.Parse(time.RFC3339Nano, checked)
+		if err != nil {
+			return nil, fmt.Errorf("parse checked_at: %w", err)
+		}
+		backend.CheckedAt = when
+		backend.Probe = ProbeFailing
+		if passed {
+			backend.Probe = ProbePassing
+		}
+		health[backend.InstanceID] = backend
+	}
+	return health, rows.Err()
+}
+
 func (r *repository) saveHealth(ctx context.Context, reports []Report, at time.Time) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -315,7 +349,8 @@ func scan(row scanner) (Balancer, error) {
 		created string
 	)
 	if err := row.Scan(&b.ID, &b.ProjectID, &b.Name, &b.Protocol, &b.ListenPort, &b.TargetPort,
-		&b.Algorithm, &b.Check, &b.CheckPath, &b.Rise, &b.Fall, &created); err != nil {
+		&b.Algorithm, &b.ServiceID, &b.Check, &b.CheckPath, &b.Rise, &b.Fall,
+		&created); err != nil {
 		return Balancer{}, fmt.Errorf("scan balancer: %w", err)
 	}
 

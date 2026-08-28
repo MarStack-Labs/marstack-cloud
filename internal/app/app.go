@@ -171,6 +171,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	balancers.UseEvents(events)
 	services.UseWorkloads(serviceWorkloads{instances: instances})
 	services.UseEvents(events)
+	balancers.UseServices(services)
 	instances.UseFirewalls(firewalls)
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},

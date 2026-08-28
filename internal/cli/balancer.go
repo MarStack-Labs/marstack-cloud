@@ -25,6 +25,7 @@ type balancerView struct {
 	ListenPort int                   `json:"listen_port"`
 	TargetPort int                   `json:"target_port"`
 	Algorithm  string                `json:"algorithm"`
+	Service    string                `json:"service"`
 	Check      string                `json:"check"`
 	CheckPath  string                `json:"check_path"`
 	Rise       int                   `json:"rise"`
@@ -37,7 +38,7 @@ type balancerListView struct {
 	Balancers []balancerView `json:"balancers"`
 }
 
-var balancerHeaders = []string{"NAME", "ID", "LISTEN", "TARGET", "ALGORITHM", "CHECK", "BACKENDS"}
+var balancerHeaders = []string{"NAME", "LISTEN", "TARGET", "ALGORITHM", "CHECK", "SOURCE", "BACKENDS"}
 
 func balancerRow(b balancerView) []string {
 	up := 0
@@ -47,13 +48,18 @@ func balancerRow(b balancerView) []string {
 		}
 	}
 
+	source := "instances"
+	if b.Service != "" {
+		source = "service " + b.Service
+	}
+
 	return []string{
 		b.Name,
-		b.ID,
 		strconv.Itoa(b.ListenPort) + "/" + b.Protocol,
 		strconv.Itoa(b.TargetPort),
 		b.Algorithm,
 		checkText(b),
+		source,
 		strconv.Itoa(up) + "/" + strconv.Itoa(len(b.Backends)) + " up",
 	}
 }
@@ -127,6 +133,7 @@ func newBalancerCreateCmd(g *globals) *cobra.Command {
 		ListenPort int      `json:"listen_port,omitempty"`
 		TargetPort int      `json:"target_port"`
 		Algorithm  string   `json:"algorithm,omitempty"`
+		Service    string   `json:"service,omitempty"`
 		Check      string   `json:"check,omitempty"`
 		CheckPath  string   `json:"check_path,omitempty"`
 		Rise       int      `json:"rise,omitempty"`
@@ -141,6 +148,8 @@ func newBalancerCreateCmd(g *globals) *cobra.Command {
 			"Every node claims the listen port and rewrites arriving packets to one of the\n" +
 			"backends with nftables. There is no single virtual address: any node's address is\n" +
 			"an entry point, so losing a node costs only the clients that were using it.\n\n" +
+			"With --service the backends are whatever replicas that service currently holds,\n" +
+			"so scaling the service moves traffic and nothing has to be registered by hand.\n\n" +
 			"Without --check a backend counts as up while its instance is observed running,\n" +
 			"which a process that is running but wedged still satisfies. With --check the node\n" +
 			"holding the instance probes it every reconcile pass, and only a backend that\n" +
@@ -167,6 +176,8 @@ func newBalancerCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&req.Protocol, "protocol", "tcp", "tcp or udp")
 	cmd.Flags().StringVar(&req.Algorithm, "algorithm", "round_robin",
 		"round_robin or source_hash, which keeps one client on one backend")
+	cmd.Flags().StringVar(&req.Service, "service", "",
+		"follow a service: backends join and leave with its replica count")
 	cmd.Flags().StringVar(&req.Check, "check", "none",
 		"none, tcp, or http: what makes a backend count as up")
 	cmd.Flags().StringVar(&req.CheckPath, "check-path", "",

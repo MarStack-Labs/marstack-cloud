@@ -780,10 +780,52 @@ NAME   REPLICAS   STATE
 pool   3          stuck: quota_exceeded: the project is limited to 20 of instances and already holds 20
 ```
 
-**A replica is not a member of a balancer yet.** Pointing a balancer at a
-service so backends join and leave with the count is the obvious next step and is
-not built: today you add backends by instance id, which is exactly the manual
-bookkeeping this module removes everywhere else.
+### Pointing a balancer at it
+
+A balancer can take its backends from a service instead of a list of instance
+ids:
+
+```sh
+marstack lb create --name front --target-port 80 --listen-port 8080 \
+  --service pool --check tcp
+```
+
+```
+NAME    LISTEN     TARGET   ALGORITHM     CHECK       SOURCE         BACKENDS
+front   8080/tcp   80       round_robin   tcp (1/2)   service pool   2/2 up
+```
+
+Scale the service and the nftables map on every node follows, with nothing
+registered by hand:
+
+```
+mod 2 map { 0 : 10.20.0.75 . 80, 1 : 10.20.0.137 . 80 }                        # replicas 2
+mod 3 map { 0 : 10.20.0.75 . 80, 1 : 10.20.0.137 . 80, 2 : 10.20.0.74 . 80 }   # scaled to 3
+mod 1 map { 0 : 10.20.0.75 . 80 }                                              # scaled to 1
+```
+
+Membership is **derived, not synced**. The balancer asks the service who its
+replicas are every time it is read, so there is no copy to go stale and no
+ordering between two loops to get wrong. It also means the health check applies
+to replicas exactly as it does to hand-listed backends.
+
+Because the service owns the set, editing it by hand is refused rather than
+silently overwritten:
+
+```
+$ marstack lb add front i-1pjz70vvajd1g
+error: backends_owned_by_service: the backends of front come from service pool,
+       so scale that service instead
+```
+
+Naming both `--service` and `--instance` is refused for the same reason: two
+sets of expectations, one of which would quietly lose.
+
+If the service is deleted, the balancer keeps its port and serves nothing. It
+still names the service it followed, so the answer to "why is this empty" is one
+line away. Refusing to delete a service that a balancer points at would mean the
+service module knowing about balancers, and the dependency is deliberately only
+one way.
 
 ## Spreading one port across replicas
 
@@ -1171,6 +1213,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 28  health checked backends                           done
 29  events: what the platform did on its own          done
 30  services: hold a replica count                    done
+31  a balancer that follows a service                 done
 ```
 
 ## License

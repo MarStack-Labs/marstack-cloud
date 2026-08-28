@@ -14,6 +14,7 @@ type createRequest struct {
 	ListenPort int      `json:"listen_port,omitempty"`
 	TargetPort int      `json:"target_port"`
 	Algorithm  string   `json:"algorithm,omitempty"`
+	Service    string   `json:"service,omitempty"`
 	Check      string   `json:"check,omitempty"`
 	CheckPath  string   `json:"check_path,omitempty"`
 	Rise       int      `json:"rise,omitempty"`
@@ -54,6 +55,7 @@ type response struct {
 	ListenPort int               `json:"listen_port"`
 	TargetPort int               `json:"target_port"`
 	Algorithm  string            `json:"algorithm"`
+	Service    string            `json:"service,omitempty"`
 	Check      string            `json:"check"`
 	CheckPath  string            `json:"check_path,omitempty"`
 	Rise       int               `json:"rise,omitempty"`
@@ -91,6 +93,7 @@ func toResponse(b Balancer) response {
 		ListenPort: b.ListenPort,
 		TargetPort: b.TargetPort,
 		Algorithm:  b.Algorithm,
+		Service:    b.ServiceID,
 		Check:      b.Check,
 		CheckPath:  b.CheckPath,
 		Rise:       b.Rise,
@@ -117,6 +120,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		ListenPort: req.ListenPort,
 		TargetPort: req.TargetPort,
 		Algorithm:  req.Algorithm,
+		ServiceID:  req.Service,
 		Check:      req.Check,
 		CheckPath:  req.CheckPath,
 		Rise:       req.Rise,

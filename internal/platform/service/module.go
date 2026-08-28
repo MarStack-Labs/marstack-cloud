@@ -95,6 +95,10 @@ func (m *Module) UseWorkloads(workloads Workloads) {
 	m.svc.workloads = workloads
 }
 
+func (m *Module) MembersOf(ctx context.Context, projectID, serviceID string) ([]string, error) {
+	return m.svc.membersOf(ctx, projectID, serviceID)
+}
+
 func (m *Module) UseEvents(recorder events.Recorder) {
 	m.svc.events = recorder
 }

@@ -37,6 +37,7 @@ type Balancer struct {
 	ListenPort int
 	TargetPort int
 	Algorithm  string
+	ServiceID  string
 	Check      string
 	CheckPath  string
 	Rise       int
@@ -63,6 +64,7 @@ type CreateParams struct {
 	ListenPort int
 	TargetPort int
 	Algorithm  string
+	ServiceID  string
 	Check      string
 	CheckPath  string
 	Rise       int

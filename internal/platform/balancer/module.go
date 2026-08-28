@@ -105,6 +105,11 @@ func (m *Module) Migrations() []store.Migration {
 				PRIMARY KEY (balancer_id, instance_id)
 			)`,
 		},
+		{
+			Module: "balancer",
+			Index:  11,
+			SQL:    `ALTER TABLE balancers ADD COLUMN service_id TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -127,6 +132,10 @@ func (m *Module) UseMembers(members Members) {
 
 func (m *Module) UsePorts(ports Ports) {
 	m.svc.ports = ports
+}
+
+func (m *Module) UseServices(services Services) {
+	m.svc.services = services
 }
 
 func (m *Module) UseEvents(recorder events.Recorder) {

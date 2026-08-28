@@ -235,6 +235,16 @@ make check      # vet + test + security scans
 - `kernel/events` holds the `Entry` and `Recorder` only. Storage lives in `platform/event`, and
   producers depend on the kernel interface so five modules do not each declare an identical one -
   the same reasoning that moved the keyring into `kernel/sealed`.
+- A balancer with `service_id` set takes its backends from the service on every read; its
+  `balancer_backends` rows are unused. `service.membership` is what fills them, and it must run on
+  every path that touches `Backends` - reads, the node view, and both loops inside `reportHealth`.
+  Miss the last one and a node's probe report is dropped as "not a member", silently, because the
+  membership map was built from an empty table.
+- The dependency is one way: `balancer` reads `service`, and `service` knows nothing about
+  balancers. That is why deleting a service leaves the balancer serving nothing rather than being
+  refused, and why membership is derived on read rather than synced by whichever loop ran last.
+- Backends of a service-backed balancer cannot be added or removed by hand, and naming both a
+  service and instances at create is refused. Both are the same rule: one owner for the set.
 - A service owns its membership in `service_members`; instances carry no owner column. That means
   the reconcile loop must treat its own table as a guess and ask `Workloads.Alive` every pass -
   an instance deleted directly is gone, and the member row is stale until the next pass proves it.
