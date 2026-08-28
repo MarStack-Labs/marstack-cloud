@@ -91,6 +91,14 @@ func (m *Module) Get(ctx context.Context, id string) (Instance, error) {
 	return m.svc.get(ctx, id)
 }
 
+func (m *Module) Create(ctx context.Context, params CreateParams) (Instance, error) {
+	return m.svc.create(ctx, params)
+}
+
+func (m *Module) Delete(ctx context.Context, id, projectID string) error {
+	return m.svc.delete(ctx, id, projectID)
+}
+
 func (m *Module) All(ctx context.Context) ([]Instance, error) {
 	return m.svc.list(ctx)
 }

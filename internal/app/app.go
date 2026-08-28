@@ -26,6 +26,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/project"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/quota"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/service"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
@@ -78,6 +79,7 @@ type App struct {
 	networks  *network.Module
 	projects  *project.Module
 	backups   *backup.Module
+	services  *service.Module
 	tokens    *token.Module
 	trail     *audit.Module
 	scheduler *scheduler.Scheduler
@@ -110,6 +112,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	firewalls := firewall.New(st, log)
 	keys := keypair.New(st, log)
 	events := event.New(st, log)
+	services := service.New(st, log)
 	projects := project.New(st, log)
 	quotas := quota.New(st, log)
 	tokens := token.New(st, log, cfg.Now)
@@ -138,6 +141,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.tokens = tokens
 	a.projects = projects
 	a.backups = backups
+	a.services = services
 
 	a.modules = []Module{
 		system.New(st, log),
@@ -156,6 +160,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		projects,
 		quotas,
 		events,
+		services,
 		keys,
 		tokens,
 	}
@@ -164,6 +169,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	instances.UseBalancers(balancers)
 	instances.UseEvents(events)
 	balancers.UseEvents(events)
+	services.UseWorkloads(serviceWorkloads{instances: instances})
+	services.UseEvents(events)
 	instances.UseFirewalls(firewalls)
 	a.scheduler = scheduler.New(
 		nodeSource{nodes: nodes},
@@ -291,6 +298,7 @@ func (a *App) Handler() http.Handler {
 func (a *App) Run(ctx context.Context) error {
 	go a.scheduler.Run(ctx)
 	go a.backups.Run(ctx)
+	go a.services.Run(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

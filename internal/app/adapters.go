@@ -13,6 +13,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/quota"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/service"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
@@ -167,6 +168,51 @@ func (s balancerMembers) Member(ctx context.Context, instanceID string) (balance
 		Address:   nic.IP,
 		Running:   in.Observed == instance.ObservedRunning,
 	}, nil
+}
+
+type serviceWorkloads struct {
+	instances *instance.Module
+}
+
+func (w serviceWorkloads) Create(ctx context.Context, workload service.Workload) (string, error) {
+	created, err := w.instances.Create(ctx, instance.CreateParams{
+		ProjectID:     workload.ProjectID,
+		Name:          workload.Name,
+		Group:         workload.Template.Group,
+		Strict:        workload.Template.Strict,
+		Keys:          workload.Template.Keys,
+		Isolation:     workload.Template.Isolation,
+		Image:         workload.Template.Image,
+		ISO:           workload.Template.ISO,
+		Kernel:        workload.Template.Kernel,
+		DiskGiB:       workload.Template.DiskGiB,
+		FirewallID:    workload.Template.FirewallID,
+		Command:       workload.Template.Command,
+		NetworkID:     workload.Template.NetworkID,
+		RestartPolicy: workload.Template.RestartPolicy,
+		VCPU:          workload.Template.VCPU,
+		MemoryMiB:     workload.Template.MemoryMiB,
+	})
+	if err != nil {
+		return "", err
+	}
+	return created.ID, nil
+}
+
+func (w serviceWorkloads) Delete(ctx context.Context, projectID, instanceID string) error {
+	return w.instances.Delete(ctx, instanceID, projectID)
+}
+
+func (w serviceWorkloads) Alive(
+	ctx context.Context, instanceIDs []string,
+) (map[string]bool, error) {
+	alive := make(map[string]bool, len(instanceIDs))
+	for _, id := range instanceIDs {
+		if _, err := w.instances.Get(ctx, id); err == nil {
+			alive[id] = true
+		}
+	}
+	return alive, nil
 }
 
 const staleLoad = 30 * time.Second

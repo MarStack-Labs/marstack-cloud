@@ -155,6 +155,28 @@ simultaneous creates can both pass. That is stated in the README rather than pap
 the fix would be a cross-module transaction and the boundary is worth more than the last percent of
 strictness here.
 
+## Services
+
+A service is the first module that creates another module's resource. That shape needed a decision:
+either instances grow an owner column so a service can query its own, or the service keeps its own
+membership table. The second won, because the first changes the shape of the instance module for the
+benefit of a newer one, and because the loop has to reconcile membership against reality every pass
+either way - a replica deleted directly is gone whatever the schema says.
+
+So `service` declares `Workloads` with three methods - create, delete, and a batch liveness check -
+and `app` implements it over `instance.Module`. That is also where quota enforcement comes from for
+free: replicas are created through the same path an operator uses, so a service cannot mint
+workloads a project is not allowed to have. When it is refused, the service records why and keeps
+what it already made rather than failing the pass.
+
+The loop lives in the module, in the same shape as backup schedules: `Run` on a ticker, `Reconcile`
+callable directly so tests drive it a pass at a time rather than sleeping.
+
+Two limits in the loop are deliberate. It creates at most a few replicas per pass, so a service
+asked for thirty does not hand the scheduler thirty placements at once. And it deduplicates the
+blocked reason and clears it on any pass that reaches the target, because a service stuck behind a
+quota is a condition that repeats - the same lesson the scheduler taught about `instance.stranded`.
+
 ## Events
 
 `audit` was already there and does not answer the question. It records requests: actor, method,

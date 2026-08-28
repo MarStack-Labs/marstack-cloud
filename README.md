@@ -726,6 +726,65 @@ ones are dropped in the background. If you need events past that, take them out
 to somewhere built for retention; this is here so an operator can answer a
 question now, not to be a system of record.
 
+## Holding a replica count
+
+A placement group spreads replicas and a balancer fronts them, but until now you
+made each replica by hand. Nothing held the number: delete one and it stayed
+deleted.
+
+A service is a workload template plus a count, and a loop keeps them equal:
+
+```sh
+marstack service create --name pool --replicas 3 --isolation container \
+  --image alpine:3.20 --placement-group pool -- /bin/sh -c "sleep 3600"
+```
+
+```
+NAME   ID                  REPLICAS   ISOLATION   IMAGE         STATE
+pool   svc-6aq44wyseeh48   3          container   alpine:3.20   3/3 up
+```
+
+Delete a replica by hand and it comes back:
+
+```sh
+marstack instance delete i-n2kjhb4y3ckm6
+marstack event --kind service.replica_lost
+```
+
+```
+WHEN                  SEVERITY   KIND                   MESSAGE
+2026-08-28T08:46:31   warn       service.replica_lost   replica of pool no longer exists, making a replacement
+```
+
+`marstack service scale pool 1` goes the other way, and it removes the
+**newest** replicas first — killing the one that has been serving longest to
+satisfy an arithmetic change is the wrong instinct. Deleting the service deletes
+its replicas with it.
+
+Four choices are worth naming:
+
+- **Replica names carry a random suffix**, not an ordinal. `pool-1` would collide
+  with an instance somebody made by hand and wedge the service forever; the
+  instance id is the real handle anyway.
+- **Membership lives in the service module**, not as an owner column on
+  instances. Nothing else had to change shape, and the loop has to check
+  membership against reality every pass regardless.
+- **At most four replicas are created per pass.** A service asked for thirty
+  should not hand the scheduler thirty placements in one tick.
+- **A service that cannot grow says why and keeps what it has.** Hit a quota and
+  it stops at the limit, records the reason, and clears it by itself when the
+  limit moves:
+
+```
+NAME   REPLICAS   STATE
+pool   3          stuck: quota_exceeded: the project is limited to 20 of instances and already holds 20
+```
+
+**A replica is not a member of a balancer yet.** Pointing a balancer at a
+service so backends join and leave with the count is the obvious next step and is
+not built: today you add backends by instance id, which is exactly the manual
+bookkeeping this module removes everywhere else.
+
 ## Spreading one port across replicas
 
 A placement group keeps replicas off one machine, but on its own that only
@@ -1111,6 +1170,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 27  load balancer across replicas                     done
 28  health checked backends                           done
 29  events: what the platform did on its own          done
+30  services: hold a replica count                    done
 ```
 
 ## License

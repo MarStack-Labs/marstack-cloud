@@ -235,6 +235,26 @@ make check      # vet + test + security scans
 - `kernel/events` holds the `Entry` and `Recorder` only. Storage lives in `platform/event`, and
   producers depend on the kernel interface so five modules do not each declare an identical one -
   the same reasoning that moved the keyring into `kernel/sealed`.
+- A service owns its membership in `service_members`; instances carry no owner column. That means
+  the reconcile loop must treat its own table as a guess and ask `Workloads.Alive` every pass -
+  an instance deleted directly is gone, and the member row is stale until the next pass proves it.
+- Replica names are the service name plus a random suffix, never an ordinal. `pool-1` collides with
+  an instance somebody created by hand, and a service that cannot name its next replica is a
+  service stuck forever with no way out but renaming the workload.
+- Scaling down removes the newest members first. The list from `membersOf` is ordered by
+  `created_at`, so the loop walks it backwards; changing that ordering silently starts killing the
+  replica that has been serving longest.
+- `growTo` creates at most `MaxCreatePerPass` replicas per pass on purpose. Without it a service
+  asked for thirty hands the scheduler thirty placements in one tick, and every one of them is a
+  quota check plus an address allocation.
+- A create refused mid-grow is not an error: the service records why it is stuck and keeps what it
+  already has. Returning an error there would abandon the replicas it did manage to make.
+- `service.blocked` is deduplicated on the reason string, and `clearBlocked` runs on every pass that
+  reaches the target. Without both, a service stuck behind a quota writes an event every ten
+  seconds forever - the same trap as `instance.stranded`.
+- Deleting a service deletes its replicas first and refuses to delete the service if any replica
+  will not go. Half a deletion leaves workloads nothing owns and nothing will clean up.
+
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead
