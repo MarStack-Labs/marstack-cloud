@@ -44,6 +44,8 @@ type Stranded struct {
 type NodeSource interface {
 	ReadyNodes(ctx context.Context) ([]Candidate, error)
 	UnreachableNodes(ctx context.Context, grace time.Duration) ([]string, error)
+	DrainingNodes(ctx context.Context) ([]string, error)
+	FinishDraining(ctx context.Context, nodeID string) error
 }
 
 type InstanceSource interface {
@@ -79,8 +81,9 @@ type Scheduler struct {
 	interval  time.Duration
 	grace     time.Duration
 
-	strandedMu sync.Mutex
-	stranded   map[string]bool
+	strandedMu    sync.Mutex
+	stranded      map[string]bool
+	stuckDraining map[string]bool
 }
 
 func New(
@@ -139,6 +142,9 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 func (s *Scheduler) Tick(ctx context.Context) error {
 	if err := s.releaseStranded(ctx); err != nil {
+		return err
+	}
+	if err := s.emptyDraining(ctx); err != nil {
 		return err
 	}
 
@@ -275,6 +281,107 @@ func (s *Scheduler) releaseStranded(ctx context.Context) error {
 
 	s.forgetRecovered(seen)
 	return nil
+}
+
+func (s *Scheduler) emptyDraining(ctx context.Context) error {
+	draining, err := s.nodes.DrainingNodes(ctx)
+	if err != nil {
+		return err
+	}
+	if len(draining) == 0 {
+		s.forgetUnstuck(nil)
+		return nil
+	}
+
+	held, err := s.instances.StrandedOn(ctx, draining)
+	if err != nil {
+		return err
+	}
+
+	stuck := map[string]int{}
+	seen := map[string]bool{}
+	for _, in := range held {
+		seen[in.ID] = true
+
+		if in.Isolation != movableIsolation {
+			stuck[in.NodeID]++
+			if !s.alreadyStuckDraining(in.ID) {
+				s.note(ctx, events.Entry{
+					ProjectID: in.ProjectID,
+					Kind:      "instance.drain_blocked",
+					Subject:   in.ID,
+					NodeID:    in.NodeID,
+					Message: "its node is draining, and isolation " + in.Isolation +
+						" cannot be moved without losing its disk",
+					Severity: events.Error,
+				})
+			}
+			continue
+		}
+
+		if err := s.instances.ReleasePlacement(ctx, in.ID, in.NodeID); err != nil {
+			s.log.Warn("could not move a workload off a draining node",
+				"instance", in.ID, "node", in.NodeID, "error", err)
+			stuck[in.NodeID]++
+			continue
+		}
+		s.log.Info("moved a workload off a draining node",
+			"instance", in.ID, "name", in.Name, "node", in.NodeID)
+		s.note(ctx, events.Entry{
+			ProjectID: in.ProjectID,
+			Kind:      "instance.moved",
+			Subject:   in.ID,
+			NodeID:    in.NodeID,
+			Message:   "released from a draining node, waiting for a new one",
+			Severity:  events.Info,
+		})
+	}
+
+	s.forgetUnstuck(seen)
+
+	for _, nodeID := range draining {
+		if stuck[nodeID] > 0 {
+			continue
+		}
+		if err := s.nodes.FinishDraining(ctx, nodeID); err != nil {
+			s.log.Warn("could not mark a drain finished", "node", nodeID, "error", err)
+			continue
+		}
+		s.log.Info("node drained", "node", nodeID)
+		s.note(ctx, events.Entry{
+			Kind:     "node.drained",
+			Subject:  nodeID,
+			NodeID:   nodeID,
+			Message:  "nothing movable is left on it, and it stays unschedulable",
+			Severity: events.Info,
+		})
+	}
+	return nil
+}
+
+func (s *Scheduler) forgetUnstuck(seen map[string]bool) {
+	s.strandedMu.Lock()
+	defer s.strandedMu.Unlock()
+
+	for id := range s.stuckDraining {
+		if !seen[id] {
+			delete(s.stuckDraining, id)
+		}
+	}
+}
+
+func (s *Scheduler) alreadyStuckDraining(instanceID string) bool {
+	s.strandedMu.Lock()
+	defer s.strandedMu.Unlock()
+
+	if s.stuckDraining == nil {
+		s.stuckDraining = map[string]bool{}
+	}
+	if s.stuckDraining[instanceID] {
+		return true
+	}
+	s.stuckDraining[instanceID] = true
+	return false
 }
 
 func (s *Scheduler) alreadyStranded(instanceID string) bool {

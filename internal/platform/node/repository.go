@@ -12,7 +12,7 @@ import (
 
 var errNotFound = errors.New("node not found")
 
-const columns = `id, name, zone, address, arch, os, cpus, memory_mib, agent_version, registered_at, last_seen_at`
+const columns = `id, name, zone, address, arch, os, cpus, memory_mib, agent_version, schedulable, draining, registered_at, last_seen_at`
 
 type repository struct {
 	db *sql.DB
@@ -37,12 +37,39 @@ func (r *repository) findByName(ctx context.Context, name string) (Node, error) 
 
 func (r *repository) insert(ctx context.Context, n Node) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO nodes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO nodes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.ID, n.Name, n.Zone, n.Address, n.Arch, n.OS, n.CPUs, n.MemoryMiB, n.AgentVersion,
+		n.Schedulable, n.Draining,
 		n.RegisteredAt.Format(time.RFC3339Nano), n.LastSeenAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		return fmt.Errorf("insert node: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) setSchedulable(ctx context.Context, id string, schedulable, draining bool) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE nodes SET schedulable = ?, draining = ? WHERE id = ?`, schedulable, draining, id)
+	if err != nil {
+		return fmt.Errorf("set the node schedulable flag: %w", err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set the node schedulable flag: %w", err)
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func (r *repository) setDraining(ctx context.Context, id string, draining bool) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE nodes SET draining = ? WHERE id = ?`, draining, id)
+	if err != nil {
+		return fmt.Errorf("set the node draining flag: %w", err)
 	}
 	return nil
 }
@@ -129,7 +156,7 @@ func scanNode(row scanner) (Node, error) {
 
 	if err := row.Scan(
 		&n.ID, &n.Name, &n.Zone, &n.Address, &n.Arch, &n.OS, &n.CPUs, &n.MemoryMiB, &n.AgentVersion,
-		&registeredRaw, &lastSeenRaw,
+		&n.Schedulable, &n.Draining, &registeredRaw, &lastSeenRaw,
 	); err != nil {
 		return Node{}, err
 	}

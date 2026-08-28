@@ -13,6 +13,8 @@ const ReadyWindow = 30 * time.Second
 
 type Node struct {
 	ID           string
+	Schedulable  bool
+	Draining     bool
 	Name         string
 	Zone         string
 	Address      string

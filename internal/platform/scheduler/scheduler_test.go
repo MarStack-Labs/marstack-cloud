@@ -15,6 +15,8 @@ import (
 type fakeNodes struct {
 	ready       []Candidate
 	unreachable []string
+	draining    []string
+	finished    []string
 	err         error
 	calls       int
 }
@@ -26,6 +28,23 @@ func (f *fakeNodes) ReadyNodes(context.Context) ([]Candidate, error) {
 
 func (f *fakeNodes) UnreachableNodes(context.Context, time.Duration) ([]string, error) {
 	return f.unreachable, nil
+}
+
+func (f *fakeNodes) DrainingNodes(context.Context) ([]string, error) {
+	return f.draining, nil
+}
+
+func (f *fakeNodes) FinishDraining(_ context.Context, nodeID string) error {
+	f.finished = append(f.finished, nodeID)
+
+	kept := make([]string, 0, len(f.draining))
+	for _, id := range f.draining {
+		if id != nodeID {
+			kept = append(kept, id)
+		}
+	}
+	f.draining = kept
+	return nil
 }
 
 type assignment struct {
@@ -595,5 +614,155 @@ func TestReleasingAStrandedContainerIsRecorded(t *testing.T) {
 	}
 	if moved[0].NodeID != "n-dead" {
 		t.Fatalf("node_id = %q, want the node it was released from", moved[0].NodeID)
+	}
+}
+
+func TestACordonedNodeIsNotACandidate(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{{ID: "n-2", Name: "bm-2"}}}
+	instances := &fakeInstances{pending: []Pending{{ID: "i-1", Name: "api-1"}}}
+
+	if err := newTestScheduler(nodes, instances).Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if len(instances.assignments) != 1 {
+		t.Fatalf("assignments = %d, want the one node still open to take it",
+			len(instances.assignments))
+	}
+	if instances.assignments[0].nodeID != "n-2" {
+		t.Fatalf("placed on %s, want n-2", instances.assignments[0].nodeID)
+	}
+}
+
+func TestDrainingMovesContainersAndFinishesWhenEmpty(t *testing.T) {
+	nodes := &fakeNodes{
+		ready:    []Candidate{{ID: "n-2", Name: "bm-2"}},
+		draining: []string{"n-1"},
+	}
+	instances := &fakeInstances{stranded: []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "web", NodeID: "n-1",
+			Isolation: "container"},
+	}}
+
+	seen := &collector{}
+	s := newTestScheduler(nodes, instances)
+	s.UseEvents(seen)
+
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if len(instances.released) != 1 || instances.released[0] != "i-1" {
+		t.Fatalf("released = %v, want the container moved off", instances.released)
+	}
+	if moved := seen.of("instance.moved"); len(moved) != 1 {
+		t.Fatalf("events = %+v, want the move recorded", moved)
+	}
+	if len(nodes.finished) != 1 || nodes.finished[0] != "n-1" {
+		t.Fatalf("finished = %v, want the drain closed once nothing movable is left",
+			nodes.finished)
+	}
+	if drained := seen.of("node.drained"); len(drained) != 1 {
+		t.Fatalf("events = %+v, want the node reported drained", drained)
+	}
+}
+
+func TestDrainingDoesNotFinishWhileSomethingCannotMove(t *testing.T) {
+	nodes := &fakeNodes{draining: []string{"n-1"}}
+	instances := &fakeInstances{stranded: []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "db", NodeID: "n-1", Isolation: "vm"},
+	}}
+
+	seen := &collector{}
+	s := newTestScheduler(nodes, instances)
+	s.UseEvents(seen)
+
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if len(instances.released) != 0 {
+		t.Fatalf("released = %v, want a vm left where its disk is", instances.released)
+	}
+	if len(nodes.finished) != 0 {
+		t.Fatalf("finished = %v, want the drain still open", nodes.finished)
+	}
+
+	blocked := seen.of("instance.drain_blocked")
+	if len(blocked) != 1 {
+		t.Fatalf("events = %+v, want it named rather than silently left", blocked)
+	}
+	if blocked[0].Severity != events.Error {
+		t.Fatalf("severity = %q, want error: the drain will never finish on its own",
+			blocked[0].Severity)
+	}
+}
+
+func TestABlockedDrainIsRecordedOnceRatherThanEveryTick(t *testing.T) {
+	nodes := &fakeNodes{draining: []string{"n-1"}}
+	instances := &fakeInstances{stranded: []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "db", NodeID: "n-1", Isolation: "vm"},
+	}}
+
+	seen := &collector{}
+	s := newTestScheduler(nodes, instances)
+	s.UseEvents(seen)
+
+	for range 5 {
+		if err := s.Tick(context.Background()); err != nil {
+			t.Fatalf("tick: %v", err)
+		}
+	}
+
+	if blocked := seen.of("instance.drain_blocked"); len(blocked) != 1 {
+		t.Fatalf("events = %d, want one rather than one per pass", len(blocked))
+	}
+}
+
+func TestABlockedDrainIsRecordedAgainAfterTheWorkloadGoes(t *testing.T) {
+	nodes := &fakeNodes{draining: []string{"n-1"}}
+	instances := &fakeInstances{stranded: []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "db", NodeID: "n-1", Isolation: "vm"},
+	}}
+
+	seen := &collector{}
+	s := newTestScheduler(nodes, instances)
+	s.UseEvents(seen)
+
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	instances.stranded = nil
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	nodes.draining = []string{"n-1"}
+	instances.stranded = []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "db", NodeID: "n-1", Isolation: "vm"},
+	}
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if blocked := seen.of("instance.drain_blocked"); len(blocked) != 2 {
+		t.Fatalf("events = %d, want it raised again for a second drain", len(blocked))
+	}
+}
+
+func TestDrainingIgnoresANodeNobodyIsDraining(t *testing.T) {
+	nodes := &fakeNodes{ready: []Candidate{{ID: "n-1", Name: "bm-1"}}}
+	instances := &fakeInstances{stranded: []Stranded{
+		{ID: "i-1", ProjectID: "prj-default", Name: "web", NodeID: "n-1",
+			Isolation: "container"},
+	}}
+
+	if err := newTestScheduler(nodes, instances).Tick(context.Background()); err != nil {
+		t.Fatalf("tick: %v", err)
+	}
+
+	if len(instances.released) != 0 {
+		t.Fatalf("released = %v, want nothing moved off a healthy node", instances.released)
 	}
 }

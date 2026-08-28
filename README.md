@@ -726,6 +726,68 @@ ones are dropped in the background. If you need events past that, take them out
 to somewhere built for retention; this is here so an operator can answer a
 question now, not to be a system of record.
 
+## Taking a node out for maintenance
+
+A node used to lose its workloads exactly one way: by stopping answering. To
+work on a machine you had to kill its agent and wait out the fence grace, which
+is an outage you caused on purpose and cannot undo quickly.
+
+`cordon` stops new placement and touches nothing that is already running:
+
+```sh
+marstack node cordon n-2eb567x5k56ta
+```
+
+```
+NAME   STATUS   SCHEDULING   ZONE     ARCH    CPUS   MEMORY
+bm-2   ready    cordoned     rack-b   arm64   4      5910Mi
+```
+
+`drain` cordons and moves what can move:
+
+```sh
+marstack node drain n-2eb567x5k56ta
+```
+
+It returns as soon as the intent is recorded — the scheduler does the moving on
+its next pass, the same way creating an instance does not mean it is running
+yet. Watch the node until `SCHEDULING` stops saying `draining`.
+
+**Only containers move.** Anything whose disk lives on that node stays, and the
+drain says so rather than finishing and leaving you to notice:
+
+```
+$ marstack event --kind instance.drain_blocked
+SEVERITY   KIND                     SUBJECT           MESSAGE
+error      instance.drain_blocked   i-h7pdqctweez1m   its node is draining, and isolation vm cannot be moved without losing its disk
+```
+
+A node with something stuck on it therefore keeps saying `draining` forever,
+which is the honest answer: the drain has not finished. Stop or delete those
+workloads, or accept the node is not empty.
+
+`uncordon` reopens the node and cancels a drain in progress. Anything already
+moved stays where it went.
+
+A cordon **survives the agent restarting**. Re-registering does not touch the
+flag, because a machine somebody is working on should not start taking work
+again just because its agent came back.
+
+### What it composes with
+
+Draining a node holding a service replica is where the last three features meet.
+The replica is released, the scheduler places it elsewhere, and it gets a new
+address from the new node's slice — the balancer's nftables map picks that up on
+its next read:
+
+```
+mod 2 map { 0 : 10.20.0.75 . 80, 1 : 10.20.0.137 . 80 }   # one replica on bm-2
+mod 2 map { 0 : 10.20.0.75 . 80, 1 : 10.20.0.78  . 80 }   # after draining bm-2
+```
+
+Nothing synced that address. Membership and addresses are both resolved when the
+balancer is read, so a moved replica cannot leave a stale entry behind.
+
 ## Holding a replica count
 
 A placement group spreads replicas and a balancer fronts them, but until now you
@@ -1214,6 +1276,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 29  events: what the platform did on its own          done
 30  services: hold a replica count                    done
 31  a balancer that follows a service                 done
+32  cordon and drain a node                           done
 ```
 
 ## License

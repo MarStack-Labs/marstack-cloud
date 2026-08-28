@@ -173,6 +173,29 @@ module boundary honest and is also why deleting a service leaves its balancer se
 instead of being refused: the alternative is a referential check that only a mutual dependency could
 enforce. The balancer keeps naming the service it followed so the empty set explains itself.
 
+## Cordon and drain
+
+Draining could have been an action - call it, it moves things, it returns. It is state instead:
+`schedulable` and `draining` are flags the API sets and the scheduler acts on. That follows the shape
+of everything else here, where a caller records intent and a loop makes it true, and it buys three
+things for free. The call cannot half-finish, a control-plane restart resumes the drain, and calling
+it twice is the same as calling it once.
+
+The moving itself reuses `StrandedOn` and the movable-isolation rule that fencing already had. The
+two paths differ only in which nodes they ask about, so keeping one rule means a change to what can
+move cannot land on one path and miss the other.
+
+A drain finishes only when nothing movable is left, which means a node holding a vm stays draining
+indefinitely. That is deliberate. The alternative - reporting the drain complete while a workload is
+still on the machine - is the kind of quiet lie that gets a disk wiped during maintenance, so each
+immovable workload is named through an event instead, once per drain rather than once per pass.
+
+The interesting property is what it exposed elsewhere. A moved container gets a new address, because
+addresses come from a per-node slice. Nothing had to be taught about that: the balancer resolves
+membership and addresses when it is read, so a moved replica cannot leave a stale entry behind. Had
+membership been synced rather than derived, this feature would have needed a second mechanism to
+repair it.
+
 ## Services
 
 A service is the first module that creates another module's resource. That shape needed a decision:

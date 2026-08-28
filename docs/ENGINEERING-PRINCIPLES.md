@@ -227,6 +227,18 @@ make check      # vet + test + security scans
   since serving one would mean the module knowing which callers are admins.
 - `events.Recorder.Record` returns no error on purpose. Recording must never fail the operation
   that caused it, so a write that fails is logged by the event module and dropped.
+- Cordon and drain are state on the node, not actions: `schedulable` and `draining` are set by the
+  API and the scheduler makes them true on its next pass. That is what makes a drain idempotent and
+  survivable across a control-plane restart, and it is why the drain call returns immediately.
+- `updateOnRegister` deliberately does not touch `schedulable` or `draining`. A cordoned node whose
+  agent restarts stays cordoned; sending work back to a machine somebody is working on because its
+  agent came back would be the worst possible time to do it.
+- A drain only finishes when nothing movable is left, and only containers are movable. A node with
+  a vm on it stays `draining` forever, on purpose - the alternative is reporting a drain complete
+  while a workload is still there. `instance.drain_blocked` names each one, once per drain.
+- `emptyDraining` reuses `StrandedOn`, which is also what fencing uses. The two differ only in which
+  nodes they ask about: unreachable ones versus deliberately draining ones. Keep the movable rule in
+  one place so a change cannot apply to one path and not the other.
 - Anything the scheduler does runs again on the next pass, so an event emitted there needs to be
   keyed on a transition, not on a condition. `instance.placed` is safe because a placed instance
   stops being pending; `instance.stranded` is not, which is why the scheduler keeps a set of the

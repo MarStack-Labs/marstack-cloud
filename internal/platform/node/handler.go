@@ -24,6 +24,8 @@ type response struct {
 	Zone         string `json:"zone,omitempty"`
 	Address      string `json:"address,omitempty"`
 	Status       string `json:"status"`
+	Schedulable  bool   `json:"schedulable"`
+	Draining     bool   `json:"draining,omitempty"`
 	Arch         string `json:"arch"`
 	OS           string `json:"os"`
 	CPUs         int    `json:"cpus"`
@@ -48,6 +50,8 @@ func (h *handler) toResponse(n Node) response {
 		Zone:         n.Zone,
 		Address:      n.Address,
 		Status:       string(n.StatusAt(h.svc.now())),
+		Schedulable:  n.Schedulable,
+		Draining:     n.Draining,
 		Arch:         n.Arch,
 		OS:           n.OS,
 		CPUs:         n.CPUs,
@@ -93,6 +97,32 @@ func (h *handler) heartbeat(w http.ResponseWriter, r *http.Request) error {
 
 func (h *handler) get(w http.ResponseWriter, r *http.Request) error {
 	n, err := h.svc.get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	httpx.Write(w, http.StatusOK, h.toResponse(n))
+	return nil
+}
+
+func (h *handler) cordon(w http.ResponseWriter, r *http.Request) error {
+	return h.setCordon(w, r, false)
+}
+
+func (h *handler) uncordon(w http.ResponseWriter, r *http.Request) error {
+	return h.setCordon(w, r, true)
+}
+
+func (h *handler) setCordon(w http.ResponseWriter, r *http.Request, schedulable bool) error {
+	n, err := h.svc.cordon(r.Context(), r.PathValue("id"), schedulable)
+	if err != nil {
+		return err
+	}
+	httpx.Write(w, http.StatusOK, h.toResponse(n))
+	return nil
+}
+
+func (h *handler) drain(w http.ResponseWriter, r *http.Request) error {
+	n, err := h.svc.drain(r.Context(), r.PathValue("id"))
 	if err != nil {
 		return err
 	}

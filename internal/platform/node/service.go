@@ -31,6 +31,32 @@ func newService(repo *repository, now clock) *service {
 	return &service{repo: repo, now: now}
 }
 
+func (s *service) cordon(ctx context.Context, id string, schedulable bool) (Node, error) {
+	found, err := s.get(ctx, id)
+	if err != nil {
+		return Node{}, err
+	}
+	if err := s.repo.setSchedulable(ctx, found.ID, schedulable, false); err != nil {
+		return Node{}, translate(err)
+	}
+	return s.get(ctx, found.ID)
+}
+
+func (s *service) drain(ctx context.Context, id string) (Node, error) {
+	found, err := s.get(ctx, id)
+	if err != nil {
+		return Node{}, err
+	}
+	if err := s.repo.setSchedulable(ctx, found.ID, false, true); err != nil {
+		return Node{}, translate(err)
+	}
+	return s.get(ctx, found.ID)
+}
+
+func (s *service) setDraining(ctx context.Context, id string, draining bool) error {
+	return translate(s.repo.setDraining(ctx, id, draining))
+}
+
 func (s *service) register(ctx context.Context, params RegisterParams) (Node, error) {
 	if err := validateRegister(params); err != nil {
 		return Node{}, err
@@ -66,6 +92,7 @@ func (s *service) register(ctx context.Context, params RegisterParams) (Node, er
 			CPUs:         params.CPUs,
 			MemoryMiB:    params.MemoryMiB,
 			AgentVersion: params.AgentVersion,
+			Schedulable:  true,
 			RegisteredAt: now,
 			LastSeenAt:   now,
 		}

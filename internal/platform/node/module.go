@@ -53,11 +53,34 @@ func (m *Module) ReadyNodes(ctx context.Context) ([]Node, error) {
 	now := m.svc.now()
 	ready := make([]Node, 0, len(nodes))
 	for _, n := range nodes {
-		if n.StatusAt(now) == StatusReady {
-			ready = append(ready, n)
+		if n.StatusAt(now) != StatusReady {
+			continue
 		}
+		if !n.Schedulable {
+			continue
+		}
+		ready = append(ready, n)
 	}
 	return ready, nil
+}
+
+func (m *Module) DrainingNodes(ctx context.Context) ([]Node, error) {
+	nodes, err := m.svc.list(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	draining := make([]Node, 0)
+	for _, n := range nodes {
+		if n.Draining {
+			draining = append(draining, n)
+		}
+	}
+	return draining, nil
+}
+
+func (m *Module) FinishDraining(ctx context.Context, nodeID string) error {
+	return m.svc.setDraining(ctx, nodeID, false)
 }
 
 func (m *Module) Name() string {
@@ -92,6 +115,16 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  3,
 			SQL:    `ALTER TABLE nodes ADD COLUMN address TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "node",
+			Index:  4,
+			SQL:    `ALTER TABLE nodes ADD COLUMN schedulable INTEGER NOT NULL DEFAULT 1`,
+		},
+		{
+			Module: "node",
+			Index:  5,
+			SQL:    `ALTER TABLE nodes ADD COLUMN draining INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 }
 
@@ -100,4 +133,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/nodes/{id}/heartbeat", httpx.Wrap(m.log, m.handler.heartbeat))
 	mux.Handle("GET /v1/nodes", httpx.Wrap(m.log, m.handler.list))
 	mux.Handle("GET /v1/nodes/{id}", httpx.Wrap(m.log, m.handler.get))
+	mux.Handle("POST /v1/nodes/{id}/cordon", httpx.Wrap(m.log, m.handler.cordon))
+	mux.Handle("POST /v1/nodes/{id}/uncordon", httpx.Wrap(m.log, m.handler.uncordon))
+	mux.Handle("POST /v1/nodes/{id}/drain", httpx.Wrap(m.log, m.handler.drain))
 }

@@ -36,6 +36,23 @@ func (s nodeSource) UnreachableNodes(ctx context.Context, grace time.Duration) (
 	return ids, nil
 }
 
+func (s nodeSource) DrainingNodes(ctx context.Context) ([]string, error) {
+	draining, err := s.nodes.DrainingNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	ids := make([]string, 0, len(draining))
+	for _, n := range draining {
+		ids = append(ids, n.ID)
+	}
+	return ids, nil
+}
+
+func (s nodeSource) FinishDraining(ctx context.Context, nodeID string) error {
+	return s.nodes.FinishDraining(ctx, nodeID)
+}
+
 func (s nodeSource) ReadyNodes(ctx context.Context) ([]scheduler.Candidate, error) {
 	ready, err := s.nodes.ReadyNodes(ctx)
 	if err != nil {
