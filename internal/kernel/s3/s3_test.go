@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -217,4 +218,84 @@ func keysOf(held map[string][]byte) []string {
 		out = append(out, key)
 	}
 	return out
+}
+
+func TestAPresignedURLCarriesEverythingItNeeds(t *testing.T) {
+	c := newTestClient(t, "http://minio:9000")
+
+	raw, err := c.Presign(http.MethodPut, "backups/bkp-1", 15*time.Minute)
+	if err != nil {
+		t.Fatalf("presign: %v", err)
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	query := parsed.Query()
+
+	for key, want := range map[string]string{
+		"X-Amz-Algorithm":     "AWS4-HMAC-SHA256",
+		"X-Amz-Credential":    "minioadmin/20260829/us-east-1/s3/aws4_request",
+		"X-Amz-Date":          "20260829T120000Z",
+		"X-Amz-Expires":       "900",
+		"X-Amz-SignedHeaders": "host",
+	} {
+		if got := query.Get(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	if query.Get("X-Amz-Signature") == "" {
+		t.Error("the url carries no signature")
+	}
+	if parsed.Path != "/backups/backups/bkp-1" {
+		t.Errorf("path = %q, want the bucket and key", parsed.Path)
+	}
+}
+
+func TestAPresignedURLIsBoundToItsMethodAndKey(t *testing.T) {
+	c := newTestClient(t, "http://minio:9000")
+
+	signatureOf := func(method, key string) string {
+		raw, err := c.Presign(method, key, time.Minute)
+		if err != nil {
+			t.Fatalf("presign: %v", err)
+		}
+		parsed, _ := url.Parse(raw)
+		return parsed.Query().Get("X-Amz-Signature")
+	}
+
+	put := signatureOf(http.MethodPut, "a")
+	if put == signatureOf(http.MethodGet, "a") {
+		t.Fatal("a PUT url would also work as a GET, so read and write are the same capability")
+	}
+	if put == signatureOf(http.MethodPut, "b") {
+		t.Fatal("a url for one object would also work for another")
+	}
+	if put != signatureOf(http.MethodPut, "a") {
+		t.Fatal("the same request presigned differently twice")
+	}
+}
+
+func TestAPresignRefusesWhatItCannotSignSafely(t *testing.T) {
+	c := newTestClient(t, "http://minio:9000")
+
+	refused := []struct {
+		what   string
+		method string
+		key    string
+		window time.Duration
+	}{
+		{"a delete", http.MethodDelete, "a", time.Minute},
+		{"no key", http.MethodPut, "", time.Minute},
+		{"no window", http.MethodPut, "a", 0},
+		{"a negative window", http.MethodPut, "a", -time.Minute},
+		{"longer than a week", http.MethodPut, "a", MaxPresignWindow + time.Hour},
+	}
+
+	for _, c2 := range refused {
+		if _, err := c.Presign(c2.method, c2.key, c2.window); err == nil {
+			t.Errorf("%s was presigned", c2.what)
+		}
+	}
 }

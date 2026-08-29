@@ -2,8 +2,6 @@ package backup
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -29,28 +27,22 @@ type vault interface {
 }
 
 func pour(dst io.Writer, src io.Reader, limit int64, keys *sealed.Keyring) (written, error) {
-	digest := sha256.New()
-	bounded := io.LimitReader(src, limit+1)
-
 	var (
-		size int64
-		err  error
+		measured sealed.Measured
+		err      error
 	)
 	if active, ok := keys.Active(); ok {
-		size, err = sealed.Seal(dst, io.TeeReader(bounded, digest), active)
+		measured, err = sealed.SealMeasured(dst, src, active, limit)
 	} else {
-		size, err = io.Copy(io.MultiWriter(dst, digest), bounded)
+		measured, err = sealed.CopyMeasured(dst, src, limit)
 	}
 	if err != nil {
-		return written{}, fmt.Errorf("write the backup: %w", err)
-	}
-	if size > limit {
-		return written{}, fmt.Errorf("the backup is larger than %d bytes", limit)
+		return written{}, err
 	}
 
 	return written{
-		Size:     size,
-		Checksum: hex.EncodeToString(digest.Sum(nil)),
+		Size:     measured.Size,
+		Checksum: measured.Checksum,
 		KeyID:    keys.ActiveID(),
 	}, nil
 }

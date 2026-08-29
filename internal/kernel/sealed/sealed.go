@@ -226,3 +226,39 @@ func (o *opener) unseal(read int, last bool) error {
 	o.done = last
 	return nil
 }
+
+type Measured struct {
+	Size     int64
+	Checksum string
+}
+
+func SealMeasured(dst io.Writer, src io.Reader, k Key, limit int64) (Measured, error) {
+	return measure(dst, src, limit, func(w io.Writer, r io.Reader) (int64, error) {
+		return Seal(w, r, k)
+	})
+}
+
+func CopyMeasured(dst io.Writer, src io.Reader, limit int64) (Measured, error) {
+	return measure(dst, src, limit, io.Copy)
+}
+
+func measure(
+	dst io.Writer, src io.Reader, limit int64,
+	move func(io.Writer, io.Reader) (int64, error),
+) (Measured, error) {
+	digest := sha256.New()
+	bounded := io.LimitReader(src, limit+1)
+
+	size, err := move(dst, io.TeeReader(bounded, digest))
+	if err != nil {
+		return Measured{}, fmt.Errorf("write the sealed stream: %w", err)
+	}
+	if size > limit {
+		return Measured{}, fmt.Errorf("the stream is larger than %d bytes", limit)
+	}
+
+	return Measured{
+		Size:     size,
+		Checksum: hex.EncodeToString(digest.Sum(nil)),
+	}, nil
+}
