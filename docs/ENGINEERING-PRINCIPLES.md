@@ -360,6 +360,16 @@ make check      # vet + test + security scans
   seconds forever - the same trap as `instance.stranded`.
 - Deleting a service deletes its replicas first and refuses to delete the service if any replica
   will not go. Half a deletion leaves workloads nothing owns and nothing will clean up.
+- A node never sets its own labels, and there is no field for them on register. Labels say what an
+  operator decided about a machine, so a node that could assert them could pull work to itself by
+  claiming a label a selector asks for. This is the same reason `updateOnRegister` leaves
+  `schedulable` and `draining` alone, and there is a test that a node token gets 403.
+- `PUT /v1/nodes/{id}/labels` replaces the whole set rather than merging. Merging leaves no way to
+  remove a label without inventing a delete route and a null-means-delete convention, and makes the
+  call non-idempotent. The transaction deletes then inserts for the same reason - an upsert would
+  silently turn the replace back into a merge, which is a mutation test in `label_test.go`.
+- `?label=k=v` repeats to mean and, never or. An or filter reads the same and answers a different
+  question, so if one is ever wanted it needs its own syntax rather than a flag on this one.
 
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other

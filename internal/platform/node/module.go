@@ -125,6 +125,21 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  5,
 			SQL:    `ALTER TABLE nodes ADD COLUMN draining INTEGER NOT NULL DEFAULT 0`,
 		},
+		{
+			Module: "node",
+			Index:  6,
+			SQL: `CREATE TABLE node_labels (
+				node_id TEXT NOT NULL,
+				key     TEXT NOT NULL,
+				value   TEXT NOT NULL,
+				PRIMARY KEY (node_id, key)
+			)`,
+		},
+		{
+			Module: "node",
+			Index:  7,
+			SQL:    `CREATE INDEX node_labels_lookup ON node_labels (key, value)`,
+		},
 	}
 }
 
@@ -136,4 +151,5 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/nodes/{id}/cordon", httpx.Wrap(m.log, m.handler.cordon))
 	mux.Handle("POST /v1/nodes/{id}/uncordon", httpx.Wrap(m.log, m.handler.uncordon))
 	mux.Handle("POST /v1/nodes/{id}/drain", httpx.Wrap(m.log, m.handler.drain))
+	mux.Handle("PUT /v1/nodes/{id}/labels", httpx.Wrap(m.log, m.handler.setLabels))
 }

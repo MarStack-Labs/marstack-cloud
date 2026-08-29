@@ -118,6 +118,12 @@ func (s *service) get(ctx context.Context, id string) (Node, error) {
 	if err != nil {
 		return Node{}, translate(err)
 	}
+
+	labels, err := s.repo.labelsFor(ctx, n.ID)
+	if err != nil {
+		return Node{}, translate(err)
+	}
+	n.Labels = labels
 	return n, nil
 }
 
@@ -126,7 +132,48 @@ func (s *service) list(ctx context.Context) ([]Node, error) {
 	if err != nil {
 		return nil, translate(err)
 	}
+
+	byNode, err := s.repo.allLabels(ctx)
+	if err != nil {
+		return nil, translate(err)
+	}
+	for i := range nodes {
+		nodes[i].Labels = byNode[nodes[i].ID]
+	}
 	return nodes, nil
+}
+
+func (s *service) setLabels(
+	ctx context.Context, id string, labels map[string]string,
+) (Node, error) {
+	if err := validateLabels(labels); err != nil {
+		return Node{}, err
+	}
+
+	found, err := s.get(ctx, id)
+	if err != nil {
+		return Node{}, err
+	}
+	if err := s.repo.replaceLabels(ctx, found.ID, labels); err != nil {
+		return Node{}, translate(err)
+	}
+	return s.get(ctx, found.ID)
+}
+
+func validateLabels(labels map[string]string) error {
+	if len(labels) > MaxLabels {
+		return fault.Invalid("too_many_labels", fmt.Sprintf(
+			"a node carries at most %d labels, and %d were given", MaxLabels, len(labels)))
+	}
+	for key, value := range labels {
+		if err := validate.Name("label_key", key); err != nil {
+			return err
+		}
+		if err := validate.Name("label_value", value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateRegister(params RegisterParams) error {

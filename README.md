@@ -726,6 +726,35 @@ ones are dropped in the background. If you need events past that, take them out
 to somewhere built for retention; this is here so an operator can answer a
 question now, not to be a system of record.
 
+## Saying something about a machine that the machine cannot say
+
+A node reports what it is — arch, cpu count, memory. What it is *for* is an
+operator's decision, and there was nowhere to put it:
+
+```
+$ marstack node label bm-1 disk=nvme tier=prod
+NAME   STATUS   SCHEDULING   ZONE     ARCH    CPUS   MEMORY   AGENT       LABELS
+bm-1   ready    open         rack-a   arm64   4      5910Mi   0.0.1-dev   disk=nvme,tier=prod
+
+$ marstack node list --label tier=prod
+bm-1
+
+$ marstack node list --label disk=nvme --label tier=dev
+no results
+```
+
+Repeating `--label` means **and**, never or. Two filters that read the same and
+answer different questions is how somebody ends up trusting the wrong one.
+
+**A node never labels itself.** There is no label field on register, and a node
+token asking to set one gets a 403 with a test that says so. A node that could
+assert its own labels could pull work to itself by claiming whatever a selector
+asks for — the same reason registering again does not clear a cordon.
+
+Setting labels replaces the whole set rather than merging, so a label goes away
+by being left out. Merging would need a delete route and a convention for what
+null means, and would make the call depend on what was there before.
+
 ## Reading a list without reading all of it
 
 Every list endpoint returned the whole table. That is fine at twenty instances
@@ -1525,6 +1554,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 36  nodes write backups straight to the store         done
 37  paged instance listing                            done
 38  paged volume, backup and snapshot listings        done
+39  operator labels on nodes                          done
 ```
 
 ## License

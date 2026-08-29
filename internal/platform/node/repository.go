@@ -170,3 +170,71 @@ func scanNode(row scanner) (Node, error) {
 	}
 	return n, nil
 }
+
+func (r *repository) labelsFor(ctx context.Context, nodeID string) (map[string]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT key, value FROM node_labels WHERE node_id = ? ORDER BY key`, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("read node labels: %w", err)
+	}
+	defer rows.Close()
+
+	labels := map[string]string{}
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, fmt.Errorf("scan node label: %w", err)
+		}
+		labels[key] = value
+	}
+	return labels, rows.Err()
+}
+
+func (r *repository) allLabels(ctx context.Context) (map[string]map[string]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT node_id, key, value FROM node_labels ORDER BY node_id, key`)
+	if err != nil {
+		return nil, fmt.Errorf("read every node label: %w", err)
+	}
+	defer rows.Close()
+
+	byNode := map[string]map[string]string{}
+	for rows.Next() {
+		var nodeID, key, value string
+		if err := rows.Scan(&nodeID, &key, &value); err != nil {
+			return nil, fmt.Errorf("scan node label: %w", err)
+		}
+		if byNode[nodeID] == nil {
+			byNode[nodeID] = map[string]string{}
+		}
+		byNode[nodeID][key] = value
+	}
+	return byNode, rows.Err()
+}
+
+func (r *repository) replaceLabels(ctx context.Context, nodeID string, labels map[string]string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM node_labels WHERE node_id = ?`, nodeID); err != nil {
+		return fmt.Errorf("clear node labels: %w", err)
+	}
+
+	for key, value := range labels {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO node_labels (node_id, key, value) VALUES (?, ?, ?)`,
+			nodeID, key, value,
+		); err != nil {
+			return fmt.Errorf("write node label: %w", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit node labels: %w", err)
+	}
+	return nil
+}

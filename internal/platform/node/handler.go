@@ -2,8 +2,10 @@ package node
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 )
 
@@ -19,20 +21,25 @@ type registerRequest struct {
 }
 
 type response struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Zone         string `json:"zone,omitempty"`
-	Address      string `json:"address,omitempty"`
-	Status       string `json:"status"`
-	Schedulable  bool   `json:"schedulable"`
-	Draining     bool   `json:"draining,omitempty"`
-	Arch         string `json:"arch"`
-	OS           string `json:"os"`
-	CPUs         int    `json:"cpus"`
-	MemoryMiB    int    `json:"memory_mib"`
-	AgentVersion string `json:"agent_version"`
-	RegisteredAt string `json:"registered_at"`
-	LastSeenAt   string `json:"last_seen_at"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Zone         string            `json:"zone,omitempty"`
+	Address      string            `json:"address,omitempty"`
+	Status       string            `json:"status"`
+	Schedulable  bool              `json:"schedulable"`
+	Draining     bool              `json:"draining,omitempty"`
+	Arch         string            `json:"arch"`
+	OS           string            `json:"os"`
+	CPUs         int               `json:"cpus"`
+	MemoryMiB    int               `json:"memory_mib"`
+	AgentVersion string            `json:"agent_version"`
+	Labels       map[string]string `json:"labels,omitempty"`
+	RegisteredAt string            `json:"registered_at"`
+	LastSeenAt   string            `json:"last_seen_at"`
+}
+
+type labelsRequest struct {
+	Labels map[string]string `json:"labels"`
 }
 
 type listResponse struct {
@@ -57,6 +64,7 @@ func (h *handler) toResponse(n Node) response {
 		CPUs:         n.CPUs,
 		MemoryMiB:    n.MemoryMiB,
 		AgentVersion: n.AgentVersion,
+		Labels:       n.Labels,
 		RegisteredAt: n.RegisteredAt.Format(time.RFC3339Nano),
 		LastSeenAt:   n.LastSeenAt.Format(time.RFC3339Nano),
 	}
@@ -130,7 +138,26 @@ func (h *handler) drain(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+func (h *handler) setLabels(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[labelsRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	n, err := h.svc.setLabels(r.Context(), r.PathValue("id"), req.Labels)
+	if err != nil {
+		return err
+	}
+	httpx.Write(w, http.StatusOK, h.toResponse(n))
+	return nil
+}
+
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
+	selector, err := selectorFrom(r)
+	if err != nil {
+		return err
+	}
+
 	nodes, err := h.svc.list(r.Context())
 	if err != nil {
 		return err
@@ -138,9 +165,33 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 
 	body := listResponse{Nodes: make([]response, 0, len(nodes))}
 	for _, n := range nodes {
+		if !n.Matches(selector) {
+			continue
+		}
 		body.Nodes = append(body.Nodes, h.toResponse(n))
 	}
 
 	httpx.Write(w, http.StatusOK, body)
 	return nil
+}
+
+func selectorFrom(r *http.Request) (map[string]string, error) {
+	raw := r.URL.Query()["label"]
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	selector := make(map[string]string, len(raw))
+	for _, pair := range raw {
+		key, value, found := strings.Cut(pair, "=")
+		if !found {
+			return nil, fault.Invalid("invalid_label",
+				"a label filter is key=value, and "+pair+" has no value")
+		}
+		if err := validateLabels(map[string]string{key: value}); err != nil {
+			return nil, err
+		}
+		selector[key] = value
+	}
+	return selector, nil
 }

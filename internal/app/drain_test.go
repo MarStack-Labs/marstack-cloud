@@ -7,11 +7,12 @@ import (
 )
 
 type nodeBody struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Status      string `json:"status"`
-	Schedulable bool   `json:"schedulable"`
-	Draining    bool   `json:"draining"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Status      string            `json:"status"`
+	Schedulable bool              `json:"schedulable"`
+	Draining    bool              `json:"draining"`
+	Labels      map[string]string `json:"labels"`
 }
 
 func nodeAct(t *testing.T, a *testApp, nodeID, verb string) nodeBody {
