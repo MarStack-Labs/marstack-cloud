@@ -407,7 +407,7 @@ func newSlowApp(t *testing.T, timeout time.Duration) *testApp {
 
 	dir := t.TempDir()
 	a, err := New(context.Background(),
-		Config{DataDir: dir, RequestTimeout: timeout}, logging.New("error", io.Discard))
+		Config{DataDir: dir, RequestTimeout: timeout, RatePerSecond: &unlimited}, logging.New("error", io.Discard))
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}

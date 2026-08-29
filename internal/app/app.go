@@ -10,6 +10,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/certs"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/ratelimit"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/s3"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
@@ -52,6 +53,22 @@ type Config struct {
 	TLSKey            string
 	BackupKeys        []sealed.Key
 	ObjectStore       s3.Config
+	RatePerSecond     *int
+	RateBurst         int
+}
+
+func (c Config) ratePerSecond() int {
+	if c.RatePerSecond == nil {
+		return ratelimit.DefaultPerSecond
+	}
+	return *c.RatePerSecond
+}
+
+func (c Config) rateBurst() int {
+	if c.RateBurst <= 0 {
+		return ratelimit.DefaultBurst
+	}
+	return c.RateBurst
 }
 
 func (c Config) servesTLS() bool {
@@ -87,6 +104,7 @@ type App struct {
 	tokens    *token.Module
 	trail     *audit.Module
 	scheduler *scheduler.Scheduler
+	limiter   *ratelimit.Limiter
 	router    http.Handler
 	http      *http.Server
 }
@@ -214,6 +232,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		return nil, err
 	}
 
+	a.limiter = ratelimit.New(cfg.ratePerSecond(), cfg.rateBurst(), cfg.Now)
 	a.router = a.buildRouter()
 
 	var tlsConfig *tls.Config
@@ -277,6 +296,7 @@ func (a *App) buildRouter() http.Handler {
 		httpx.Recover(a.log),
 		httpx.AccessLog(a.log),
 		httpx.SecureHeaders(),
+		httpx.RateLimit(a.limiter, callerKey, openToEveryone),
 		httpx.Timeout(a.cfg.RequestTimeout, allowList(streamingPaths)),
 		auditTrail(a.trail),
 		authenticate(a.tokens, a.log),

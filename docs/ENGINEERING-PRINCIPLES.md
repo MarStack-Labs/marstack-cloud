@@ -415,6 +415,30 @@ make check      # vet + test + security scans
   the same path because which one wins would be undefined.
 - The container's files are written before the cgroup is created and long before init runs, so a
   workload never observes a half-populated config directory.
+- The rate limiter sits **in front of** `authenticate`, not behind it. Behind it, every bogus token
+  costs a hash plus a lookup on the one SQLite connection before anything says no, which is a denial
+  of service the limiter is supposed to stop. It therefore keys on the bearer secret's hash rather
+  than the token id, which it cannot know yet.
+- The key is `sha256(secret)[:8]`, never the secret. The limiter keeps its keys in memory and the
+  map would otherwise be a place a raw credential lives for five minutes.
+- `MaxTracked` and the idle sweep are the point of the whole file. A limiter that allocates a bucket
+  per attacker-chosen key **is** the denial of service; past the cap, callers share one bucket
+  instead of growing the map, and `Overflowed` says when that started. Removing the cap is a
+  mutation test.
+- `/healthz` is exempt. Throttling the health check makes a busy platform look like a dead one to
+  whatever is watching it, which is the worst possible moment to be wrong.
+- Buckets are per caller, not global, so one hot loop cannot take the platform down for everybody -
+  also a mutation test. Agents are unaffected in practice because a node's steady traffic is a few
+  requests a second against a default of 50.
+- `New` respects the burst it is given even below the rate. An earlier version quietly raised burst
+  to the rate, which made `--rate-burst` a suggestion rather than a setting.
+- Every test app builds with `RatePerSecond: &unlimited`. `waitForPlacement` polls every 10ms for
+  three seconds, which is 300 requests against a default of 50 a second, and the first thing the
+  limiter did was make an unrelated cordon test fail. Tests about placement must not silently become
+  tests about throttling; `ratelimit_test.go` is where the limit is exercised on purpose.
+- `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
+  `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
+  than the limit would make, and the reason the failure looked like a scheduler bug.
 
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other

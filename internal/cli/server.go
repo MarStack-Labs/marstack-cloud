@@ -12,6 +12,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/app"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/ratelimit"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/s3"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 )
@@ -24,6 +25,9 @@ func newServerCmd() *cobra.Command {
 		tlsCert  string
 		tlsKey   string
 		keyFiles []string
+
+		ratePerSecond int
+		rateBurst     int
 
 		objectEndpoint  string
 		objectBucket    string
@@ -68,12 +72,14 @@ func newServerCmd() *cobra.Command {
 			}
 
 			a, err := app.New(ctx, app.Config{
-				Listen:      listen,
-				DataDir:     dataDir,
-				TLSCert:     tlsCert,
-				TLSKey:      tlsKey,
-				BackupKeys:  keys,
-				ObjectStore: objects,
+				Listen:        listen,
+				DataDir:       dataDir,
+				TLSCert:       tlsCert,
+				TLSKey:        tlsKey,
+				BackupKeys:    keys,
+				ObjectStore:   objects,
+				RatePerSecond: &ratePerSecond,
+				RateBurst:     rateBurst,
 			}, log)
 			if err != nil {
 				return err
@@ -87,6 +93,10 @@ func newServerCmd() *cobra.Command {
 	cmd.Flags().StringVar(&listen, "listen", "127.0.0.1:7443", "address the control plane listens on")
 	cmd.Flags().StringVar(&dataDir, "data-dir", "./data", "directory holding the control plane database")
 	cmd.Flags().StringVar(&logLevel, "log-level", "info", "log level: debug, info, warn, error")
+	cmd.Flags().IntVar(&ratePerSecond, "rate-limit", ratelimit.DefaultPerSecond,
+		"requests per second one caller may sustain, 0 to accept everything")
+	cmd.Flags().IntVar(&rateBurst, "rate-burst", ratelimit.DefaultBurst,
+		"requests one caller may send at once before the rate applies")
 	cmd.Flags().StringVar(&tlsCert, "tls-cert", "", "PEM certificate chain to serve HTTPS with")
 	cmd.Flags().StringVar(&tlsKey, "tls-key", "", "PEM private key for --tls-cert")
 	cmd.Flags().StringArrayVar(&keyFiles, "backup-key-file", nil,

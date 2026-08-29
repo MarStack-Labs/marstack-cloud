@@ -4,9 +4,12 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/ratelimit"
 )
 
 type contextKey int
@@ -124,6 +127,27 @@ func AccessLog(log *slog.Logger) Middleware {
 				"request_id", RequestIDFrom(r.Context()),
 				"duration", time.Since(start).String(),
 			)
+		})
+	}
+}
+
+func RateLimit(l *ratelimit.Limiter, key func(*http.Request) string, exempt func(*http.Request) bool) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if l == nil || (exempt != nil && exempt(r)) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			allowed, after := l.Allow(key(r))
+			if !allowed {
+				w.Header().Set("Retry-After", strconv.Itoa(int(after.Seconds())))
+				WriteFault(w, fault.TooMany("rate_limited",
+					"this caller is sending requests faster than the control plane accepts "+
+						"them; retry after "+strconv.Itoa(int(after.Seconds()))+"s"))
+				return
+			}
+			next.ServeHTTP(w, r)
 		})
 	}
 }

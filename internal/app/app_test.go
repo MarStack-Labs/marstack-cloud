@@ -21,12 +21,14 @@ type testApp struct {
 	secret string
 }
 
+var unlimited = 0
+
 func newTestApp(t *testing.T) *testApp {
 	t.Helper()
 
 	dir := t.TempDir()
 	log := logging.New("error", io.Discard)
-	a, err := New(context.Background(), Config{DataDir: dir}, log)
+	a, err := New(context.Background(), Config{DataDir: dir, RatePerSecond: &unlimited}, log)
 	if err != nil {
 		t.Fatalf("new app: %v", err)
 	}

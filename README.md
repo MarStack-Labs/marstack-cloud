@@ -755,6 +755,34 @@ Setting labels replaces the whole set rather than merging, so a label goes away
 by being left out. Merging would need a delete route and a convention for what
 null means, and would make the call depend on what was there before.
 
+## Not letting one client take the platform down
+
+Every caller could send as fast as it liked, and each bogus token cost a hash
+plus a lookup on the single SQLite connection. Both are fixed by one middleware:
+
+```
+$ 400 requests as fast as the loop goes
+{200: 169, 429: 231}
+Retry-After: 1
+```
+
+Buckets are **per caller**, so a hot loop in one client does not refuse everybody
+else. The limiter runs **in front of** authentication — behind it, a flood of
+wrong tokens would still reach the database, which is the thing being protected.
+That means it keys on `sha256(secret)[:8]`, since the token id is not known yet,
+and never on the secret itself.
+
+The part that matters most is the cap. A limiter that allocates a bucket per
+attacker-chosen key *is* the denial of service it exists to stop, so past 4096
+tracked callers everyone new shares one bucket, idle callers are swept, and there
+is a test that floods it with distinct keys.
+
+`/healthz` is never limited: throttling the health check makes a busy platform
+look like a dead one to whatever is watching it.
+
+Defaults are 50 requests a second with a burst of 100 — invisible to an agent,
+which sends a few a second. `--rate-limit 0` turns it off.
+
 ## Giving a workload its configuration
 
 A workload needed everything baked into its image. `--env` fixes that, and
@@ -1661,6 +1689,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 40  placing a workload by node selector               done
 41  sealed environment injection                      done
 42  sealed config file injection                      done
+43  per caller api rate limiting                      done
 ```
 
 ## License

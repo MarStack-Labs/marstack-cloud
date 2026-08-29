@@ -87,10 +87,11 @@ func serveTLS(t *testing.T) (address, certPath string) {
 	address = freeAddress(t)
 
 	a, err := New(context.Background(), Config{
-		Listen:  address,
-		DataDir: dir,
-		TLSCert: certPath,
-		TLSKey:  keyPath,
+		Listen:        address,
+		DataDir:       dir,
+		TLSCert:       certPath,
+		TLSKey:        keyPath,
+		RatePerSecond: &unlimited,
 	}, logging.New("error", io.Discard))
 	if err != nil {
 		t.Fatalf("new app: %v", err)

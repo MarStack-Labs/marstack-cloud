@@ -137,6 +137,7 @@ func sealingAppIn(t *testing.T, dir string) (*testApp, string) {
 			DataDir:           dir,
 			BackupKeys:        []sealed.Key{k},
 			SchedulerInterval: 10 * time.Millisecond,
+			RatePerSecond:     &unlimited,
 		}, logging.New("error", io.Discard))
 	if err != nil {
 		t.Fatalf("new app: %v", err)

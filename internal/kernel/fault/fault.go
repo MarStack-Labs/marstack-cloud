@@ -15,6 +15,7 @@ const (
 	KindUnauthenticated
 	KindForbidden
 	KindUnavailable
+	KindTooMany
 )
 
 type Fault struct {
@@ -57,6 +58,10 @@ func Unauthenticated(code, message string) *Fault {
 
 func Forbidden(code, message string) *Fault {
 	return newFault(KindForbidden, code, message)
+}
+
+func TooMany(code, message string) *Fault {
+	return newFault(KindTooMany, code, message)
 }
 
 func Unavailable(code, message string) *Fault {

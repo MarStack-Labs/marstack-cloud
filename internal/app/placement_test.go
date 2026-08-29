@@ -23,6 +23,7 @@ func newSchedulingApp(t *testing.T) *testApp {
 	a, err := New(context.Background(), Config{
 		DataDir:           dir,
 		SchedulerInterval: 10 * time.Millisecond,
+		RatePerSecond:     &unlimited,
 	}, logging.New("error", io.Discard))
 	if err != nil {
 		t.Fatalf("new app: %v", err)
@@ -52,6 +53,10 @@ func instanceNodeID(t *testing.T, a *testApp, id string) string {
 	t.Helper()
 
 	rec := do(t, a, http.MethodGet, "/v1/instances/"+id, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get instance: %d %s: anything but 200 read as unplaced would make a "+
+			"throttled poll look like a scheduler that never ran", rec.Code, rec.Body.String())
+	}
 
 	var body struct {
 		NodeID string `json:"node_id"`

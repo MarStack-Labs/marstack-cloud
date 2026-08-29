@@ -21,6 +21,8 @@ func statusFor(kind fault.Kind) int {
 		return http.StatusForbidden
 	case fault.KindUnavailable:
 		return http.StatusServiceUnavailable
+	case fault.KindTooMany:
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusInternalServerError
 	}
