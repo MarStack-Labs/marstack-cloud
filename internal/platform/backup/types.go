@@ -2,6 +2,8 @@ package backup
 
 import "time"
 
+const TransferWindow = 30 * time.Minute
+
 const (
 	StatePending = "pending"
 	StateReady   = "ready"
@@ -31,6 +33,7 @@ type Backup struct {
 	KeyID           string
 	VolumeKeySealed string
 	VolumeKeyID     string
+	ContentKey      string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }

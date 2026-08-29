@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/s3"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
@@ -88,7 +89,9 @@ func (v *objectVault) write(
 	return result, nil
 }
 
-func (v *objectVault) open(ctx context.Context, id, keyID string) (io.ReadCloser, error) {
+func (v *objectVault) open(
+	ctx context.Context, id, keyID, contentKey string,
+) (io.ReadCloser, error) {
 	body, err := v.client.Get(ctx, keyFor(id))
 	if errors.Is(err, s3.ErrNotFound) {
 		return nil, fmt.Errorf("the object store does not hold %s", id)
@@ -96,9 +99,69 @@ func (v *objectVault) open(ctx context.Context, id, keyID string) (io.ReadCloser
 	if err != nil {
 		return nil, err
 	}
-	return unseal(body, keyID, v.keys)
+	if contentKey == "" {
+		return unseal(body, keyID, v.keys)
+	}
+
+	raw, err := v.unwrapContentKey(contentKey, keyID)
+	if err != nil {
+		body.Close()
+		return nil, err
+	}
+
+	k, err := sealed.ParseKey(raw)
+	if err != nil {
+		body.Close()
+		return nil, fmt.Errorf("read the content key: %w", err)
+	}
+
+	reader, err := sealed.Open(body, k)
+	if err != nil {
+		body.Close()
+		return nil, fmt.Errorf("unseal the backup: %w", err)
+	}
+	return unsealed{Reader: reader, closer: body}, nil
 }
 
 func (v *objectVault) remove(ctx context.Context, id string) error {
 	return v.client.Delete(ctx, keyFor(id))
+}
+
+type directVault interface {
+	presign(method, id string, window time.Duration) (string, error)
+	mintContentKey() (raw, wrapped, keyID string, err error)
+	unwrapContentKey(wrapped, keyID string) (string, error)
+}
+
+func (v *objectVault) presign(method, id string, window time.Duration) (string, error) {
+	return v.client.Presign(method, keyFor(id), window)
+}
+
+func (v *objectVault) mintContentKey() (string, string, string, error) {
+	active, sealing := v.keys.Active()
+	if !sealing {
+		return "", "", "", nil
+	}
+
+	_, text := sealed.NewKey()
+
+	wrapped, err := sealed.SealBytes([]byte(text), active)
+	if err != nil {
+		return "", "", "", fmt.Errorf("wrap a content key: %w", err)
+	}
+	return text, wrapped, v.keys.ActiveID(), nil
+}
+
+func (v *objectVault) unwrapContentKey(wrapped, keyID string) (string, error) {
+	operator, held := v.keys.Find(keyID)
+	if !held {
+		return "", fmt.Errorf("this backup was keyed with %s, which this control plane "+
+			"does not hold", keyID)
+	}
+
+	raw, err := sealed.OpenBytes(wrapped, operator)
+	if err != nil {
+		return "", fmt.Errorf("unwrap the content key: %w", err)
+	}
+	return string(raw), nil
 }

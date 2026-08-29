@@ -763,13 +763,37 @@ $ sha256sum original.qcow2 pulled.qcow2
 449b92b68bbf7db5...  pulled.qcow2
 ```
 
-**Sealing is unchanged and still happens on the control plane.** The operator key
-never leaves it, so an object store that is readable by somebody else still holds
-ciphertext. That is also why the node does not yet upload directly: it would need
-a key, and shipping the operator key to every node would trade the whole point of
-the feature for a shorter network path. Doing it properly means a per-backup key
-wrapped by the operator key, the same shape volume encryption already uses, and
-that is not built.
+### The node writes the bytes, not the control plane
+
+With an object store configured, a backup never passes through the control plane.
+The node asks where to put it, gets a presigned PUT and a key, seals the stream
+itself and uploads:
+
+```
+level=INFO msg="backup written straight to the object store" backup=bkp-6s874xxpc582e bytes=589824
+```
+
+The key is **per backup**, minted by the control plane and wrapped with the
+operator key. The node is handed the unwrapped one for that single backup, which
+is the same shape volume encryption already uses. **The operator key still never
+leaves the control plane**, so the alternative — shipping it to every node — is
+avoided rather than accepted.
+
+The presigned url is a bearer capability for one object and one verb, expires in
+thirty minutes, and cannot be edited to name another object: MinIO refuses a url
+whose key has been changed, because the signature covers it.
+
+Reading is unchanged from a caller's side. The control plane fetches the object,
+unwraps the content key, unseals, and streams. Verified end to end: the object in
+the bucket starts `MSBK` rather than a qcow2 magic, so it really is sealed, and
+what comes back out is byte-identical to the volume it came from.
+
+Two things are worth knowing. **The size and checksum are the node's word now** —
+the control plane no longer sees the bytes, so it cannot compute them. The AEAD
+still detects corruption when the backup is read, which is the guarantee that
+matters, but the recorded numbers are a report rather than a measurement. And
+with no object store configured nothing changes: the control plane says so, and
+the node falls back to streaming through it.
 
 The secret key comes from `MARSTACK_OBJECT_STORE_SECRET_KEY` rather than a flag,
 because a secret on the command line is a secret in the process list.
@@ -1447,6 +1471,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 33  bounded usage history                             done
 34  webhooks: tell somebody an event happened         done
 35  backups on an S3 object store                     done
+36  nodes write backups straight to the store         done
 ```
 
 ## License

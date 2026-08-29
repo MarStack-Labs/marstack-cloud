@@ -85,10 +85,109 @@ func (s *service) create(ctx context.Context, params CreateParams) (Backup, erro
 		VolumeKeyID:     source.KeyID,
 	}
 
+	if direct, ok := s.vault.(directVault); ok {
+		_, wrapped, keyID, err := direct.mintContentKey()
+		if err != nil {
+			return Backup{}, fault.Internal(err)
+		}
+		b.ContentKey = wrapped
+		b.KeyID = keyID
+	}
+
 	if err := s.repo.insert(ctx, b); err != nil {
 		return Backup{}, translate(err)
 	}
 	return b, nil
+}
+
+type Transfer struct {
+	URL       string
+	Key       string
+	ExpiresAt time.Time
+}
+
+func (s *service) transfer(
+	ctx context.Context, id, nodeID, method string,
+) (Transfer, bool, error) {
+	direct, ok := s.vault.(directVault)
+	if !ok {
+		return Transfer{}, false, nil
+	}
+
+	b, err := s.repo.byID(ctx, id)
+	if err != nil {
+		return Transfer{}, false, translate(err)
+	}
+	if b.NodeID != nodeID {
+		return Transfer{}, false, fault.NotFound("backup_not_found",
+			"no backup with that id exists")
+	}
+
+	url, err := direct.presign(method, b.ID, TransferWindow)
+	if err != nil {
+		return Transfer{}, false, fault.Internal(err)
+	}
+
+	raw := ""
+	if b.ContentKey != "" {
+		raw, err = direct.unwrapContentKey(b.ContentKey, b.KeyID)
+		if err != nil {
+			return Transfer{}, false, fault.Internal(err)
+		}
+	}
+
+	return Transfer{
+		URL:       url,
+		Key:       raw,
+		ExpiresAt: s.now().Add(TransferWindow),
+	}, true, nil
+}
+
+func (s *service) markUploaded(
+	ctx context.Context, id, nodeID string, size int64, checksum string,
+) error {
+	b, err := s.repo.byID(ctx, id)
+	if err != nil {
+		return translate(err)
+	}
+	if b.NodeID != nodeID {
+		return fault.NotFound("backup_not_found", "no backup with that id exists")
+	}
+	if b.State == StateReady {
+		return nil
+	}
+	if size <= 0 {
+		return fault.Invalid("invalid_size", "a backup that landed has a size")
+	}
+	if len(checksum) != 64 {
+		return fault.Invalid("invalid_checksum",
+			"the checksum is 64 hex characters of sha256 over the plaintext")
+	}
+
+	at := s.now()
+	if err := s.repo.mark(ctx, b.ID, StateReady, "", size, checksum, b.KeyID, at); err != nil {
+		return translate(err)
+	}
+
+	b.State = StateReady
+	b.SizeBytes = size
+	b.Checksum = checksum
+	b.UpdatedAt = at
+	s.note(ctx, b, "backup.ready", b.ID+" holds "+strconv.FormatInt(size, 10)+" bytes",
+		events.Info)
+
+	if b.ScheduleID != "" {
+		sc, err := s.repo.scheduleByID(ctx, b.ScheduleID)
+		if err != nil && !errors.Is(err, errNotFound) {
+			return fault.Internal(err)
+		}
+		if err == nil {
+			if _, err := s.retain(ctx, sc); err != nil {
+				return fault.Internal(err)
+			}
+		}
+	}
+	return nil
 }
 
 func (s *service) listIn(ctx context.Context, projectID string) ([]Backup, error) {
@@ -214,7 +313,7 @@ func (s *service) content(ctx context.Context, id string) (io.ReadCloser, int64,
 			"the backup is "+b.State+" and holds no bytes yet")
 	}
 
-	reader, err := s.vault.open(ctx, b.ID, b.KeyID)
+	reader, err := s.vault.open(ctx, b.ID, b.KeyID, b.ContentKey)
 	if err != nil {
 		return nil, 0, fault.Unavailable("backup_unreadable", err.Error())
 	}

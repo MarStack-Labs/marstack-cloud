@@ -142,6 +142,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  10,
 			SQL:    `ALTER TABLE backups ADD COLUMN volume_key_id TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "backup",
+			Index:  11,
+			SQL:    `ALTER TABLE backups ADD COLUMN content_key TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -158,6 +163,12 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /v1/volumes/{id}/schedule", httpx.Wrap(m.log, m.handler.deleteSchedule))
 
 	mux.Handle("GET /v1/nodes/{nodeID}/backups", httpx.Wrap(m.log, m.handler.listForNode))
+	mux.Handle("GET /v1/nodes/{nodeID}/backups/{id}/upload",
+		httpx.Wrap(m.log, m.handler.uploadTarget))
+	mux.Handle("GET /v1/nodes/{nodeID}/backups/{id}/download",
+		httpx.Wrap(m.log, m.handler.downloadTarget))
+	mux.Handle("POST /v1/nodes/{nodeID}/backups/{id}/uploaded",
+		httpx.Wrap(m.log, m.handler.uploaded))
 	mux.Handle("PUT /v1/nodes/{nodeID}/backups/{id}/content", httpx.Wrap(m.log, m.handler.upload))
 	mux.Handle("POST /v1/nodes/{nodeID}/backups/{id}/failure", httpx.Wrap(m.log, m.handler.fail))
 	mux.Handle("GET /v1/nodes/{nodeID}/backups/{id}/content", httpx.Wrap(m.log, m.handler.download))

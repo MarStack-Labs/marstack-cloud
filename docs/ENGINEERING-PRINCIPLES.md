@@ -122,10 +122,20 @@ make check      # vet + test + security scans
   salt and a tag per frame. The object store upload must take its Content-Length from the staged
   file, not from `written.Size` - getting that wrong fails as `ContentLength=X with Body length Y`
   only once a real S3 server sees it, which is exactly how it was found.
-- Sealing happens on the control plane and the operator key never leaves it. That is why the node
-  does not upload to the object store directly: it would need a key. Doing it properly means a
-  per-backup key wrapped by the operator key, the way volume encryption already works, not shipping
-  the operator key to nodes.
+- With an object store, the node seals and uploads a backup itself using a per-backup key that the
+  control plane mints and wraps with the operator key. The operator key never leaves the control
+  plane; only the unwrapped key for one backup is handed out. Never "simplify" this by giving nodes
+  the operator key.
+- `vault.open` takes both `keyID` and `contentKey`. A backup written directly is sealed with the
+  per-backup key, not the operator key, so reading it with `keyID` alone decrypts to garbage and
+  fails partway through a 200 response. Backups written before this exist with an empty
+  `content_key` and must keep working through the operator-key path.
+- Sealing now happens in two places, the control-plane vault and the agent, which is why the
+  seal-plus-digest-plus-limit logic lives in `kernel/sealed` as `SealMeasured`. Both must call it;
+  a second implementation is how the two ends stop agreeing on a format.
+- A directly uploaded backup's `size_bytes` and `checksum` are reported by the node, not measured by
+  the control plane, which cannot see the bytes. The AEAD is what actually detects corruption on
+  read; the recorded numbers are a report.
 - `kernel/s3` signs with `UNSIGNED-PAYLOAD`. Signing the body means buffering the whole volume or
   implementing chunked signing, and the backup is already sealed, so its AEAD is what detects
   tampering. Do not "improve" this into a full payload hash without noticing the memory cost.

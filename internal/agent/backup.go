@@ -121,6 +121,33 @@ func (a *Agent) runBackup(
 			return
 		}
 
+		direct, err := a.client.backupTransfer(ctx, nodeID, b.ID, "upload")
+		if err != nil {
+			content.Close()
+			a.log.Warn("could not ask where to put a backup",
+				"backup", b.ID, "error", err)
+			return
+		}
+
+		if direct.Direct {
+			landed, err := a.uploadDirect(ctx, direct, content)
+			content.Close()
+			if err != nil {
+				a.log.Warn("could not upload a backup to the object store",
+					"backup", b.ID, "volume", b.VolumeID, "error", err)
+				return
+			}
+			if err := a.client.reportUploaded(ctx, nodeID, b.ID, landed); err != nil {
+				a.log.Warn("uploaded a backup but could not say so",
+					"backup", b.ID, "error", err)
+				return
+			}
+
+			a.log.Info("backup written straight to the object store",
+				"backup", b.ID, "name", b.Name, "volume", b.VolumeID, "bytes", landed.SizeBytes)
+			return
+		}
+
 		err = a.client.uploadBackup(ctx, nodeID, b.ID, content)
 		content.Close()
 		if err != nil {

@@ -267,3 +267,57 @@ func (h *handler) deleteSchedule(w http.ResponseWriter, r *http.Request) error {
 	w.WriteHeader(http.StatusNoContent)
 	return nil
 }
+
+type transferResponse struct {
+	Direct    bool   `json:"direct"`
+	URL       string `json:"url,omitempty"`
+	Key       string `json:"key,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+}
+
+type uploadedRequest struct {
+	SizeBytes int64  `json:"size_bytes"`
+	Checksum  string `json:"checksum"`
+}
+
+func (h *handler) uploadTarget(w http.ResponseWriter, r *http.Request) error {
+	return h.transfer(w, r, http.MethodPut)
+}
+
+func (h *handler) downloadTarget(w http.ResponseWriter, r *http.Request) error {
+	return h.transfer(w, r, http.MethodGet)
+}
+
+func (h *handler) transfer(w http.ResponseWriter, r *http.Request, method string) error {
+	target, direct, err := h.svc.transfer(r.Context(), r.PathValue("id"),
+		r.PathValue("nodeID"), method)
+	if err != nil {
+		return err
+	}
+	if !direct {
+		httpx.Write(w, http.StatusOK, transferResponse{Direct: false})
+		return nil
+	}
+
+	httpx.Write(w, http.StatusOK, transferResponse{
+		Direct:    true,
+		URL:       target.URL,
+		Key:       target.Key,
+		ExpiresAt: target.ExpiresAt.Format(time.RFC3339Nano),
+	})
+	return nil
+}
+
+func (h *handler) uploaded(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[uploadedRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	if err := h.svc.markUploaded(r.Context(), r.PathValue("id"), r.PathValue("nodeID"),
+		req.SizeBytes, req.Checksum); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}

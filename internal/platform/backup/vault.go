@@ -20,7 +20,7 @@ type written struct {
 
 type vault interface {
 	write(ctx context.Context, id string, src io.Reader, limit int64) (written, error)
-	open(ctx context.Context, id, keyID string) (io.ReadCloser, error)
+	open(ctx context.Context, id, keyID, contentKey string) (io.ReadCloser, error)
 	remove(ctx context.Context, id string) error
 	close() error
 	describe() string
@@ -129,7 +129,7 @@ func (v *diskVault) write(_ context.Context, id string, src io.Reader, limit int
 	return result, nil
 }
 
-func (v *diskVault) open(_ context.Context, id, keyID string) (io.ReadCloser, error) {
+func (v *diskVault) open(_ context.Context, id, keyID, _ string) (io.ReadCloser, error) {
 	file, err := v.root.Open(id)
 	if err != nil {
 		return nil, fmt.Errorf("open the backup: %w", err)

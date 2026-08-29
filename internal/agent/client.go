@@ -508,3 +508,31 @@ func (c *client) volumeKey(ctx context.Context, nodeID, volumeID string) (string
 		"/v1/nodes/"+nodeID+"/volumes/"+volumeID+"/key", nil, &out)
 	return out.Key, err
 }
+
+type transferView struct {
+	Direct    bool   `json:"direct"`
+	URL       string `json:"url"`
+	Key       string `json:"key"`
+	ExpiresAt string `json:"expires_at"`
+}
+
+type uploadedBody struct {
+	SizeBytes int64  `json:"size_bytes"`
+	Checksum  string `json:"checksum"`
+}
+
+func (c *client) backupTransfer(
+	ctx context.Context, nodeID, id, verb string,
+) (transferView, error) {
+	var out transferView
+	err := c.do(ctx, http.MethodGet,
+		"/v1/nodes/"+nodeID+"/backups/"+id+"/"+verb, nil, &out)
+	return out, err
+}
+
+func (c *client) reportUploaded(
+	ctx context.Context, nodeID, id string, body uploadedBody,
+) error {
+	return c.do(ctx, http.MethodPost,
+		"/v1/nodes/"+nodeID+"/backups/"+id+"/uploaded", body, nil)
+}
