@@ -447,6 +447,26 @@ make check      # vet + test + security scans
 - A resize claims only the **growth** against the quota, never the absolute size. Claiming the
   absolute size double-counts what the instance already holds and refuses a resize that fits;
   claiming nothing lets a project grow past its limit one resize at a time. Both are mutation tests.
+- A balancer with a certificate is **not** an nftables rule. Nothing in nftables terminates TLS, so
+  the agent binds the listen port itself and `applyForwards` deliberately leaves that balancer out
+  of the published set. Emitting both would put a userspace listener and a dnat rule on one port,
+  and which wins is undefined - the same trap as two rules matching one `dport`.
+- The two modes differ in one way an operator will notice: the userspace listener answers traffic
+  that originates on the node, and the nftables rule does not, because prerouting is not on the
+  local output path. That is a property of dnat, not a bug, and it means a local curl is not a
+  valid check of a plain balancer.
+- `tlsproxy` restarts a listener only when the port or the certificate changes; a membership change
+  swaps an atomic pointer. Restarting on membership would drop every live connection every time a
+  replica came or went, which is exactly when connections matter.
+- The certificate and key are sealed as a **PEM bundle**, not as a JSON struct with a `private_key`
+  field. gosec flags the latter as a marshalled secret and it is right to: PEM is already a
+  self-describing sequence of blocks, so the invented envelope bought nothing and cost a warning
+  that would have had to be silenced.
+- `tls.X509KeyPair` runs when the certificate is attached, so a key that does not match its
+  certificate is refused there rather than at 3am when a connection arrives. There is a mutation
+  test that drops the pair check.
+- A certificate is refused outright when the control plane has no sealing key, same as env: handing
+  a private key to every node out of a database it cannot protect is not a quiet default.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -110,6 +111,26 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  11,
 			SQL:    `ALTER TABLE balancers ADD COLUMN service_id TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "balancer",
+			Index:  12,
+			SQL:    `ALTER TABLE balancers ADD COLUMN tls_material TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "balancer",
+			Index:  13,
+			SQL:    `ALTER TABLE balancers ADD COLUMN tls_key_id TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "balancer",
+			Index:  14,
+			SQL:    `ALTER TABLE balancers ADD COLUMN tls_subject TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "balancer",
+			Index:  15,
+			SQL:    `ALTER TABLE balancers ADD COLUMN tls_expires_at TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -122,8 +143,16 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /v1/balancers/{id}/backends/{instanceID}",
 		httpx.Wrap(m.log, m.handler.removeBackend))
 
+	mux.Handle("PUT /v1/balancers/{id}/certificate", httpx.Wrap(m.log, m.handler.setCertificate))
+	mux.Handle("DELETE /v1/balancers/{id}/certificate",
+		httpx.Wrap(m.log, m.handler.removeCertificate))
+
 	mux.Handle("GET /v1/nodes/{nodeID}/balancers", httpx.Wrap(m.log, m.handler.listForNode))
 	mux.Handle("PUT /v1/nodes/{nodeID}/balancers/health", httpx.Wrap(m.log, m.handler.reportHealth))
+}
+
+func (m *Module) UseSealing(ring *sealed.Keyring) {
+	m.svc.sealing = ring
 }
 
 func (m *Module) UseMembers(members Members) {

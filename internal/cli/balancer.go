@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -31,14 +33,32 @@ type balancerView struct {
 	Rise       int                   `json:"rise"`
 	Fall       int                   `json:"fall"`
 	Backends   []balancerBackendView `json:"backends"`
+	TLS        *balancerTLSView      `json:"tls,omitempty"`
 	CreatedAt  string                `json:"created_at"`
+}
+
+type balancerTLSView struct {
+	Subject   string `json:"subject"`
+	ExpiresAt string `json:"expires_at"`
 }
 
 type balancerListView struct {
 	Balancers []balancerView `json:"balancers"`
 }
 
-var balancerHeaders = []string{"NAME", "LISTEN", "TARGET", "ALGORITHM", "CHECK", "SOURCE", "BACKENDS"}
+var balancerHeaders = []string{
+	"NAME", "LISTEN", "TARGET", "ALGORITHM", "CHECK", "TLS", "SOURCE", "BACKENDS",
+}
+
+func tlsText(b balancerView) string {
+	if b.TLS == nil {
+		return "-"
+	}
+	if b.TLS.Subject == "" {
+		return "terminated"
+	}
+	return b.TLS.Subject
+}
 
 func balancerRow(b balancerView) []string {
 	up := 0
@@ -59,6 +79,7 @@ func balancerRow(b balancerView) []string {
 		strconv.Itoa(b.TargetPort),
 		b.Algorithm,
 		checkText(b),
+		tlsText(b),
 		source,
 		strconv.Itoa(up) + "/" + strconv.Itoa(len(b.Backends)) + " up",
 	}
@@ -122,8 +143,88 @@ func newBalancerCmd(g *globals) *cobra.Command {
 		newBalancerAddCmd(g),
 		newBalancerRemoveCmd(g),
 		newBalancerDeleteCmd(g),
+		newBalancerCertificateCmd(g),
 	)
 	return cmd
+}
+
+func renderBalancer(cmd *cobra.Command, g *globals, b balancerView) error {
+	return render(cmd.OutOrStdout(), g.output, b, table{
+		headers: balancerHeaders,
+		rows:    [][]string{balancerRow(b)},
+	})
+}
+
+func newBalancerCertificateCmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "certificate",
+		Short: "Terminate TLS on a balancer's listen port",
+		Long: "Terminate TLS on a balancer's listen port.\n\n" +
+			"A balancer without a certificate is an nftables rule: the kernel rewrites the\n" +
+			"destination and never looks at the bytes. A balancer with one cannot be, because\n" +
+			"nothing in nftables terminates TLS, so the node accepts the connection itself and\n" +
+			"opens a plain one to the backend.\n\n" +
+			"The private key is sealed with the operator key and served only to nodes.",
+	}
+	cmd.AddCommand(newBalancerSetCertificateCmd(g), newBalancerClearCertificateCmd(g))
+	return cmd
+}
+
+func newBalancerSetCertificateCmd(g *globals) *cobra.Command {
+	var certFile, keyFile string
+
+	cmd := &cobra.Command{
+		Use:   "set <balancer id>",
+		Short: "Give a balancer a certificate to terminate with",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			certPEM, err := os.ReadFile(certFile)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", certFile, err)
+			}
+			keyPEM, err := os.ReadFile(keyFile)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", keyFile, err)
+			}
+
+			body := struct {
+				Certificate string `json:"certificate"`
+				PrivateKey  string `json:"private_key"`
+			}{Certificate: string(certPEM), PrivateKey: string(keyPEM)}
+
+			var updated balancerView
+			if err := g.client().do(
+				cmd.Context(), "PUT", "/v1/balancers/"+args[0]+"/certificate", body, &updated,
+			); err != nil {
+				return err
+			}
+			cmd.PrintErrln("the node picks the certificate up on its next pass")
+			return renderBalancer(cmd, g, updated)
+		},
+	}
+
+	cmd.Flags().StringVar(&certFile, "cert-file", "", "PEM certificate chain, leaf first")
+	cmd.Flags().StringVar(&keyFile, "key-file", "", "PEM private key for the leaf certificate")
+	must(cmd.MarkFlagRequired("cert-file"))
+	must(cmd.MarkFlagRequired("key-file"))
+	return cmd
+}
+
+func newBalancerClearCertificateCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <balancer id>",
+		Short: "Stop terminating TLS and go back to an nftables rule",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var updated balancerView
+			if err := g.client().do(
+				cmd.Context(), "DELETE", "/v1/balancers/"+args[0]+"/certificate", nil, &updated,
+			); err != nil {
+				return err
+			}
+			return renderBalancer(cmd, g, updated)
+		},
+	}
 }
 
 func newBalancerCreateCmd(g *globals) *cobra.Command {

@@ -17,7 +17,7 @@ var (
 	errNameUsed = errors.New("balancer name already used")
 )
 
-const columns = `id, project_id, name, protocol, listen_port, target_port, algorithm, service_id, check_kind, check_path, rise, fall, created_at`
+const columns = `id, project_id, name, protocol, listen_port, target_port, algorithm, service_id, check_kind, check_path, rise, fall, tls_material, tls_key_id, tls_subject, tls_expires_at, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -35,9 +35,10 @@ func (r *repository) insert(ctx context.Context, b Balancer) error {
 	defer tx.Rollback()
 
 	_, err = tx.ExecContext(ctx,
-		`INSERT INTO balancers (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO balancers (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		b.ID, b.ProjectID, b.Name, b.Protocol, b.ListenPort, b.TargetPort, b.Algorithm,
 		b.ServiceID, b.Check, b.CheckPath, b.Rise, b.Fall,
+		b.TLS.Material, b.TLS.KeyID, b.TLS.Subject, b.TLS.ExpiresAt,
 		b.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -343,6 +344,25 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
+func (r *repository) setTLS(ctx context.Context, id string, t TLS) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE balancers SET tls_material = ?, tls_key_id = ?, tls_subject = ?,
+			tls_expires_at = ? WHERE id = ?`,
+		t.Material, t.KeyID, t.Subject, t.ExpiresAt, id)
+	if err != nil {
+		return fmt.Errorf("set the balancer certificate: %w", err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set the balancer certificate: %w", err)
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
 func scan(row scanner) (Balancer, error) {
 	var (
 		b       Balancer
@@ -350,6 +370,7 @@ func scan(row scanner) (Balancer, error) {
 	)
 	if err := row.Scan(&b.ID, &b.ProjectID, &b.Name, &b.Protocol, &b.ListenPort, &b.TargetPort,
 		&b.Algorithm, &b.ServiceID, &b.Check, &b.CheckPath, &b.Rise, &b.Fall,
+		&b.TLS.Material, &b.TLS.KeyID, &b.TLS.Subject, &b.TLS.ExpiresAt,
 		&created); err != nil {
 		return Balancer{}, fmt.Errorf("scan balancer: %w", err)
 	}

@@ -61,7 +61,28 @@ type response struct {
 	Rise       int               `json:"rise,omitempty"`
 	Fall       int               `json:"fall,omitempty"`
 	Backends   []backendResponse `json:"backends"`
+	TLS        *tlsResponse      `json:"tls,omitempty"`
 	CreatedAt  string            `json:"created_at"`
+}
+
+type tlsResponse struct {
+	Subject   string `json:"subject,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+}
+
+type certificateRequest struct {
+	Certificate string `json:"certificate"`
+	PrivateKey  string `json:"private_key"`
+}
+
+type nodeResponse struct {
+	response
+	Certificate string `json:"certificate,omitempty"`
+	PrivateKey  string `json:"private_key,omitempty"`
+}
+
+type nodeListResponse struct {
+	Balancers []nodeResponse `json:"balancers"`
 }
 
 type listResponse struct {
@@ -86,7 +107,13 @@ func toResponse(b Balancer) response {
 		backends = append(backends, entry)
 	}
 
+	var carried *tlsResponse
+	if b.TLS.Present() {
+		carried = &tlsResponse{Subject: b.TLS.Subject, ExpiresAt: b.TLS.ExpiresAt}
+	}
+
 	return response{
+		TLS:        carried,
 		ID:         b.ID,
 		Name:       b.Name,
 		Protocol:   b.Protocol,
@@ -158,7 +185,48 @@ func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeList(w, balancers)
+
+	body := nodeListResponse{Balancers: make([]nodeResponse, 0, len(balancers))}
+	for _, b := range balancers {
+		certPEM, keyPEM, err := h.svc.certificateOf(b)
+		if err != nil {
+			return err
+		}
+		body.Balancers = append(body.Balancers, nodeResponse{
+			response:    toResponse(b),
+			Certificate: certPEM,
+			PrivateKey:  keyPEM,
+		})
+	}
+
+	httpx.Write(w, http.StatusOK, body)
+	return nil
+}
+
+func (h *handler) setCertificate(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[certificateRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	b, err := h.svc.setCertificate(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, req.Certificate, req.PrivateKey)
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(b))
+	return nil
+}
+
+func (h *handler) removeCertificate(w http.ResponseWriter, r *http.Request) error {
+	b, err := h.svc.setCertificate(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, "", "")
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(b))
 	return nil
 }
 

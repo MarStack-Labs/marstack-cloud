@@ -9,6 +9,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/catalog"
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/tlsproxy"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
@@ -412,6 +413,8 @@ func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView, balan
 		})
 	}
 
+	terminating := make([]tlsproxy.Endpoint, 0, len(balancers))
+
 	for _, b := range balancers {
 		targets := make([]string, 0, len(b.Backends))
 		for _, backend := range b.Backends {
@@ -420,6 +423,19 @@ func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView, balan
 			}
 			targets = append(targets, backend.Address)
 		}
+
+		if b.terminatesTLS() {
+			terminating = append(terminating, tlsproxy.Endpoint{
+				ID:          b.ID,
+				ListenPort:  b.ListenPort,
+				TargetPort:  b.TargetPort,
+				Certificate: b.Certificate,
+				PrivateKey:  b.PrivateKey,
+				Targets:     targets,
+			})
+			continue
+		}
+
 		if len(targets) == 0 {
 			continue
 		}
@@ -435,6 +451,12 @@ func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView, balan
 
 	if err := a.datapath.ApplyForwards(ctx, published); err != nil {
 		a.log.Warn("could not apply the published ports", "error", err)
+	}
+
+	if a.tls != nil {
+		if err := a.tls.Apply(ctx, terminating); err != nil {
+			a.log.Warn("could not apply the tls listeners", "error", err)
+		}
 	}
 }
 

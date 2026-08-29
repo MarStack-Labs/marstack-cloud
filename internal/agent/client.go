@@ -258,17 +258,23 @@ type balancerBackendView struct {
 }
 
 type balancerView struct {
-	ID         string                `json:"id"`
-	Name       string                `json:"name"`
-	Protocol   string                `json:"protocol"`
-	ListenPort int                   `json:"listen_port"`
-	TargetPort int                   `json:"target_port"`
-	Algorithm  string                `json:"algorithm"`
-	Check      string                `json:"check"`
-	CheckPath  string                `json:"check_path,omitempty"`
-	Rise       int                   `json:"rise,omitempty"`
-	Fall       int                   `json:"fall,omitempty"`
-	Backends   []balancerBackendView `json:"backends"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Protocol    string                `json:"protocol"`
+	ListenPort  int                   `json:"listen_port"`
+	TargetPort  int                   `json:"target_port"`
+	Algorithm   string                `json:"algorithm"`
+	Check       string                `json:"check"`
+	CheckPath   string                `json:"check_path,omitempty"`
+	Rise        int                   `json:"rise,omitempty"`
+	Fall        int                   `json:"fall,omitempty"`
+	Backends    []balancerBackendView `json:"backends"`
+	Certificate string                `json:"certificate,omitempty"`
+	PrivateKey  string                `json:"private_key,omitempty"`
+}
+
+func (b balancerView) terminatesTLS() bool {
+	return b.Certificate != "" && b.PrivateKey != ""
 }
 
 type healthReportBody struct {

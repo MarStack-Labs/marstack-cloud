@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/catalog"
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/tlsproxy"
 	"github.com/marstack-labs/marstack-cloud/internal/version"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
@@ -63,6 +64,7 @@ type Agent struct {
 	runtimes map[string]workload.Runtime
 	datapath workload.Datapath
 	resolver workload.Resolver
+	tls      *tlsproxy.Manager
 	catalog  *catalog.Catalog
 	now      func() time.Time
 
@@ -95,6 +97,7 @@ func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 		runtimes:  deps.Runtimes,
 		datapath:  deps.Datapath,
 		resolver:  deps.Resolver,
+		tls:       tlsproxy.New(log),
 		catalog:   deps.Catalog,
 		now:       time.Now,
 		restarts:  map[string]*restartState{},
@@ -125,6 +128,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	go a.heartbeatLoop(ctx)
+	defer a.tls.Close()
 
 	ticker := time.NewTicker(a.cfg.Interval)
 	defer ticker.Stop()

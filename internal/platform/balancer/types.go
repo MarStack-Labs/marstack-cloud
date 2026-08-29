@@ -43,7 +43,19 @@ type Balancer struct {
 	Rise       int
 	Fall       int
 	Backends   []Backend
+	TLS        TLS
 	CreatedAt  time.Time
+}
+
+type TLS struct {
+	Material  string
+	KeyID     string
+	Subject   string
+	ExpiresAt string
+}
+
+func (t TLS) Present() bool {
+	return t.Material != ""
 }
 
 type Backend struct {

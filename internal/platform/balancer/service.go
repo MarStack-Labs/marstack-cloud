@@ -11,6 +11,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -34,7 +35,33 @@ type service struct {
 	ports    Ports
 	services Services
 	events   events.Recorder
+	sealing  *sealed.Keyring
 	now      clock
+}
+
+func (s *service) certificateOf(b Balancer) (string, string, error) {
+	return openCertificate(b.TLS, s.sealing)
+}
+
+func (s *service) setCertificate(
+	ctx context.Context, id, projectID, certPEM, keyPEM string,
+) (Balancer, error) {
+	b, err := s.get(ctx, projectID, id)
+	if err != nil {
+		return Balancer{}, err
+	}
+
+	var carried TLS
+	if certPEM != "" || keyPEM != "" {
+		if carried, err = sealCertificate(certPEM, keyPEM, s.sealing); err != nil {
+			return Balancer{}, err
+		}
+	}
+
+	if err := s.repo.setTLS(ctx, b.ID, carried); err != nil {
+		return Balancer{}, translate(err)
+	}
+	return s.get(ctx, projectID, id)
 }
 
 func newService(repo *repository, members Members, ports Ports, now clock) *service {

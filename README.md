@@ -755,6 +755,60 @@ Setting labels replaces the whole set rather than merging, so a label goes away
 by being left out. Merging would need a delete route and a convention for what
 null means, and would make the call depend on what was there before.
 
+## Terminating TLS at the balancer
+
+A balancer was an nftables rule: the kernel rewrites the destination and never
+looks at the bytes. That is fast and it cannot terminate TLS, because there is no
+TLS in nftables. So a balancer with a certificate stops being a rule:
+
+```sh
+marstack balancer certificate set lb-y3w8wjwe78592 \
+  --cert-file cert.pem --key-file key.pem
+```
+
+```
+NAME     LISTEN     TARGET   ALGORITHM     CHECK         TLS                    BACKENDS
+secure   8443/tcp   80       round_robin   vm liveness   secure.marstack.test   2/2 up
+```
+
+On the node, the port moves from the kernel to the agent:
+
+```
+# with a certificate
+LISTEN *:8443 users:(("marstack",pid=422656))     # userspace
+nft: no rule for dport 8443
+
+# eight https requests
+4 tls-a
+4 tls-b
+
+# after certificate remove
+LISTEN: nothing on 8443
+nft: tcp dport 8443 ... dnat to numgen inc mod 2 map { 0 : 10.20.0.76 . 80, 1 : 10.20.0.79 . 80 }
+```
+
+Both directions were checked live, including that the certificate presented is
+the one that was uploaded.
+
+**A balancer is never both.** A userspace listener and a dnat rule on one port is
+the same undefined situation as two nftables rules matching one `dport`, so a
+balancer with a certificate is deliberately left out of the published set.
+
+**One difference worth knowing:** the userspace listener answers traffic that
+starts on the node; the nftables rule does not, because prerouting is not on the
+local output path. A local `curl` is not a valid check of a plain balancer — that
+is a property of dnat, and it caught me out during this work.
+
+The private key is sealed with the operator key, served only to nodes, and never
+returned to an operator — the response carries the subject and expiry instead.
+`tls.X509KeyPair` runs when the certificate is attached, so a key that does not
+match its certificate fails there rather than at 3am when a connection arrives.
+As with env, a control plane with no sealing key refuses the certificate outright.
+
+Membership changes swap an atomic pointer rather than restarting the listener.
+Restarting would drop every live connection each time a replica came or went,
+which is exactly when connections matter.
+
 ## Changing an instance's size without rebuilding it
 
 An instance was the size it was created at. Now:
@@ -1722,6 +1776,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 42  sealed config file injection                      done
 43  per caller api rate limiting                      done
 44  resize an instance's cpu and memory               done
+45  tls termination on a balancer                     done
 ```
 
 ## License
