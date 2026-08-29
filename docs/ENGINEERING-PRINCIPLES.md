@@ -382,6 +382,26 @@ make check      # vet + test + security scans
 - A selector is stored as JSON in one column, the same shape as `ssh_keys` and `command`. A join
   table would be the right answer if anything queried instances by selector; nothing does, and the
   scheduler already holds every candidate in memory.
+- An instance environment is refused outright when the control plane has no sealing key, rather than
+  stored in the clear with a warning. Env is where credentials go, the platform has a way to protect
+  them, and a warning nobody reads is not protection. The refusal names `--backup-key-file`. This is
+  safe to be strict about because env is new - nothing shipped depends on the plaintext path.
+- `Instance` deliberately has **no** plaintext env field. Only `EnvSealed`, `EnvKeyID` and
+  `EnvNames` are on the struct, and the values exist only inside `service.envOf`. That is not
+  tidiness: it makes leaking env into the operator response fail to compile rather than fail a test.
+- `env_names` is stored separately in the clear on purpose. Names are not secret, the operator view
+  needs them on every list, and keeping them out of the sealed blob means a control plane missing
+  the key can still list instances instead of failing every read.
+- `GET /v1/instances` never carries values and `GET /v1/nodes/{id}/instances` does, which is why the
+  node route has its own `nodeResponse` rather than sharing `toResponse`. Same precedent as usage
+  and images: one path, one audience.
+- For a container the env is merged over the image's own, replacing rather than appending - two
+  entries for one name leaves which wins to the exec implementation. The merge is sorted so a
+  restart with the same input produces the same list and does not look like a change.
+- For a vm the env is written by cloud-init to `/etc/marstack/environment` at 0600, base64 encoded
+  so arbitrary bytes survive YAML. A whole machine has no single process to hand an environment to,
+  so it is a file the guest may source, not a process environment. That file and the seed ISO carry
+  the values in the clear on the node, exactly as the console password already does.
 
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other

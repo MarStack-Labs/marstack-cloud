@@ -755,6 +755,51 @@ Setting labels replaces the whole set rather than merging, so a label goes away
 by being left out. Merging would need a delete route and a convention for what
 null means, and would make the call depend on what was there before.
 
+## Giving a workload its configuration
+
+A workload needed everything baked into its image. `--env` fixes that, and
+because env is where credentials go, it is not stored the way the rest is:
+
+```sh
+marstack instance create --name web --isolation container --image alpine:3.20 \
+  --env DB_PASSWORD=... --env PORT=8080
+```
+
+```
+$ marstack instance get i-b152c2hhgee9t -o json
+  "env_names": ["DB_PASSWORD", "PORT"]      # names, never values
+```
+
+**Values are never served back.** The operator route returns the names only; the
+node route returns the values, because the node is the only thing that has to
+have them. That is why the node has its own response type rather than sharing
+one — the same split as `/v1/usage` and `/v1/usage/nodes`.
+
+**Values are sealed at rest** with the operator key, so a stolen database gives
+up nothing. Checked live: the value never appears in the control plane's data
+directory, the names do, and the container's process environment on the node has
+it. `Instance` carries no plaintext env field at all, so leaking one into the
+operator response does not compile.
+
+**A control plane with no key refuses env entirely:**
+
+```
+$ marstack instance create --name web ... --env DB_PASSWORD=...
+error: no_sealing_key: this control plane has no key to seal an environment
+with, and storing credentials in the clear is not something it will do quietly:
+start it with --backup-key-file, or leave env off
+```
+
+Storing them anyway with a warning in a log would be the usual compromise. A
+warning nobody reads is not protection, and env is new enough that nothing
+depends on a plaintext path.
+
+For a container the variables are merged over the image's own, replacing rather
+than shadowing. For a vm there is no single process to hand an environment to,
+so cloud-init writes `/etc/marstack/environment` at 0600 for the guest to source
+— that file, like the console password already there, is in the clear on the
+node.
+
 ## Placing a workload where it has to go
 
 Labels only matter if something reads them. `--node-selector` is that:
@@ -1592,6 +1637,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 38  paged volume, backup and snapshot listings        done
 39  operator labels on nodes                          done
 40  placing a workload by node selector               done
+41  sealed environment injection                      done
 ```
 
 ## License

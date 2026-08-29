@@ -4,17 +4,40 @@ package qemu
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/console"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
-const consoleUser = "ubuntu"
+const (
+	consoleUser = "ubuntu"
+
+	EnvironmentFile = "/etc/marstack/environment"
+)
+
+func environmentFile(env map[string]string) string {
+	names := make([]string, 0, len(env))
+	for name := range env {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	var out strings.Builder
+	for _, name := range names {
+		out.WriteString(name)
+		out.WriteString("='")
+		out.WriteString(strings.ReplaceAll(env[name], "'", `'\''`))
+		out.WriteString("'\n")
+	}
+	return out.String()
+}
 
 func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 	dir := filepath.Join(r.instanceDir(spec.InstanceID), "seed")
@@ -40,6 +63,15 @@ func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 		for _, key := range spec.SSHKeys {
 			user += "  - " + yamlScalar(key) + "\n"
 		}
+	}
+	if len(spec.Env) > 0 {
+		user += "write_files:\n" +
+			"  - path: " + EnvironmentFile + "\n" +
+			"    permissions: '0600'\n" +
+			"    owner: root:root\n" +
+			"    encoding: b64\n" +
+			"    content: " + base64.StdEncoding.EncodeToString([]byte(environmentFile(spec.Env))) +
+			"\n"
 	}
 	if len(spec.Command) > 0 {
 		user += "runcmd:\n  - " + shellQuote(spec.Command) + "\n"

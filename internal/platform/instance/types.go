@@ -98,6 +98,9 @@ type Instance struct {
 	Group           string
 	Strict          bool
 	NodeSelector    map[string]string
+	EnvSealed       string
+	EnvKeyID        string
+	EnvNames        []string
 	SSHKeys         []string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -115,6 +118,7 @@ type CreateParams struct {
 	Group         string
 	Strict        bool
 	NodeSelector  map[string]string
+	Env           map[string]string
 	Keys          []string
 	Isolation     string
 	Image         string
@@ -133,6 +137,10 @@ const (
 	MaxCommandArgs = 64
 
 	MaxNodeSelector = 8
+
+	MaxEnv         = 64
+	MaxEnvNameLen  = 128
+	MaxEnvValueLen = 4096
 
 	DefaultDiskGiB = 10
 	MaxDiskGiB     = 2048

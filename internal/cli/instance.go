@@ -12,6 +12,7 @@ type instanceView struct {
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	NodeSelector    map[string]string `json:"node_selector,omitempty"`
+	EnvNames        []string          `json:"env_names,omitempty"`
 	Isolation       string            `json:"isolation"`
 	Image           string            `json:"image"`
 	VCPU            int               `json:"vcpu"`
@@ -90,9 +91,13 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		Group         string            `json:"placement_group,omitempty"`
 		Strict        bool              `json:"placement_strict,omitempty"`
 		NodeSelector  map[string]string `json:"node_selector,omitempty"`
+		Env           map[string]string `json:"env,omitempty"`
 		Keys          []string          `json:"keys,omitempty"`
 	}
-	var selectors []string
+	var (
+		selectors []string
+		envPairs  []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "create [-- command args...]",
@@ -110,6 +115,18 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 					req.NodeSelector = map[string]string{}
 				}
 				req.NodeSelector[key] = value
+			}
+
+			for _, pair := range envPairs {
+				name, value, found := strings.Cut(pair, "=")
+				if !found {
+					return errors.New("an environment variable is NAME=value, and " +
+						pair + " has no value")
+				}
+				if req.Env == nil {
+					req.Env = map[string]string{}
+				}
+				req.Env[name] = value
 			}
 
 			var created instanceView
@@ -144,6 +161,9 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		"instances sharing this name are spread across nodes and zones")
 	cmd.Flags().BoolVar(&req.Strict, "placement-strict", false,
 		"hold this instance pending rather than share a node with its group")
+	cmd.Flags().StringArrayVar(&envPairs, "env", nil,
+		"NAME=value passed to the workload, repeatable; needs a control plane started with "+
+			"--backup-key-file, and values are never served back")
 	cmd.Flags().StringArrayVar(&selectors, "node-selector", nil,
 		"only place on a node carrying key=value, repeatable and combined with and")
 	cmd.Flags().StringArrayVar(&req.Keys, "key", nil,

@@ -64,6 +64,7 @@ type Spec struct {
 	VCPU       int
 	MemoryMiB  int
 	SSHKeys    []string
+	Env        map[string]string
 	Network    *NetworkConfig
 }
 

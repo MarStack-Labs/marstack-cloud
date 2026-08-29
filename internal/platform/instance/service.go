@@ -11,6 +11,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -27,6 +28,7 @@ type service struct {
 	balancers Balancers
 	events    events.Recorder
 	firewalls Firewalls
+	sealing   *sealed.Keyring
 }
 
 func newService(repo *repository, now clock) *service {
@@ -34,6 +36,10 @@ func newService(repo *repository, now clock) *service {
 		now = func() time.Time { return time.Now().UTC() }
 	}
 	return &service{repo: repo, now: now}
+}
+
+func (s *service) envOf(in Instance) (map[string]string, error) {
+	return openEnv(in.EnvSealed, in.EnvKeyID, s.sealing)
 }
 
 func (s *service) create(ctx context.Context, params CreateParams) (Instance, error) {
@@ -74,6 +80,11 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		}
 	}
 
+	envSealed, envKeyID, err := sealEnv(normalized.Env, s.sealing)
+	if err != nil {
+		return Instance{}, err
+	}
+
 	now := s.now()
 	in := Instance{
 		ID:            ids.New("i"),
@@ -81,6 +92,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		Group:         normalized.Group,
 		Strict:        params.Strict,
 		NodeSelector:  normalized.NodeSelector,
+		EnvSealed:     envSealed,
+		EnvKeyID:      envKeyID,
+		EnvNames:      namesOf(normalized.Env),
 		SSHKeys:       authorized,
 		Name:          normalized.Name,
 		Isolation:     Isolation(normalized.Isolation),
@@ -339,6 +353,9 @@ func (s *service) assign(ctx context.Context, id, nodeID string) error {
 
 func normalize(params CreateParams) (CreateParams, error) {
 	if err := validate.Name("name", params.Name); err != nil {
+		return params, err
+	}
+	if err := validateEnv(params.Env); err != nil {
 		return params, err
 	}
 	if params.Group != "" {

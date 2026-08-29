@@ -119,7 +119,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		Hostname:   spec.Name,
 		Rootfs:     r.layout.rootfs(spec.InstanceID),
 		Command:    command,
-		Env:        imageConfig.Env,
+		Env:        mergeEnv(imageConfig.Env, spec.Env),
 		WorkingDir: imageConfig.WorkingDir,
 	})
 	if err != nil {

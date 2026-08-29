@@ -7,6 +7,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -14,6 +15,10 @@ type Module struct {
 	log     *slog.Logger
 	svc     *service
 	handler *handler
+}
+
+func (m *Module) UseSealing(ring *sealed.Keyring) {
+	m.svc.sealing = ring
 }
 
 type Networks interface {
@@ -252,6 +257,21 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "instance",
 			Index:  20,
 			SQL:    `ALTER TABLE instances ADD COLUMN node_selector TEXT NOT NULL DEFAULT '{}'`,
+		},
+		{
+			Module: "instance",
+			Index:  21,
+			SQL:    `ALTER TABLE instances ADD COLUMN env TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  22,
+			SQL:    `ALTER TABLE instances ADD COLUMN env_key_id TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  23,
+			SQL:    `ALTER TABLE instances ADD COLUMN env_names TEXT NOT NULL DEFAULT '[]'`,
 		},
 	}
 }

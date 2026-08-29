@@ -31,23 +31,24 @@ type nodeListBody struct {
 }
 
 type instanceView struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Isolation       string   `json:"isolation"`
-	Image           string   `json:"image"`
-	ISO             string   `json:"iso,omitempty"`
-	Kernel          string   `json:"kernel,omitempty"`
-	FirewallID      string   `json:"firewall_id,omitempty"`
-	DiskGiB         int      `json:"disk_gib,omitempty"`
-	Command         []string `json:"command,omitempty"`
-	VCPU            int      `json:"vcpu"`
-	MemoryMiB       int      `json:"memory_mib"`
-	RestartPolicy   string   `json:"restart_policy,omitempty"`
-	RestartCount    int      `json:"restart_count,omitempty"`
-	SSHKeys         []string `json:"ssh_keys,omitempty"`
-	DesiredState    string   `json:"desired_state"`
-	ObservedState   string   `json:"observed_state"`
-	ObservedMessage string   `json:"observed_message,omitempty"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Isolation       string            `json:"isolation"`
+	Image           string            `json:"image"`
+	ISO             string            `json:"iso,omitempty"`
+	Kernel          string            `json:"kernel,omitempty"`
+	FirewallID      string            `json:"firewall_id,omitempty"`
+	DiskGiB         int               `json:"disk_gib,omitempty"`
+	Command         []string          `json:"command,omitempty"`
+	VCPU            int               `json:"vcpu"`
+	MemoryMiB       int               `json:"memory_mib"`
+	RestartPolicy   string            `json:"restart_policy,omitempty"`
+	RestartCount    int               `json:"restart_count,omitempty"`
+	SSHKeys         []string          `json:"ssh_keys,omitempty"`
+	Env             map[string]string `json:"env,omitempty"`
+	DesiredState    string            `json:"desired_state"`
+	ObservedState   string            `json:"observed_state"`
+	ObservedMessage string            `json:"observed_message,omitempty"`
 }
 
 type instanceListBody struct {

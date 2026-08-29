@@ -26,6 +26,7 @@ type createRequest struct {
 	Group         string            `json:"placement_group,omitempty"`
 	Strict        bool              `json:"placement_strict,omitempty"`
 	NodeSelector  map[string]string `json:"node_selector,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
 	Keys          []string          `json:"keys,omitempty"`
 }
 
@@ -53,6 +54,7 @@ type response struct {
 	Group           string            `json:"placement_group,omitempty"`
 	Strict          bool              `json:"placement_strict,omitempty"`
 	NodeSelector    map[string]string `json:"node_selector,omitempty"`
+	EnvNames        []string          `json:"env_names,omitempty"`
 	SSHKeys         []string          `json:"ssh_keys,omitempty"`
 	Desired         string            `json:"desired_state"`
 	Observed        string            `json:"observed_state"`
@@ -86,6 +88,7 @@ func toResponse(in Instance) response {
 		Group:           in.Group,
 		Strict:          in.Strict,
 		NodeSelector:    in.NodeSelector,
+		EnvNames:        in.EnvNames,
 		SSHKeys:         in.SSHKeys,
 		Desired:         string(in.Desired),
 		Observed:        string(in.Observed),
@@ -94,6 +97,15 @@ func toResponse(in Instance) response {
 		CreatedAt:       in.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:       in.UpdatedAt.Format(time.RFC3339Nano),
 	}
+}
+
+type nodeResponse struct {
+	response
+	Env map[string]string `json:"env,omitempty"`
+}
+
+type nodeListResponse struct {
+	Instances []nodeResponse `json:"instances"`
 }
 
 type handler struct {
@@ -111,6 +123,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		Group:         req.Group,
 		Strict:        req.Strict,
 		NodeSelector:  req.NodeSelector,
+		Env:           req.Env,
 		Keys:          req.Keys,
 		Name:          req.Name,
 		Isolation:     req.Isolation,
@@ -190,9 +203,16 @@ func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
-	body := listResponse{Instances: make([]response, 0, len(instances))}
+	body := nodeListResponse{Instances: make([]nodeResponse, 0, len(instances))}
 	for _, in := range instances {
-		body.Instances = append(body.Instances, toResponse(in))
+		env, err := h.svc.envOf(in)
+		if err != nil {
+			return err
+		}
+		body.Instances = append(body.Instances, nodeResponse{
+			response: toResponse(in),
+			Env:      env,
+		})
 	}
 
 	httpx.Write(w, http.StatusOK, body)
