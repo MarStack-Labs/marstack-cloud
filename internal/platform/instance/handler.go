@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
@@ -60,6 +62,7 @@ type response struct {
 
 type listResponse struct {
 	Instances []response `json:"instances"`
+	Next      string     `json:"next,omitempty"`
 }
 
 func toResponse(in Instance) response {
@@ -127,7 +130,12 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	instances, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
+	window, err := page.From(r, DefaultPage, MaxPage)
+	if err != nil {
+		return fault.Invalid("invalid_page", err.Error())
+	}
+
+	instances, err := h.svc.pageIn(r.Context(), scope.From(r.Context()).ProjectID, window)
 	if err != nil {
 		return err
 	}
@@ -135,6 +143,10 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	body := listResponse{Instances: make([]response, 0, len(instances))}
 	for _, in := range instances {
 		body.Instances = append(body.Instances, toResponse(in))
+	}
+	if len(instances) == window.Limit {
+		last := instances[len(instances)-1]
+		body.Next = page.Encode(last.CreatedAt.Format(time.RFC3339Nano), last.ID)
 	}
 
 	httpx.Write(w, http.StatusOK, body)

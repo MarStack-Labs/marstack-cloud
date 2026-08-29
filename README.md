@@ -726,6 +726,38 @@ ones are dropped in the background. If you need events past that, take them out
 to somewhere built for retention; this is here so an operator can answer a
 question now, not to be a system of record.
 
+## Reading a list without reading all of it
+
+Every list endpoint returned the whole table. That is fine at twenty instances
+and a large response at ten thousand, and it grows on its own.
+
+`GET /v1/instances` now takes `limit` and `after`:
+
+```
+$ curl ".../v1/instances?limit=3"
+3 rows, next = MjAyNi0wOC0yNlQwNjoyOToy...
+   web-1  web-2  web-3
+
+$ curl ".../v1/instances?limit=3&after=$NEXT"
+   web-4  mv-b  mv-c
+```
+
+The cursor is opaque and carries the row's `created_at` **and** its id. The
+timestamp alone is not a total order, and without the tiebreaker a row on a page
+boundary comes back twice — which is what happens if you remove it, so there is a
+test that does.
+
+`next` appears only when a page came back full. An empty `next` means the list is
+exhausted, so a caller loops until it disappears rather than guessing.
+
+**The CLI and the console follow the cursor**, so `marstack instance list` still
+shows everything. A list command that silently stopped at a hundred would be
+worse than no paging at all.
+
+**Only `/v1/instances` is paged so far.** The helper is `kernel/page` and the
+pattern is one query plus one handler change, but volumes, snapshots, backups and
+dns records still hand back the whole table.
+
 ## Putting backups somewhere that outlives this machine
 
 Backups lived on the control plane's own disk, which is the single point of
@@ -1472,6 +1504,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 34  webhooks: tell somebody an event happened         done
 35  backups on an S3 object store                     done
 36  nodes write backups straight to the store         done
+37  paged instance listing                            done
 ```
 
 ## License

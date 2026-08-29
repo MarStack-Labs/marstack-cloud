@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"net/url"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -25,6 +26,7 @@ type instanceView struct {
 
 type instanceListView struct {
 	Instances []instanceView `json:"instances"`
+	Next      string         `json:"next,omitempty"`
 }
 
 var instanceHeaders = []string{"NAME", "ID", "IMAGE", "SIZE", "DESIRED", "OBSERVED", "RESTARTS", "MESSAGE"}
@@ -139,18 +141,26 @@ func newInstanceListCmd(g *globals) *cobra.Command {
 		Short: "List instances",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			var list instanceListView
-			if err := g.client().do(
-				cmd.Context(), "GET", "/v1/instances", nil, &list,
-			); err != nil {
-				return err
+			var all instanceListView
+
+			for path := "/v1/instances"; path != ""; {
+				var list instanceListView
+				if err := g.client().do(cmd.Context(), "GET", path, nil, &list); err != nil {
+					return err
+				}
+				all.Instances = append(all.Instances, list.Instances...)
+
+				path = ""
+				if list.Next != "" {
+					path = "/v1/instances?after=" + url.QueryEscape(list.Next)
+				}
 			}
 
-			rows := make([][]string, 0, len(list.Instances))
-			for _, in := range list.Instances {
+			rows := make([][]string, 0, len(all.Instances))
+			for _, in := range all.Instances {
 				rows = append(rows, instanceRow(in))
 			}
-			return render(cmd.OutOrStdout(), g.output, list, table{headers: instanceHeaders, rows: rows})
+			return render(cmd.OutOrStdout(), g.output, all, table{headers: instanceHeaders, rows: rows})
 		},
 	}
 }

@@ -128,6 +128,9 @@ type CreateParams struct {
 }
 
 const (
+	DefaultPage = 100
+	MaxPage     = 500
+
 	MaxCommandArgs = 64
 
 	DefaultDiskGiB = 10

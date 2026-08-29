@@ -10,6 +10,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -130,6 +131,16 @@ func (s *service) footprintIn(ctx context.Context, projectID string) (Footprint,
 
 func (s *service) listIn(ctx context.Context, projectID string) ([]Instance, error) {
 	instances, err := s.repo.listIn(ctx, projectID)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return instances, nil
+}
+
+func (s *service) pageIn(
+	ctx context.Context, projectID string, window page.Window,
+) ([]Instance, error) {
+	instances, err := s.repo.pageIn(ctx, projectID, window)
 	if err != nil {
 		return nil, translate(err)
 	}

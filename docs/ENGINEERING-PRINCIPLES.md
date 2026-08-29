@@ -250,6 +250,15 @@ make check      # vet + test + security scans
   separately, and one app test deliberately does not call it so the refusal stays covered.
 - A webhook signing secret is stored recoverable, unlike an API token, because signing needs it.
   It is shown once on create and never served again, but a stolen database exposes it.
+- A page cursor carries the ordering column **and** the row id. `created_at` alone is not a total
+  order, and a duplicate timestamp on a page boundary returns the same row on two pages. The
+  comparison is `order > ? OR (order = ? AND id > ?)`, written out rather than as a row value so it
+  does not depend on the SQLite version.
+- `next` is emitted only when a page came back exactly full. Emitting it whenever rows exist gives
+  an endless walk; never emitting it makes everything past the first page unreachable.
+- Any client that lists must follow `next`. `marstack instance list` and the local console both
+  loop; a client that reads one page and stops is silently showing a partial answer, which is worse
+  than no paging.
 - `audit` records calls somebody made; `event` records what the platform did with no caller.
   They are not the same table and neither replaces the other. Audit is admin-only because it is
   governance; events are member-readable because they are about the caller's own workloads.

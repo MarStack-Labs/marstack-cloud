@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -79,6 +80,32 @@ func (r *repository) nameTaken(ctx context.Context, projectID, name string) (boo
 	return count > 0, nil
 }
 
+func (r *repository) pageIn(
+	ctx context.Context, projectID string, window page.Window,
+) ([]Instance, error) {
+	after := window.After
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT `+columns+` FROM instances
+			WHERE project_id = ?
+				AND (? = '' OR created_at > ? OR (created_at = ? AND id > ?))
+			ORDER BY created_at, id LIMIT ?`,
+		projectID, after.Order, after.Order, after.Order, after.ID, window.Limit)
+	if err != nil {
+		return nil, fmt.Errorf("list instances in project: %w", err)
+	}
+	defer rows.Close()
+
+	instances := make([]Instance, 0, window.Limit)
+	for rows.Next() {
+		in, scanErr := scanInstance(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		instances = append(instances, in)
+	}
+	return instances, rows.Err()
+}
+
 func (r *repository) get(ctx context.Context, id string) (Instance, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT `+columns+` FROM instances WHERE id = ?`, id)
 
@@ -106,7 +133,8 @@ func (r *repository) footprintIn(ctx context.Context, projectID string) (Footpri
 
 func (r *repository) listIn(ctx context.Context, projectID string) ([]Instance, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT `+columns+` FROM instances WHERE project_id = ? ORDER BY created_at`, projectID)
+		`SELECT `+columns+` FROM instances WHERE project_id = ? ORDER BY created_at, id`,
+		projectID)
 	if err != nil {
 		return nil, fmt.Errorf("list instances in project: %w", err)
 	}
