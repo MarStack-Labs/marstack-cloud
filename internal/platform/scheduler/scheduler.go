@@ -43,6 +43,7 @@ type Pending struct {
 	Group     string
 	Strict    bool
 	Selector  map[string]string
+	Extra     []string
 }
 
 type Stranded struct {
@@ -234,9 +235,11 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 		if s.addresses == nil || p.NetworkID == "" {
 			continue
 		}
-		if err := s.addresses.Allocate(ctx, p.ID, p.NetworkID, target.ID); err != nil {
-			s.log.Warn("address allocation failed",
-				"instance", p.ID, "network", p.NetworkID, "node", target.ID, "error", err)
+		for _, networkID := range append([]string{p.NetworkID}, p.Extra...) {
+			if err := s.addresses.Allocate(ctx, p.ID, networkID, target.ID); err != nil {
+				s.log.Warn("address allocation failed",
+					"instance", p.ID, "network", networkID, "node", target.ID, "error", err)
+			}
 		}
 	}
 

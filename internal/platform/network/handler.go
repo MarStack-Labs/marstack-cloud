@@ -28,6 +28,7 @@ type listResponse struct {
 
 type nicResponse struct {
 	InstanceID string `json:"instance_id"`
+	Device     int    `json:"device"`
 	IP         string `json:"ip"`
 	MAC        string `json:"mac"`
 }
@@ -131,6 +132,7 @@ func (h *handler) nodeView(w http.ResponseWriter, r *http.Request) error {
 		for _, nic := range v.NICs {
 			entry.NICs = append(entry.NICs, nicResponse{
 				InstanceID: nic.InstanceID,
+				Device:     nic.Device,
 				IP:         nic.IP,
 				MAC:        nic.MAC,
 			})

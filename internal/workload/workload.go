@@ -67,6 +67,7 @@ type Spec struct {
 	Env        map[string]string
 	Files      []FileDrop
 	Network    *NetworkConfig
+	Extra      []NetworkConfig
 }
 
 type FileDrop struct {
@@ -97,6 +98,7 @@ type Filter struct {
 	Bridge     string
 	IP         string
 	MAC        string
+	Device     int
 }
 
 type Publish struct {

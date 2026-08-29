@@ -26,12 +26,28 @@ const (
 	balancedMark = "0x1"
 )
 
-func hostName(instanceID string) string {
-	return prefixed(hostPrefix, instanceID)
+func hostName(instanceID string, device int) string {
+	return withDevice(prefixed(hostPrefix, instanceID), device)
 }
 
-func peerName(instanceID string) string {
-	return prefixed(peerPrefix, instanceID)
+func peerName(instanceID string, device int) string {
+	return withDevice(prefixed(peerPrefix, instanceID), device)
+}
+
+func withDevice(name string, device int) string {
+	if device == 0 {
+		return name
+	}
+
+	suffix := "." + strconv.Itoa(device)
+	if len(name)+len(suffix) > maxIfName {
+		name = name[:maxIfName-len(suffix)]
+	}
+	return name + suffix
+}
+
+func guestName(device int) string {
+	return "eth" + strconv.Itoa(device)
 }
 
 func prefixed(prefix, instanceID string) string {
@@ -306,7 +322,7 @@ func renderFilters(filters []workload.Filter) string {
 		if filter.IP == "" || filter.MAC == "" {
 			continue
 		}
-		port := hostName(filter.InstanceID)
+		port := hostName(filter.InstanceID, filter.Device)
 		if filter.Isolation != "" && filter.Isolation != "container" {
 			port = prefixed(tapPrefix, filter.InstanceID)
 		}
@@ -330,7 +346,9 @@ func (Datapath) Prune(_ context.Context, keep workload.Keep) error {
 		wanted[bridge] = true
 	}
 	for _, instanceID := range keep.Instances {
-		wanted[hostName(instanceID)] = true
+		for device := range MaxDevices {
+			wanted[hostName(instanceID, device)] = true
+		}
 		wanted[prefixed(tapPrefix, instanceID)] = true
 	}
 
@@ -369,8 +387,9 @@ func managedLinks() ([]string, error) {
 }
 
 func Attach(pid int, cfg Interface) error {
-	host := hostName(cfg.InstanceID)
-	peer := peerName(cfg.InstanceID)
+	host := hostName(cfg.InstanceID, cfg.Device)
+	peer := peerName(cfg.InstanceID, cfg.Device)
+	guest := guestName(cfg.Device)
 
 	if linkExists(host) {
 		if err := run("ip", "link", "del", host); err != nil {
@@ -397,13 +416,15 @@ func Attach(pid int, cfg Interface) error {
 
 	address := cfg.IP + "/" + strconv.Itoa(cfg.Prefix)
 	steps := [][]string{
-		{"ip", "link", "set", peer, "name", guestIface},
-		{"ip", "link", "set", "dev", guestIface, "address", cfg.MAC},
-		{"ip", "addr", "add", address, "dev", guestIface},
-		{"ip", "link", "set", guestIface, "up"},
+		{"ip", "link", "set", peer, "name", guest},
+		{"ip", "link", "set", "dev", guest, "address", cfg.MAC},
+		{"ip", "addr", "add", address, "dev", guest},
+		{"ip", "link", "set", guest, "up"},
 		{"ip", "link", "set", "lo", "up"},
-		{"ip", "route", "add", cfg.Gateway, "dev", guestIface, "scope", "link"},
-		{"ip", "route", "add", "default", "via", cfg.Gateway},
+		{"ip", "route", "add", cfg.Gateway, "dev", guest, "scope", "link"},
+	}
+	if cfg.Device == 0 {
+		steps = append(steps, []string{"ip", "route", "add", "default", "via", cfg.Gateway})
 	}
 	for _, step := range steps {
 		args := append([]string{"--target", target, "--net", "--"}, step...)
@@ -439,9 +460,14 @@ func DeleteLink(name string) error {
 }
 
 func Detach(instanceID string) error {
-	host := hostName(instanceID)
-	if !linkExists(host) {
-		return nil
+	for device := range MaxDevices {
+		host := hostName(instanceID, device)
+		if !linkExists(host) {
+			continue
+		}
+		if err := run("ip", "link", "del", host); err != nil {
+			return err
+		}
 	}
-	return run("ip", "link", "del", host)
+	return nil
 }

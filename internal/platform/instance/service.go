@@ -109,6 +109,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		EnvNames:      namesOf(normalized.Env),
 		FilesSealed:   filesSealed,
 		FilePaths:     pathsOf(normalized.Files),
+		ExtraNetworks: normalized.ExtraNetworks,
 		SSHKeys:       authorized,
 		Name:          normalized.Name,
 		Isolation:     Isolation(normalized.Isolation),
@@ -414,6 +415,17 @@ func normalize(params CreateParams) (CreateParams, error) {
 	}
 	if err := validateFiles(params.Files); err != nil {
 		return params, err
+	}
+	if len(params.ExtraNetworks) > MaxExtraNetworks {
+		return params, fault.Invalid("invalid_networks", fmt.Sprintf(
+			"an instance takes at most %d networks beyond its first", MaxExtraNetworks))
+	}
+	for _, id := range params.ExtraNetworks {
+		if id == params.NetworkID {
+			return params, fault.Invalid("invalid_networks",
+				"a network is named twice, and a second interface onto the same network "+
+					"would carry two addresses out of one slice")
+		}
 	}
 	if params.Group != "" {
 		if err := validate.Name("placement_group", params.Group); err != nil {

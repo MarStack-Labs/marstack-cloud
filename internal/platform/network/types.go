@@ -32,11 +32,14 @@ type Slice struct {
 type NIC struct {
 	InstanceID string
 	NetworkID  string
+	Device     int
 	NodeID     string
 	IP         string
 	MAC        string
 	CreatedAt  time.Time
 }
+
+const MaxNICs = 4
 
 type CreateParams struct {
 	ProjectID string

@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/netip"
 	"time"
 
@@ -230,10 +231,23 @@ func (s *service) ensureSlice(ctx context.Context, networkID, nodeID string) (Sl
 }
 
 func (s *service) allocate(ctx context.Context, instanceID, networkID, nodeID string) (NIC, error) {
-	if existing, err := s.repo.nic(ctx, instanceID); err == nil {
-		return existing, nil
-	} else if !errors.Is(err, errNotFound) {
+	held, err := s.repo.nicsOf(ctx, instanceID)
+	if err != nil {
 		return NIC{}, translate(err)
+	}
+
+	device := 0
+	for _, n := range held {
+		if n.NetworkID == networkID {
+			return n, nil
+		}
+		if n.Device >= device {
+			device = n.Device + 1
+		}
+	}
+	if device >= MaxNICs {
+		return NIC{}, fault.Conflict("too_many_nics", fmt.Sprintf(
+			"an instance carries at most %d interfaces", MaxNICs))
 	}
 
 	slice, err := s.ensureSlice(ctx, networkID, nodeID)
@@ -264,6 +278,7 @@ func (s *service) allocate(ctx context.Context, instanceID, networkID, nodeID st
 	nic := NIC{
 		InstanceID: instanceID,
 		NetworkID:  networkID,
+		Device:     device,
 		NodeID:     nodeID,
 		IP:         address.String(),
 		MAC:        mac,

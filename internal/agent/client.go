@@ -64,6 +64,7 @@ type instanceListBody struct {
 
 type nicView struct {
 	InstanceID string `json:"instance_id"`
+	Device     int    `json:"device"`
 	IP         string `json:"ip"`
 	MAC        string `json:"mac"`
 }

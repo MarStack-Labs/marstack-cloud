@@ -755,6 +755,54 @@ Setting labels replaces the whole set rather than merging, so a label goes away
 by being left out. Merging would need a delete route and a convention for what
 null means, and would make the call depend on what was there before.
 
+## Putting an instance on more than one network
+
+An instance had one interface, and `nics.instance_id` was the primary key, so
+that was true of the schema and not just the code. Now:
+
+```sh
+marstack instance create --name dualnic --isolation container \
+  --image alpine:3.20 --network default --network backnet
+```
+
+```
+# inside the running container
+eth0  inet 10.20.0.76/26
+eth1  inet 10.90.0.65/26
+
+default via 10.20.0.1 dev eth0
+10.20.0.1     dev eth0 scope link
+10.90.0.1     dev eth1 scope link
+```
+
+**Exactly one default route.** Two would make egress depend on kernel
+tie-breaking; the extra interfaces get an on-link route to their own subnet and
+nothing else.
+
+**Device 0 is still "the" address.** DNS, published ports, balancers and
+firewalls all keep reading the first interface. The alternative is answering
+"which address is the instance's address" in six modules, so the question is
+answered once, in the query.
+
+Three things had to learn about devices or the second interface would have
+disappeared quietly: the link sweeper would have deleted its veth on the next
+pass, delete would have leaked it, and — because anti-spoof rules are keyed on
+interface name — an unlisted device gets **no** rule rather than a wrong one.
+Checked live:
+
+```
+iifname "msv-nywswecfek4" ip saddr != 10.20.0.76 drop
+iifname "msv-nywswecfe.1" ip saddr != 10.90.0.65 drop
+```
+
+Device 0 keeps its old interface name so an upgrade does not recreate the veth of
+every running container.
+
+**Extra interfaces are attached for containers only.** A vm, microvm or sandbox
+asking for two networks gets both addresses allocated and one interface: each VMM
+needs a second netdev plus guest-side configuration, and that is not built.
+`Spec.Extra` is where it will go.
+
 ## Terminating TLS at the balancer
 
 A balancer was an nftables rule: the kernel rewrites the destination and never
@@ -1777,6 +1825,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 43  per caller api rate limiting                      done
 44  resize an instance's cpu and memory               done
 45  tls termination on a balancer                     done
+46  more than one network per instance                done (containers)
 ```
 
 ## License

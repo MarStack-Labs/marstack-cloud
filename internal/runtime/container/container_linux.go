@@ -225,10 +225,15 @@ func (r *Runtime) prepareNetwork(spec workload.Spec) error {
 	if spec.Network == nil {
 		return nil
 	}
-	if err := netdev.EnsureBridge(spec.Network.Bridge, spec.Network.BridgeAddr); err != nil {
-		return err
+	for _, cfg := range append([]workload.NetworkConfig{*spec.Network}, spec.Extra...) {
+		if err := netdev.EnsureBridge(cfg.Bridge, cfg.BridgeAddr); err != nil {
+			return err
+		}
+		if err := netdev.EnsureEgress(cfg.Bridge, cfg.BridgeAddr); err != nil {
+			return err
+		}
 	}
-	return netdev.EnsureEgress(spec.Network.Bridge, spec.Network.BridgeAddr)
+	return nil
 }
 
 func (r *Runtime) attachNetwork(spec workload.Spec, pid int) error {
@@ -236,23 +241,27 @@ func (r *Runtime) attachNetwork(spec workload.Spec, pid int) error {
 		return nil
 	}
 
-	if err := netdev.Attach(pid, netdev.Interface{
-		Bridge:     spec.Network.Bridge,
-		BridgeAddr: spec.Network.BridgeAddr,
-		InstanceID: spec.InstanceID,
-		IP:         spec.Network.IP,
-		Prefix:     spec.Network.Prefix,
-		Gateway:    spec.Network.Gateway,
-		MAC:        spec.Network.MAC,
-	}); err != nil {
-		return fmt.Errorf("attach network: %w", err)
-	}
+	for device, cfg := range append([]workload.NetworkConfig{*spec.Network}, spec.Extra...) {
+		if err := netdev.Attach(pid, netdev.Interface{
+			Bridge:     cfg.Bridge,
+			BridgeAddr: cfg.BridgeAddr,
+			InstanceID: spec.InstanceID,
+			IP:         cfg.IP,
+			Prefix:     cfg.Prefix,
+			Gateway:    cfg.Gateway,
+			MAC:        cfg.MAC,
+			Device:     device,
+		}); err != nil {
+			return fmt.Errorf("attach network eth%d: %w", device, err)
+		}
 
-	r.log.Info("interface attached",
-		"instance", spec.InstanceID,
-		"ip", spec.Network.IP,
-		"bridge", spec.Network.Bridge,
-	)
+		r.log.Info("interface attached",
+			"instance", spec.InstanceID,
+			"device", "eth"+strconv.Itoa(device),
+			"ip", cfg.IP,
+			"bridge", cfg.Bridge,
+		)
+	}
 	return nil
 }
 

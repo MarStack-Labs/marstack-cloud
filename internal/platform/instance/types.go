@@ -103,6 +103,7 @@ type Instance struct {
 	EnvNames        []string
 	FilesSealed     string
 	FilePaths       []string
+	ExtraNetworks   []string
 	SSHKeys         []string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -128,6 +129,7 @@ type CreateParams struct {
 	NodeSelector  map[string]string
 	Env           map[string]string
 	Files         []File
+	ExtraNetworks []string
 	Keys          []string
 	Isolation     string
 	Image         string
@@ -146,6 +148,8 @@ const (
 	MaxCommandArgs = 64
 
 	MaxNodeSelector = 8
+
+	MaxExtraNetworks = 3
 
 	MaxFiles       = 16
 	MaxFileBytes   = 128 * 1024

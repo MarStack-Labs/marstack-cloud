@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/netip"
+	"slices"
 	"strconv"
 	"time"
 
@@ -228,8 +229,9 @@ func (a *Agent) collectGarbage(ctx context.Context, assigned []instanceView, net
 	}
 }
 
-func (a *Agent) interfacesByInstance(networks []networkView) map[string]*workload.NetworkConfig {
-	interfaces := map[string]*workload.NetworkConfig{}
+func (a *Agent) interfacesByInstance(networks []networkView) map[string][]workload.NetworkConfig {
+	attached := map[string][]attachedNIC{}
+
 	for _, n := range networks {
 		network, err := netip.ParsePrefix(n.CIDR)
 		if err != nil {
@@ -246,17 +248,31 @@ func (a *Agent) interfacesByInstance(networks []networkView) map[string]*workloa
 		}
 
 		for _, nic := range n.NICs {
-			interfaces[nic.InstanceID] = &workload.NetworkConfig{
-				Bridge:       n.Bridge,
-				BridgeAddr:   n.Gateway + "/" + strconv.Itoa(network.Bits()),
-				IP:           nic.IP,
-				Prefix:       slice.Bits(),
-				Gateway:      n.Gateway,
-				MAC:          nic.MAC,
-				Nameserver:   n.Gateway,
-				SearchDomain: n.Name + "." + dnsSuffix,
-			}
+			attached[nic.InstanceID] = append(attached[nic.InstanceID], attachedNIC{
+				device: nic.Device,
+				config: workload.NetworkConfig{
+					Bridge:       n.Bridge,
+					BridgeAddr:   n.Gateway + "/" + strconv.Itoa(network.Bits()),
+					IP:           nic.IP,
+					Prefix:       slice.Bits(),
+					Gateway:      n.Gateway,
+					MAC:          nic.MAC,
+					Nameserver:   n.Gateway,
+					SearchDomain: n.Name + "." + dnsSuffix,
+				},
+			})
 		}
+	}
+
+	interfaces := make(map[string][]workload.NetworkConfig, len(attached))
+	for instanceID, nics := range attached {
+		slices.SortFunc(nics, func(a, b attachedNIC) int { return a.device - b.device })
+
+		ordered := make([]workload.NetworkConfig, 0, len(nics))
+		for _, nic := range nics {
+			ordered = append(ordered, nic.config)
+		}
+		interfaces[instanceID] = ordered
 	}
 	return interfaces
 }
@@ -333,6 +349,7 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolat
 				Bridge:     n.Bridge,
 				IP:         nic.IP,
 				MAC:        nic.MAC,
+				Device:     nic.Device,
 			})
 		}
 	}
@@ -666,7 +683,7 @@ func (a *Agent) disksByInstance(
 func (a *Agent) reconcileOne(
 	ctx context.Context,
 	in instanceView,
-	iface *workload.NetworkConfig,
+	nics []workload.NetworkConfig,
 	disks []workload.Disk,
 ) (string, string) {
 	runtime, known := a.runtimeFor(in.Isolation)
@@ -694,7 +711,8 @@ func (a *Agent) reconcileOne(
 		SSHKeys:    in.SSHKeys,
 		Env:        in.Env,
 		Files:      drops,
-		Network:    iface,
+		Network:    primary(nics),
+		Extra:      extras(nics),
 	}
 
 	state, err := runtime.Status(ctx, in.ID)
@@ -704,7 +722,7 @@ func (a *Agent) reconcileOne(
 
 	switch in.DesiredState {
 	case desiredRunning:
-		if iface == nil {
+		if len(nics) == 0 {
 			return observedPending, "waiting for an address"
 		}
 		return a.ensureRunning(ctx, runtime, spec, state, in.RestartPolicy)
@@ -835,4 +853,24 @@ func (a *Agent) ensureStopped(
 		}
 	}
 	return observedStopped, ""
+}
+
+func primary(nics []workload.NetworkConfig) *workload.NetworkConfig {
+	if len(nics) == 0 {
+		return nil
+	}
+	first := nics[0]
+	return &first
+}
+
+func extras(nics []workload.NetworkConfig) []workload.NetworkConfig {
+	if len(nics) < 2 {
+		return nil
+	}
+	return nics[1:]
+}
+
+type attachedNIC struct {
+	device int
+	config workload.NetworkConfig
 }

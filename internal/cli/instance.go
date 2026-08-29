@@ -14,6 +14,7 @@ type instanceView struct {
 	NodeSelector    map[string]string `json:"node_selector,omitempty"`
 	EnvNames        []string          `json:"env_names,omitempty"`
 	FilePaths       []string          `json:"file_paths,omitempty"`
+	ExtraNetworks   []string          `json:"extra_networks,omitempty"`
 	Isolation       string            `json:"isolation"`
 	Image           string            `json:"image"`
 	VCPU            int               `json:"vcpu"`
@@ -95,12 +96,15 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		NodeSelector  map[string]string `json:"node_selector,omitempty"`
 		Env           map[string]string `json:"env,omitempty"`
 		Files         []fileSpec        `json:"files,omitempty"`
+		NetworkID     string            `json:"network_id,omitempty"`
+		ExtraNetworks []string          `json:"extra_networks,omitempty"`
 		Keys          []string          `json:"keys,omitempty"`
 	}
 	var (
 		selectors []string
 		envPairs  []string
 		filePairs []string
+		networks  []string
 	)
 
 	cmd := &cobra.Command{
@@ -131,6 +135,11 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 					req.Env = map[string]string{}
 				}
 				req.Env[name] = value
+			}
+
+			if len(networks) > 0 {
+				req.NetworkID = networks[0]
+				req.ExtraNetworks = networks[1:]
 			}
 
 			files, err := readFiles(filePairs)
@@ -174,6 +183,9 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringArrayVar(&envPairs, "env", nil,
 		"NAME=value passed to the workload, repeatable; needs a control plane started with "+
 			"--backup-key-file, and values are never served back")
+	cmd.Flags().StringArrayVar(&networks, "network", nil,
+		"network to attach, repeatable; the first is eth0 and carries the default route, "+
+			"the rest are extra interfaces")
 	cmd.Flags().StringArrayVar(&filePairs, "file", nil,
 		"/path/in/the/workload=local-file[:mode] to write before it starts, repeatable; "+
 			"content is sealed at rest and never served back")

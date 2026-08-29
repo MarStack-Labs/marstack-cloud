@@ -467,6 +467,30 @@ make check      # vet + test + security scans
   test that drops the pair check.
 - A certificate is refused outright when the control plane has no sealing key, same as env: handing
   a private key to every node out of a database it cannot protect is not a quiet default.
+- `nics.instance_id` used to be the primary key, which made one NIC per instance a property of the
+  schema. Migrations 12-15 rebuild the table because SQLite cannot drop a primary key in place; the
+  copy sets `device = 0` for every existing row, so nothing that already ran changes behaviour.
+- Device 0 is **the** interface everywhere else: dns, forwards, balancers and firewalls all keep
+  reading `NICOf`, which is now `ORDER BY device LIMIT 1`. That containment is deliberate - the
+  alternative is answering "which address is the instance's address" in six modules.
+- Only device 0 gets a default route. Two default routes make egress depend on kernel tie-breaking,
+  which changes under you; the extras get an on-link route to their own subnet and nothing else.
+- `hostName` and `peerName` keep their old names for device 0 and add `.N` after that, so an
+  upgrade does not recreate the veth of every running container. `maxIfName` still applies, so the
+  base name is truncated to make room for the suffix rather than producing a name the kernel
+  refuses.
+- Three places had to learn about devices or extra NICs would break silently: the link sweeper
+  (`Keep`) would delete `eth1`'s veth on the next pass, `Detach` would leak it, and the anti-spoof
+  filter is keyed on interface name, so an unlisted device gets **no** rule rather than a wrong one.
+  Verified live that both NICs carry their own drop rules.
+- `netdev.MaxDevices` and `network.MaxNICs` are the same number in two packages on purpose. The
+  agent's sweeper cannot import a platform module, and the alternative is a kernel package holding
+  one constant that only these two use.
+- `interfacesByInstance` returns a slice per instance. It used to be `map[string]*NetworkConfig`,
+  where a second NIC silently overwrote the first - the map key is the instance, not the interface.
+- Extra NICs are attached by the container runtime only. qemu, cloud hypervisor and firecracker
+  each need a second netdev plus guest configuration, and `Spec.Extra` is there for them; nothing
+  reads it yet, so a vm asking for two networks gets addresses allocated and one interface.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

@@ -112,6 +112,52 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  11,
 			SQL:    `CREATE UNIQUE INDEX networks_name_unique ON networks (project_id, name)`,
 		},
+		{
+			Module: "network",
+			Index:  12,
+			SQL: `CREATE TABLE nics_multi (
+				instance_id TEXT    NOT NULL,
+				network_id  TEXT    NOT NULL,
+				device      INTEGER NOT NULL,
+				node_id     TEXT    NOT NULL,
+				ip          TEXT    NOT NULL,
+				mac         TEXT    NOT NULL,
+				created_at  TEXT    NOT NULL,
+				PRIMARY KEY (instance_id, network_id)
+			)`,
+		},
+		{
+			Module: "network",
+			Index:  13,
+			SQL: `INSERT INTO nics_multi
+				(instance_id, network_id, device, node_id, ip, mac, created_at)
+				SELECT instance_id, network_id, 0, node_id, ip, mac, created_at FROM nics`,
+		},
+		{
+			Module: "network",
+			Index:  14,
+			SQL:    `DROP TABLE nics`,
+		},
+		{
+			Module: "network",
+			Index:  15,
+			SQL:    `ALTER TABLE nics_multi RENAME TO nics`,
+		},
+		{
+			Module: "network",
+			Index:  16,
+			SQL:    `CREATE UNIQUE INDEX nics_address_unique ON nics (network_id, ip)`,
+		},
+		{
+			Module: "network",
+			Index:  17,
+			SQL:    `CREATE INDEX nics_node_id ON nics (node_id)`,
+		},
+		{
+			Module: "network",
+			Index:  18,
+			SQL:    `CREATE UNIQUE INDEX nics_device_unique ON nics (instance_id, device)`,
+		},
 	}
 }
 

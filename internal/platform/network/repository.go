@@ -216,7 +216,8 @@ func (r *repository) deleteNetwork(ctx context.Context, id string) error {
 
 func (r *repository) nic(ctx context.Context, instanceID string) (NIC, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT instance_id, network_id, node_id, ip, mac, created_at FROM nics WHERE instance_id = ?`,
+		`SELECT instance_id, network_id, device, node_id, ip, mac, created_at
+		 FROM nics WHERE instance_id = ? ORDER BY device LIMIT 1`,
 		instanceID,
 	)
 	return scanNICRow(row)
@@ -227,7 +228,7 @@ func scanNICRow(row *sql.Row) (NIC, error) {
 		n          NIC
 		createdRaw string
 	)
-	if err := row.Scan(&n.InstanceID, &n.NetworkID, &n.NodeID, &n.IP, &n.MAC, &createdRaw); err != nil {
+	if err := row.Scan(&n.InstanceID, &n.NetworkID, &n.Device, &n.NodeID, &n.IP, &n.MAC, &createdRaw); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return NIC{}, errNotFound
 		}
@@ -262,8 +263,10 @@ func (r *repository) takenAddresses(ctx context.Context, networkID string) (map[
 
 func (r *repository) insertNIC(ctx context.Context, n NIC) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO nics (instance_id, network_id, node_id, ip, mac, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-		n.InstanceID, n.NetworkID, n.NodeID, n.IP, n.MAC, n.CreatedAt.Format(time.RFC3339Nano),
+		`INSERT INTO nics (instance_id, network_id, device, node_id, ip, mac, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		n.InstanceID, n.NetworkID, n.Device, n.NodeID, n.IP, n.MAC,
+		n.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -276,7 +279,8 @@ func (r *repository) insertNIC(ctx context.Context, n NIC) error {
 
 func (r *repository) nicsOnNode(ctx context.Context, nodeID string) ([]NIC, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT instance_id, network_id, node_id, ip, mac, created_at FROM nics WHERE node_id = ? ORDER BY ip`,
+		`SELECT instance_id, network_id, device, node_id, ip, mac, created_at
+		 FROM nics WHERE node_id = ? ORDER BY ip`,
 		nodeID,
 	)
 	if err != nil {
@@ -290,7 +294,7 @@ func (r *repository) nicsOnNode(ctx context.Context, nodeID string) ([]NIC, erro
 			n          NIC
 			createdRaw string
 		)
-		if err := rows.Scan(&n.InstanceID, &n.NetworkID, &n.NodeID, &n.IP, &n.MAC, &createdRaw); err != nil {
+		if err := rows.Scan(&n.InstanceID, &n.NetworkID, &n.Device, &n.NodeID, &n.IP, &n.MAC, &createdRaw); err != nil {
 			return nil, fmt.Errorf("scan nic: %w", err)
 		}
 		created, err := time.Parse(time.RFC3339Nano, createdRaw)
@@ -319,6 +323,35 @@ func (r *repository) allAddresses(ctx context.Context) (map[string]string, error
 		addresses[instanceID] = ip
 	}
 	return addresses, rows.Err()
+}
+
+func (r *repository) nicsOf(ctx context.Context, instanceID string) ([]NIC, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT instance_id, network_id, device, node_id, ip, mac, created_at
+		 FROM nics WHERE instance_id = ? ORDER BY device`, instanceID)
+	if err != nil {
+		return nil, fmt.Errorf("list the nics of an instance: %w", err)
+	}
+	defer rows.Close()
+
+	nics := make([]NIC, 0, 2)
+	for rows.Next() {
+		var (
+			n          NIC
+			createdRaw string
+		)
+		if err := rows.Scan(&n.InstanceID, &n.NetworkID, &n.Device, &n.NodeID,
+			&n.IP, &n.MAC, &createdRaw); err != nil {
+			return nil, fmt.Errorf("scan nic: %w", err)
+		}
+		created, err := time.Parse(time.RFC3339Nano, createdRaw)
+		if err != nil {
+			return nil, fmt.Errorf("parse nic created_at: %w", err)
+		}
+		n.CreatedAt = created
+		nics = append(nics, n)
+	}
+	return nics, rows.Err()
 }
 
 func (r *repository) deleteNIC(ctx context.Context, instanceID string) error {
