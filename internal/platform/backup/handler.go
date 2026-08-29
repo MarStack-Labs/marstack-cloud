@@ -8,6 +8,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
@@ -36,6 +37,7 @@ type response struct {
 
 type listResponse struct {
 	Backups []response `json:"backups"`
+	Next    string     `json:"next,omitempty"`
 }
 
 func toResponse(b Backup) response {
@@ -85,11 +87,22 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	backups, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
+	window, err := page.From(r, page.Default, page.Max)
+	if err != nil {
+		return fault.Invalid("invalid_page", err.Error())
+	}
+
+	backups, err := h.svc.pageIn(r.Context(), scope.From(r.Context()).ProjectID, window)
 	if err != nil {
 		return err
 	}
-	writeList(w, backups)
+
+	next := ""
+	if len(backups) == window.Limit {
+		last := backups[len(backups)-1]
+		next = page.Encode(last.CreatedAt.Format(time.RFC3339Nano), last.ID)
+	}
+	writePage(w, backups, next)
 	return nil
 }
 
@@ -113,7 +126,11 @@ func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 }
 
 func writeList(w http.ResponseWriter, backups []Backup) {
-	body := listResponse{Backups: make([]response, 0, len(backups))}
+	writePage(w, backups, "")
+}
+
+func writePage(w http.ResponseWriter, backups []Backup, next string) {
+	body := listResponse{Backups: make([]response, 0, len(backups)), Next: next}
 	for _, b := range backups {
 		body.Backups = append(body.Backups, toResponse(b))
 	}

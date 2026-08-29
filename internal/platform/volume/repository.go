@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -61,11 +62,6 @@ func (r *repository) footprintIn(ctx context.Context, projectID string) (Footpri
 	return f, nil
 }
 
-func (r *repository) listIn(ctx context.Context, projectID string) ([]Volume, error) {
-	return r.query(ctx,
-		`SELECT `+columns+` FROM volumes WHERE project_id = ? ORDER BY name`, projectID)
-}
-
 func (r *repository) byName(ctx context.Context, projectID, name string) (Volume, error) {
 	return scanRow(r.db.QueryRowContext(ctx,
 		`SELECT `+columns+` FROM volumes WHERE project_id = ? AND name = ?`, projectID, name))
@@ -73,6 +69,18 @@ func (r *repository) byName(ctx context.Context, projectID, name string) (Volume
 
 func (r *repository) onNode(ctx context.Context, nodeID string) ([]Volume, error) {
 	return r.query(ctx, `SELECT `+columns+` FROM volumes WHERE node_id = ? ORDER BY name`, nodeID)
+}
+
+func (r *repository) pageIn(
+	ctx context.Context, projectID string, window page.Window,
+) ([]Volume, error) {
+	after := window.After
+	return r.query(ctx,
+		`SELECT `+columns+` FROM volumes
+			WHERE project_id = ?
+				AND (? = '' OR name > ? OR (name = ? AND id > ?))
+			ORDER BY name, id LIMIT ?`,
+		projectID, after.Order, after.Order, after.Order, after.ID, window.Limit)
 }
 
 func (r *repository) query(ctx context.Context, sql string, args ...any) ([]Volume, error) {
@@ -186,11 +194,17 @@ func (r *repository) snapshots(ctx context.Context, volumeID string) ([]Snapshot
 	return snapshots, rows.Err()
 }
 
-func (r *repository) snapshotsIn(ctx context.Context, projectID string) ([]Snapshot, error) {
+func (r *repository) snapshotsPageIn(
+	ctx context.Context, projectID string, window page.Window,
+) ([]Snapshot, error) {
+	after := window.After
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT s.id, s.volume_id, s.name, s.state, s.message, s.size_bytes, s.created_at
 		 FROM snapshots s JOIN volumes v ON v.id = s.volume_id
-		 WHERE v.project_id = ? ORDER BY s.created_at`, projectID)
+		 WHERE v.project_id = ?
+			AND (? = '' OR s.created_at > ? OR (s.created_at = ? AND s.id > ?))
+		 ORDER BY s.created_at, s.id LIMIT ?`,
+		projectID, after.Order, after.Order, after.Order, after.ID, window.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("list snapshots in project: %w", err)
 	}

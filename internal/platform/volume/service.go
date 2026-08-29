@@ -10,6 +10,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
@@ -113,12 +114,14 @@ func (s *service) footprintIn(ctx context.Context, projectID string) (Footprint,
 	return footprint, nil
 }
 
-func (s *service) listIn(ctx context.Context, projectID string) ([]Volume, error) {
-	volumes, err := s.repo.listIn(ctx, projectID)
+func (s *service) pageIn(
+	ctx context.Context, projectID string, window page.Window,
+) ([]Volume, error) {
+	rows, err := s.repo.pageIn(ctx, projectID, window)
 	if err != nil {
 		return nil, translate(err)
 	}
-	return volumes, nil
+	return rows, nil
 }
 
 func (s *service) onNode(ctx context.Context, nodeID string) ([]Volume, error) {
@@ -267,12 +270,14 @@ func (s *service) snapshots(ctx context.Context, volumeID string) ([]Snapshot, e
 	return snapshots, nil
 }
 
-func (s *service) snapshotsIn(ctx context.Context, projectID string) ([]Snapshot, error) {
-	snapshots, err := s.repo.snapshotsIn(ctx, projectID)
+func (s *service) snapshotsPageIn(
+	ctx context.Context, projectID string, window page.Window,
+) ([]Snapshot, error) {
+	snaps, err := s.repo.snapshotsPageIn(ctx, projectID, window)
 	if err != nil {
 		return nil, translate(err)
 	}
-	return snapshots, nil
+	return snaps, nil
 }
 
 func (s *service) ownedSnapshot(ctx context.Context, id, projectID string) (Snapshot, error) {

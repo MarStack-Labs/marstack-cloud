@@ -13,6 +13,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/interval"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -188,6 +189,16 @@ func (s *service) markUploaded(
 		}
 	}
 	return nil
+}
+
+func (s *service) pageIn(
+	ctx context.Context, projectID string, window page.Window,
+) ([]Backup, error) {
+	rows, err := s.repo.pageIn(ctx, projectID, window)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return rows, nil
 }
 
 func (s *service) listIn(ctx context.Context, projectID string) ([]Backup, error) {

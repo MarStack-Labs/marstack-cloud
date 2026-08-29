@@ -130,7 +130,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	window, err := page.From(r, DefaultPage, MaxPage)
+	window, err := page.From(r, page.Default, page.Max)
 	if err != nil {
 		return fault.Invalid("invalid_page", err.Error())
 	}

@@ -731,7 +731,8 @@ question now, not to be a system of record.
 Every list endpoint returned the whole table. That is fine at twenty instances
 and a large response at ten thousand, and it grows on its own.
 
-`GET /v1/instances` now takes `limit` and `after`:
+`/v1/instances`, `/v1/volumes`, `/v1/backups` and `/v1/snapshots` take `limit`
+and `after`:
 
 ```
 $ curl ".../v1/instances?limit=3"
@@ -742,21 +743,39 @@ $ curl ".../v1/instances?limit=3&after=$NEXT"
    web-4  mv-b  mv-c
 ```
 
-The cursor is opaque and carries the row's `created_at` **and** its id. The
-timestamp alone is not a total order, and without the tiebreaker a row on a page
-boundary comes back twice — which is what happens if you remove it, so there is a
-test that does.
+The cursor is opaque and carries the row's ordering column **and** its id. The
+ordering column alone is not a total order, and without the tiebreaker a row on a
+page boundary comes back twice — which is what happens if you remove it, so there
+is a test that does. It is not a theoretical case: seven backups created in a row
+share a timestamp to the nanosecond, and cutting the tiebreaker makes that test
+fail immediately.
+
+Volumes page by name, instances and snapshots by age, backups newest first. That
+last one flips both the comparison and the `ORDER BY` to descending, which is the
+easy half of this to get wrong.
 
 `next` appears only when a page came back full. An empty `next` means the list is
-exhausted, so a caller loops until it disappears rather than guessing.
+exhausted, so a caller loops until it disappears rather than guessing. The price
+of not counting rows is one empty request when the total happens to be a multiple
+of the limit.
 
-**The CLI and the console follow the cursor**, so `marstack instance list` still
-shows everything. A list command that silently stopped at a hundred would be
-worse than no paging at all.
+**The CLI and the console follow the cursor**, so `marstack volume list` still
+shows everything. One loop in `internal/cli/client.go` does it for all four; a
+list command that silently stopped at a hundred would be worse than no paging at
+all.
 
-**Only `/v1/instances` is paged so far.** The helper is `kernel/page` and the
-pattern is one query plus one handler change, but volumes, snapshots, backups and
-dns records still hand back the whole table.
+**What is still unpaged.** The lists hanging off a single volume —
+`/v1/volumes/{id}/backups` and `/v1/volumes/{id}/snapshots` — return the whole
+set, because retention bounds them. DNS records are derived from instances rather
+than stored in a table of their own, so this cursor does not apply to them; when
+instances are paged, the thing behind the records already is. Everything else is
+small by construction: nodes, networks, images, projects.
+
+**One honest wart.** Ordering compares RFC3339Nano strings, and those sort
+chronologically except for a timestamp landing on an exact whole second, where
+`Z` sorts after `.`. Fixing it means rewriting every stored timestamp, and a
+column holding two formats would be worse than a one-in-a-billion row landing on
+the wrong page.
 
 ## Putting backups somewhere that outlives this machine
 
@@ -1505,6 +1524,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 35  backups on an S3 object store                     done
 36  nodes write backups straight to the store         done
 37  paged instance listing                            done
+38  paged volume, backup and snapshot listings        done
 ```
 
 ## License

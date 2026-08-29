@@ -22,7 +22,10 @@ type backupView struct {
 
 type backupListView struct {
 	Backups []backupView `json:"backups"`
+	Next    string       `json:"next,omitempty"`
 }
+
+func (v backupListView) cursor() string { return v.Next }
 
 var backupHeaders = []string{"NAME", "ID", "VOLUME", "STATE", "SIZE", "CREATED"}
 
@@ -100,16 +103,20 @@ func newBackupListCmd(g *globals) *cobra.Command {
 				path = "/v1/volumes/" + volume + "/backups"
 			}
 
-			var list backupListView
-			if err := g.client().do(cmd.Context(), "GET", path, nil, &list); err != nil {
+			var all backupListView
+			if err := walkPages(cmd.Context(), g.client(), path,
+				func(p backupListView) {
+					all.Backups = append(all.Backups, p.Backups...)
+				},
+			); err != nil {
 				return err
 			}
 
-			rows := make([][]string, 0, len(list.Backups))
-			for _, b := range list.Backups {
+			rows := make([][]string, 0, len(all.Backups))
+			for _, b := range all.Backups {
 				rows = append(rows, backupRow(b))
 			}
-			return render(cmd.OutOrStdout(), g.output, list, table{
+			return render(cmd.OutOrStdout(), g.output, all, table{
 				headers: backupHeaders,
 				rows:    rows,
 			})

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"net/url"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -28,6 +27,8 @@ type instanceListView struct {
 	Instances []instanceView `json:"instances"`
 	Next      string         `json:"next,omitempty"`
 }
+
+func (v instanceListView) cursor() string { return v.Next }
 
 var instanceHeaders = []string{"NAME", "ID", "IMAGE", "SIZE", "DESIRED", "OBSERVED", "RESTARTS", "MESSAGE"}
 
@@ -143,17 +144,12 @@ func newInstanceListCmd(g *globals) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var all instanceListView
 
-			for path := "/v1/instances"; path != ""; {
-				var list instanceListView
-				if err := g.client().do(cmd.Context(), "GET", path, nil, &list); err != nil {
-					return err
-				}
-				all.Instances = append(all.Instances, list.Instances...)
-
-				path = ""
-				if list.Next != "" {
-					path = "/v1/instances?after=" + url.QueryEscape(list.Next)
-				}
+			if err := walkPages(cmd.Context(), g.client(), "/v1/instances",
+				func(p instanceListView) {
+					all.Instances = append(all.Instances, p.Instances...)
+				},
+			); err != nil {
+				return err
 			}
 
 			rows := make([][]string, 0, len(all.Instances))

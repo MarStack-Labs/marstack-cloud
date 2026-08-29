@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -64,6 +65,18 @@ func (r *repository) byID(ctx context.Context, id string) (Backup, error) {
 func (r *repository) listIn(ctx context.Context, projectID string) ([]Backup, error) {
 	return r.query(ctx,
 		`SELECT `+columns+` FROM backups WHERE project_id = ? ORDER BY created_at DESC`, projectID)
+}
+
+func (r *repository) pageIn(
+	ctx context.Context, projectID string, window page.Window,
+) ([]Backup, error) {
+	after := window.After
+	return r.query(ctx,
+		`SELECT `+columns+` FROM backups
+			WHERE project_id = ?
+				AND (? = '' OR created_at < ? OR (created_at = ? AND id < ?))
+			ORDER BY created_at DESC, id DESC LIMIT ?`,
+		projectID, after.Order, after.Order, after.Order, after.ID, window.Limit)
 }
 
 func (r *repository) listForVolume(ctx context.Context, volumeID string) ([]Backup, error) {

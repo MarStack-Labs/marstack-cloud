@@ -18,7 +18,10 @@ type volumeView struct {
 
 type volumeListView struct {
 	Volumes []volumeView `json:"volumes"`
+	Next    string       `json:"next,omitempty"`
 }
+
+func (v volumeListView) cursor() string { return v.Next }
 
 var volumeHeaders = []string{"NAME", "ID", "SIZE", "STATE", "NODE", "INSTANCE"}
 
@@ -97,16 +100,20 @@ func newVolumeListCmd(g *globals) *cobra.Command {
 		Short: "List volumes",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			var list volumeListView
-			if err := g.client().do(cmd.Context(), "GET", "/v1/volumes", nil, &list); err != nil {
+			var all volumeListView
+			if err := walkPages(cmd.Context(), g.client(), "/v1/volumes",
+				func(p volumeListView) {
+					all.Volumes = append(all.Volumes, p.Volumes...)
+				},
+			); err != nil {
 				return err
 			}
 
-			rows := make([][]string, 0, len(list.Volumes))
-			for _, v := range list.Volumes {
+			rows := make([][]string, 0, len(all.Volumes))
+			for _, v := range all.Volumes {
 				rows = append(rows, volumeRow(v))
 			}
-			return render(cmd.OutOrStdout(), g.output, list, table{headers: volumeHeaders, rows: rows})
+			return render(cmd.OutOrStdout(), g.output, all, table{headers: volumeHeaders, rows: rows})
 		},
 	}
 }
@@ -191,7 +198,10 @@ type snapshotView struct {
 
 type snapshotListView struct {
 	Snapshots []snapshotView `json:"snapshots"`
+	Next      string         `json:"next,omitempty"`
 }
+
+func (v snapshotListView) cursor() string { return v.Next }
 
 var snapshotHeaders = []string{"NAME", "ID", "VOLUME", "STATE", "MESSAGE"}
 
@@ -264,16 +274,20 @@ func newSnapshotListCmd(g *globals) *cobra.Command {
 				path = "/v1/volumes/" + args[0] + "/snapshots"
 			}
 
-			var list snapshotListView
-			if err := g.client().do(cmd.Context(), "GET", path, nil, &list); err != nil {
+			var all snapshotListView
+			if err := walkPages(cmd.Context(), g.client(), path,
+				func(p snapshotListView) {
+					all.Snapshots = append(all.Snapshots, p.Snapshots...)
+				},
+			); err != nil {
 				return err
 			}
 
-			rows := make([][]string, 0, len(list.Snapshots))
-			for _, s := range list.Snapshots {
+			rows := make([][]string, 0, len(all.Snapshots))
+			for _, s := range all.Snapshots {
 				rows = append(rows, snapshotRow(s))
 			}
-			return render(cmd.OutOrStdout(), g.output, list, table{headers: snapshotHeaders, rows: rows})
+			return render(cmd.OutOrStdout(), g.output, all, table{headers: snapshotHeaders, rows: rows})
 		},
 	}
 }

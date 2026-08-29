@@ -8,7 +8,12 @@ import (
 	"strings"
 )
 
-const separator = "\x00"
+const (
+	separator = "\x00"
+
+	Default = 100
+	Max     = 500
+)
 
 type Window struct {
 	Limit int

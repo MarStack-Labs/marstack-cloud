@@ -346,6 +346,19 @@ plane, which by construction can open everything it stores keys for.
 The keyring moved to `kernel/sealed` once both the backup and volume modules needed it; a keyring is
 a set of keys by fingerprint, which is mechanism, and neither module may import the other.
 
+`kernel/page` follows the same reasoning and shows what the rule buys. It started as a cursor
+codec plus a query parser for `instance`, with the page sizes as `instance.DefaultPage` and
+`instance.MaxPage`. Adding `volume`, `backup` and `snapshot` made the choice explicit: either every
+module carries its own pair of limits, which drift, or the limits move next to the codec that is
+already shared. They moved. The rule each module keeps is the one it genuinely owns - which column
+orders the rows, and in which direction. Volumes page by name, backups newest first, the rest by
+age. The mechanism knows none of that; it only knows an order key, an id, and a limit.
+
+On the client side the same split appears again. `internal/cli/client.go` holds one `walkPages`
+loop, and a list view opts in by implementing `cursor() string`. Four commands share it. A client
+that reads one page and renders it is not obviously broken, which is exactly why the loop is not
+left to each command to remember.
+
 The keyring lives in the backup module and is injected from `app`, so the module decides nothing
 about where keys come from. Each backup records the key that sealed it, which is what makes rotation
 possible without rewriting history.

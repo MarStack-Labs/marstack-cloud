@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
@@ -51,6 +53,7 @@ type snapshotResponse struct {
 
 type snapshotListResponse struct {
 	Snapshots []snapshotResponse `json:"snapshots"`
+	Next      string             `json:"next,omitempty"`
 }
 
 func toSnapshotResponse(snap Snapshot) snapshotResponse {
@@ -83,6 +86,7 @@ type response struct {
 
 type listResponse struct {
 	Volumes []response `json:"volumes"`
+	Next    string     `json:"next,omitempty"`
 }
 
 func toResponse(v Volume) response {
@@ -128,7 +132,12 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	volumes, err := h.svc.listIn(r.Context(), scope.From(r.Context()).ProjectID)
+	window, err := page.From(r, page.Default, page.Max)
+	if err != nil {
+		return fault.Invalid("invalid_page", err.Error())
+	}
+
+	volumes, err := h.svc.pageIn(r.Context(), scope.From(r.Context()).ProjectID, window)
 	if err != nil {
 		return err
 	}
@@ -136,6 +145,10 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	body := listResponse{Volumes: make([]response, 0, len(volumes))}
 	for _, v := range volumes {
 		body.Volumes = append(body.Volumes, toResponse(v))
+	}
+	if len(volumes) == window.Limit {
+		last := volumes[len(volumes)-1]
+		body.Next = page.Encode(last.Name, last.ID)
 	}
 
 	httpx.Write(w, http.StatusOK, body)
@@ -231,6 +244,7 @@ func (h *handler) listSnapshots(w http.ResponseWriter, r *http.Request) error {
 
 	var (
 		snapshots []Snapshot
+		next      string
 		err       error
 	)
 	if key := r.PathValue("id"); key != "" {
@@ -240,13 +254,24 @@ func (h *handler) listSnapshots(w http.ResponseWriter, r *http.Request) error {
 		}
 		snapshots, err = h.svc.snapshots(r.Context(), v.ID)
 	} else {
-		snapshots, err = h.svc.snapshotsIn(r.Context(), project)
+		window, pageErr := page.From(r, page.Default, page.Max)
+		if pageErr != nil {
+			return fault.Invalid("invalid_page", pageErr.Error())
+		}
+		snapshots, err = h.svc.snapshotsPageIn(r.Context(), project, window)
+		if err == nil && len(snapshots) == window.Limit {
+			last := snapshots[len(snapshots)-1]
+			next = page.Encode(last.CreatedAt.Format(time.RFC3339Nano), last.ID)
+		}
 	}
 	if err != nil {
 		return err
 	}
 
-	body := snapshotListResponse{Snapshots: make([]snapshotResponse, 0, len(snapshots))}
+	body := snapshotListResponse{
+		Snapshots: make([]snapshotResponse, 0, len(snapshots)),
+		Next:      next,
+	}
 	for _, snap := range snapshots {
 		body.Snapshots = append(body.Snapshots, toSnapshotResponse(snap))
 	}

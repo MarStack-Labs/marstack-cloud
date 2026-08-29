@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -117,4 +118,26 @@ func decodeAPIError(res *http.Response) error {
 		Message: envelope.Error.Message,
 		Status:  res.StatusCode,
 	}
+}
+
+type cursored interface {
+	cursor() string
+}
+
+func walkPages[L cursored](
+	ctx context.Context, c *client, base string, merge func(L),
+) error {
+	for path := base; path != ""; {
+		var got L
+		if err := c.do(ctx, "GET", path, nil, &got); err != nil {
+			return err
+		}
+		merge(got)
+
+		path = ""
+		if next := got.cursor(); next != "" {
+			path = base + "?after=" + url.QueryEscape(next)
+		}
+	}
+	return nil
 }

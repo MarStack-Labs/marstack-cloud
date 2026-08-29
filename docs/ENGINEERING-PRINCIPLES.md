@@ -253,12 +253,30 @@ make check      # vet + test + security scans
 - A page cursor carries the ordering column **and** the row id. `created_at` alone is not a total
   order, and a duplicate timestamp on a page boundary returns the same row on two pages. The
   comparison is `order > ? OR (order = ? AND id > ?)`, written out rather than as a row value so it
-  does not depend on the SQLite version.
-- `next` is emitted only when a page came back exactly full. Emitting it whenever rows exist gives
-  an endless walk; never emitting it makes everything past the first page unreachable.
-- Any client that lists must follow `next`. `marstack instance list` and the local console both
-  loop; a client that reads one page and stops is silently showing a partial answer, which is worse
-  than no paging.
+  does not depend on the SQLite version. This is not theoretical: seven backups created in one test
+  share a timestamp to the nanosecond, and removing the id half returns rows twice.
+- Backups page newest first, so their comparison is `<` and their `ORDER BY` is `DESC` on both
+  columns. Flipping one and not the other walks the list and never terminates.
+- `next` is emitted only when a page came back exactly full. Never emitting it makes everything past
+  the first page unreachable; emitting it whenever rows exist does not loop forever, it costs every
+  client one extra empty request, which is why the walk tests assert that a short page carries no
+  cursor rather than only that the walk ends.
+- The cost of "exactly full" is one empty request when the total is a multiple of the limit. That
+  is the honest price of not counting rows, and counting them means a second query per page.
+- `page.Default` and `page.Max` live in `kernel/page` because a page size is mechanism, not a rule
+  any one module owns. They were `instance.DefaultPage`, and copying that pair into every module
+  that paginates is how the limits drift apart.
+- `/v1/instances`, `/v1/volumes`, `/v1/backups` and `/v1/snapshots` are paged. The lists hanging
+  off one volume - `/v1/volumes/{id}/backups` and `/v1/volumes/{id}/snapshots` - are not, because
+  retention bounds them; they return no cursor, so a client that follows `next` still works.
+- Ordering by an RFC3339Nano string is lexicographic, which matches chronological order except for
+  a timestamp landing on an exact whole second: `Z` sorts after `.`, so `10:00:00Z` compares greater
+  than `10:00:00.5Z`. Fixing it means rewriting every stored timestamp, and a mixed-format column
+  would be worse than a one-in-a-billion row on the wrong page. Do not change the write format
+  without migrating every row in the same commit.
+- Any client that lists must follow `next`, and `walkPages` in `internal/cli/client.go` is the one
+  loop that does it; a list view opts in by implementing `cursor()`. A client that reads one page
+  and stops is silently showing a partial answer, which is worse than no paging.
 - `audit` records calls somebody made; `event` records what the platform did with no caller.
   They are not the same table and neither replaces the other. Audit is admin-only because it is
   governance; events are member-readable because they are about the caller's own workloads.
