@@ -118,6 +118,19 @@ make check      # vet + test + security scans
   `Volumes.Source` resolves - never the string the caller typed. The agent matches its volumes by
   id; a name stored in `backups.volume_id` is a backup no node ever picks up, and it fails silently
   because the pending guard then blocks every retry.
+- A backup's `written.Size` is the plaintext length and the sealed file on disk is longer, by a
+  salt and a tag per frame. The object store upload must take its Content-Length from the staged
+  file, not from `written.Size` - getting that wrong fails as `ContentLength=X with Body length Y`
+  only once a real S3 server sees it, which is exactly how it was found.
+- Sealing happens on the control plane and the operator key never leaves it. That is why the node
+  does not upload to the object store directly: it would need a key. Doing it properly means a
+  per-backup key wrapped by the operator key, the way volume encryption already works, not shipping
+  the operator key to nodes.
+- `kernel/s3` signs with `UNSIGNED-PAYLOAD`. Signing the body means buffering the whole volume or
+  implementing chunked signing, and the backup is already sealed, so its AEAD is what detects
+  tampering. Do not "improve" this into a full payload hash without noticing the memory cost.
+- The object store is checked with a HEAD on the bucket during `app.New`. A wrong endpoint stops
+  the control plane at start rather than at 3am when a schedule fires.
 - A backup carries the volume key as a sealed envelope. The backup module never opens it and never
   serves it, and the volume module adopts it on restore instead of minting a new one. Minting a new
   key for a restore produces a disk that nothing can open, and the failure looks like a corrupt

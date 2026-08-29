@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"time"
 
+	"fmt"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
+
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/s3"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
@@ -23,13 +26,38 @@ func New(st *store.Store, dataDir string, keys *sealed.Keyring, log *slog.Logger
 	if err != nil {
 		return nil, err
 	}
+	return moduleWith(st, v, log), nil
+}
 
+func NewOnObjectStore(
+	ctx context.Context, st *store.Store, dataDir string, cfg s3.Config,
+	keys *sealed.Keyring, log *slog.Logger,
+) (*Module, error) {
+	client, err := s3.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.Check(ctx); err != nil {
+		return nil, fmt.Errorf("the object store is not usable: %w", err)
+	}
+
+	v, err := openObjectVault(dataDir, client, keys)
+	if err != nil {
+		return nil, err
+	}
+
+	m := moduleWith(st, v, log)
+	log.Info("backups go to an object store", "where", v.describe())
+	return m, nil
+}
+
+func moduleWith(st *store.Store, v vault, log *slog.Logger) *Module {
 	svc := newService(newRepository(st), v, nil)
 	return &Module{
 		log:     log,
 		svc:     svc,
 		handler: &handler{svc: svc},
-	}, nil
+	}
 }
 
 func (m *Module) Name() string {

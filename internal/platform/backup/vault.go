@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -13,12 +14,83 @@ import (
 
 const DirName = "backups"
 
-type vault struct {
+type written struct {
+	Size     int64
+	Checksum string
+	KeyID    string
+}
+
+type vault interface {
+	write(ctx context.Context, id string, src io.Reader, limit int64) (written, error)
+	open(ctx context.Context, id, keyID string) (io.ReadCloser, error)
+	remove(ctx context.Context, id string) error
+	close() error
+	describe() string
+}
+
+func pour(dst io.Writer, src io.Reader, limit int64, keys *sealed.Keyring) (written, error) {
+	digest := sha256.New()
+	bounded := io.LimitReader(src, limit+1)
+
+	var (
+		size int64
+		err  error
+	)
+	if active, ok := keys.Active(); ok {
+		size, err = sealed.Seal(dst, io.TeeReader(bounded, digest), active)
+	} else {
+		size, err = io.Copy(io.MultiWriter(dst, digest), bounded)
+	}
+	if err != nil {
+		return written{}, fmt.Errorf("write the backup: %w", err)
+	}
+	if size > limit {
+		return written{}, fmt.Errorf("the backup is larger than %d bytes", limit)
+	}
+
+	return written{
+		Size:     size,
+		Checksum: hex.EncodeToString(digest.Sum(nil)),
+		KeyID:    keys.ActiveID(),
+	}, nil
+}
+
+func unseal(body io.ReadCloser, keyID string, keys *sealed.Keyring) (io.ReadCloser, error) {
+	if keyID == "" {
+		return body, nil
+	}
+
+	k, known := keys.Find(keyID)
+	if !known {
+		body.Close()
+		return nil, fmt.Errorf("this backup was sealed with key %s, which this control plane "+
+			"does not hold", keyID)
+	}
+
+	reader, err := sealed.Open(body, k)
+	if err != nil {
+		body.Close()
+		return nil, fmt.Errorf("unseal the backup: %w", err)
+	}
+	return unsealed{Reader: reader, closer: body}, nil
+}
+
+type unsealed struct {
+	io.Reader
+	closer io.Closer
+}
+
+func (u unsealed) Close() error {
+	return u.closer.Close()
+}
+
+type diskVault struct {
 	root *os.Root
+	path string
 	keys *sealed.Keyring
 }
 
-func openVault(dataDir string, keys *sealed.Keyring) (*vault, error) {
+func openVault(dataDir string, keys *sealed.Keyring) (vault, error) {
 	path := filepath.Join(dataDir, DirName)
 	if err := os.MkdirAll(path, 0o750); err != nil {
 		return nil, fmt.Errorf("create the backup directory: %w", err)
@@ -28,20 +100,18 @@ func openVault(dataDir string, keys *sealed.Keyring) (*vault, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open the backup directory: %w", err)
 	}
-	return &vault{root: root, keys: keys}, nil
+	return &diskVault{root: root, path: path, keys: keys}, nil
 }
 
-func (v *vault) close() error {
+func (v *diskVault) describe() string {
+	return "the control plane disk at " + v.path
+}
+
+func (v *diskVault) close() error {
 	return v.root.Close()
 }
 
-type written struct {
-	Size     int64
-	Checksum string
-	KeyID    string
-}
-
-func (v *vault) write(id string, src io.Reader, limit int64) (written, error) {
+func (v *diskVault) write(_ context.Context, id string, src io.Reader, limit int64) (written, error) {
 	partial := id + ".part"
 
 	file, err := v.root.OpenFile(partial, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
@@ -49,7 +119,7 @@ func (v *vault) write(id string, src io.Reader, limit int64) (written, error) {
 		return written{}, fmt.Errorf("open the backup file: %w", err)
 	}
 
-	result, err := v.pour(file, src, limit)
+	result, err := pour(file, src, limit, v.keys)
 	closeErr := file.Close()
 
 	if err == nil && closeErr != nil {
@@ -67,68 +137,15 @@ func (v *vault) write(id string, src io.Reader, limit int64) (written, error) {
 	return result, nil
 }
 
-func (v *vault) pour(file io.Writer, src io.Reader, limit int64) (written, error) {
-	digest := sha256.New()
-	bounded := io.LimitReader(src, limit+1)
-
-	var (
-		size int64
-		err  error
-	)
-	if active, ok := v.keys.Active(); ok {
-		size, err = sealed.Seal(file, io.TeeReader(bounded, digest), active)
-	} else {
-		size, err = io.Copy(io.MultiWriter(file, digest), bounded)
-	}
-	if err != nil {
-		return written{}, fmt.Errorf("write the backup: %w", err)
-	}
-	if size > limit {
-		return written{}, fmt.Errorf("the backup is larger than %d bytes", limit)
-	}
-
-	return written{
-		Size:     size,
-		Checksum: hex.EncodeToString(digest.Sum(nil)),
-		KeyID:    v.keys.ActiveID(),
-	}, nil
-}
-
-func (v *vault) open(id, keyID string) (io.ReadCloser, error) {
+func (v *diskVault) open(_ context.Context, id, keyID string) (io.ReadCloser, error) {
 	file, err := v.root.Open(id)
 	if err != nil {
 		return nil, fmt.Errorf("open the backup: %w", err)
 	}
-
-	if keyID == "" {
-		return file, nil
-	}
-
-	k, known := v.keys.Find(keyID)
-	if !known {
-		file.Close()
-		return nil, fmt.Errorf("this backup was sealed with key %s, which this control plane "+
-			"does not hold", keyID)
-	}
-
-	reader, err := sealed.Open(file, k)
-	if err != nil {
-		file.Close()
-		return nil, fmt.Errorf("unseal the backup: %w", err)
-	}
-	return unsealed{Reader: reader, file: file}, nil
+	return unseal(file, keyID, v.keys)
 }
 
-type unsealed struct {
-	io.Reader
-	file *os.File
-}
-
-func (u unsealed) Close() error {
-	return u.file.Close()
-}
-
-func (v *vault) remove(id string) error {
+func (v *diskVault) remove(_ context.Context, id string) error {
 	if err := v.root.Remove(id); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove the backup: %w", err)
 	}

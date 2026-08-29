@@ -726,6 +726,59 @@ ones are dropped in the background. If you need events past that, take them out
 to somewhere built for retention; this is here so an operator can answer a
 question now, not to be a system of record.
 
+## Putting backups somewhere that outlives this machine
+
+Backups lived on the control plane's own disk, which is the single point of
+failure they exist to survive. Point them at MinIO, or anything else speaking
+S3, and they stop dying with it:
+
+```sh
+export MARSTACK_OBJECT_STORE_SECRET_KEY=...
+marstack server \
+  --object-store-endpoint http://minio.internal:9000 \
+  --object-store-bucket backups \
+  --object-store-access-key marstack
+```
+
+```
+level=INFO msg="backups go to an object store" where="bucket backups on http://minio.internal:9000"
+level=INFO msg="backups are sealed at rest" key=d1664bd55f2cab68 keys_held=1
+```
+
+The bucket is checked on start, so a wrong endpoint or a missing bucket stops the
+control plane then rather than the first time a backup runs at 3am.
+
+**No new dependency.** The S3 request signing is about two hundred lines of
+standard library. The AWS SDK is tens of modules, and `docs/ENGINEERING-PRINCIPLES.md` is explicit
+that every dependency is surface the agent carries onto customer baremetal.
+Verified against real MinIO: a backup written, listed in the bucket, pulled back
+out through the control plane, and byte-identical to the volume it came from.
+
+```
+$ mc ls --recursive local/backups
+[2026-08-29 08:21:47] 576KiB STANDARD backups/bkp-az9jes5mb0472
+
+$ sha256sum original.qcow2 pulled.qcow2
+449b92b68bbf7db5...  original.qcow2
+449b92b68bbf7db5...  pulled.qcow2
+```
+
+**Sealing is unchanged and still happens on the control plane.** The operator key
+never leaves it, so an object store that is readable by somebody else still holds
+ciphertext. That is also why the node does not yet upload directly: it would need
+a key, and shipping the operator key to every node would trade the whole point of
+the feature for a shorter network path. Doing it properly means a per-backup key
+wrapped by the operator key, the same shape volume encryption already uses, and
+that is not built.
+
+The secret key comes from `MARSTACK_OBJECT_STORE_SECRET_KEY` rather than a flag,
+because a secret on the command line is a secret in the process list.
+
+Requests are signed with `UNSIGNED-PAYLOAD`. Signing the payload means either
+buffering a multi-gigabyte volume in memory or implementing chunked signing, and
+neither buys much here: the backup is sealed before it is uploaded, so its AEAD
+is what actually detects tampering, not the S3 signature.
+
 ## Telling somebody an event happened
 
 Events could only be asked for. A platform that knows a workload is restarting in
@@ -1393,6 +1446,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 32  cordon and drain a node                           done
 33  bounded usage history                             done
 34  webhooks: tell somebody an event happened         done
+35  backups on an S3 object store                     done
 ```
 
 ## License

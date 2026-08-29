@@ -10,6 +10,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/certs"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/s3"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
@@ -50,6 +51,7 @@ type Config struct {
 	TLSCert           string
 	TLSKey            string
 	BackupKeys        []sealed.Key
+	ObjectStore       s3.Config
 }
 
 func (c Config) servesTLS() bool {
@@ -104,7 +106,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a := &App{cfg: cfg, log: log, store: st, networks: networks}
 	volumes := volume.New(st, volumeInstances{instances: instances}, log)
 
-	backups, err := backup.New(st, cfg.DataDir, sealed.NewKeyring(cfg.BackupKeys), log)
+	backups, err := openBackups(ctx, cfg, st, log)
 	if err != nil {
 		st.Close()
 		return nil, err
@@ -240,6 +242,16 @@ func (a *App) Close() error {
 		a.backups.Close()
 	}
 	return a.store.Close()
+}
+
+func openBackups(
+	ctx context.Context, cfg Config, st *store.Store, log *slog.Logger,
+) (*backup.Module, error) {
+	keys := sealed.NewKeyring(cfg.BackupKeys)
+	if cfg.ObjectStore.Endpoint == "" {
+		return backup.New(st, cfg.DataDir, keys, log)
+	}
+	return backup.NewOnObjectStore(ctx, st, cfg.DataDir, cfg.ObjectStore, keys, log)
 }
 
 func (a *App) migrate(ctx context.Context) error {

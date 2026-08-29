@@ -729,7 +729,7 @@ func TestABackupTakenBeforeEncryptionStaysReadable(t *testing.T) {
 	upload(t, h, created.ID, "plain bytes")
 
 	key, _ := sealed.NewKey()
-	m.svc.vault.keys = sealed.NewKeyring([]sealed.Key{key})
+	m.svc.vault.(*diskVault).keys = sealed.NewKeyring([]sealed.Key{key})
 
 	back := fetchContent(t, h, created.ID)
 	if back.Code != http.StatusOK {
@@ -749,7 +749,7 @@ func TestABackupSealedWithARetiredKeyStaysReadable(t *testing.T) {
 	upload(t, h, created.ID, "old bytes")
 
 	fresh, _ := sealed.NewKey()
-	m.svc.vault.keys = sealed.NewKeyring([]sealed.Key{fresh, old})
+	m.svc.vault.(*diskVault).keys = sealed.NewKeyring([]sealed.Key{fresh, old})
 
 	back := fetchContent(t, h, created.ID)
 	if back.Code != http.StatusOK {
@@ -780,7 +780,7 @@ func TestABackupWhoseKeyIsGoneSaysSoInsteadOfServingRubbish(t *testing.T) {
 	created := newBackup(t, h, "orphaned")
 	upload(t, h, created.ID, "bytes")
 
-	m.svc.vault.keys = sealed.NewKeyring(nil)
+	m.svc.vault.(*diskVault).keys = sealed.NewKeyring(nil)
 
 	back := fetchContent(t, h, created.ID)
 	if back.Code == http.StatusOK {

@@ -24,7 +24,7 @@ type clock func() time.Time
 
 type service struct {
 	repo    *repository
-	vault   *vault
+	vault   vault
 	volumes Volumes
 	events  events.Recorder
 	now     clock
@@ -44,7 +44,7 @@ func (s *service) note(ctx context.Context, b Backup, kind, message string, seve
 	})
 }
 
-func newService(repo *repository, vault *vault, now clock) *service {
+func newService(repo *repository, vault vault, now clock) *service {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
@@ -148,7 +148,7 @@ func (s *service) store(ctx context.Context, id, nodeID string, content io.Reade
 		return b, nil
 	}
 
-	stored, err := s.vault.write(b.ID, content, MaxBytes)
+	stored, err := s.vault.write(ctx, b.ID, content, MaxBytes)
 	if err != nil {
 		markErr := s.repo.mark(ctx, b.ID, StateFailed, err.Error(), 0, "", "", s.now())
 		if markErr != nil {
@@ -214,7 +214,7 @@ func (s *service) content(ctx context.Context, id string) (io.ReadCloser, int64,
 			"the backup is "+b.State+" and holds no bytes yet")
 	}
 
-	reader, err := s.vault.open(b.ID, b.KeyID)
+	reader, err := s.vault.open(ctx, b.ID, b.KeyID)
 	if err != nil {
 		return nil, 0, fault.Unavailable("backup_unreadable", err.Error())
 	}
@@ -243,7 +243,7 @@ func (s *service) remove(ctx context.Context, id, projectID string) error {
 	if err != nil {
 		return err
 	}
-	if err := s.vault.remove(b.ID); err != nil {
+	if err := s.vault.remove(ctx, b.ID); err != nil {
 		return fault.Internal(err)
 	}
 	return translate(s.repo.delete(ctx, b.ID))
@@ -424,7 +424,7 @@ func (s *service) retain(ctx context.Context, sc Schedule) (int, error) {
 
 	pruned := 0
 	for _, b := range keepable[sc.Keep:] {
-		if err := s.vault.remove(b.ID); err != nil {
+		if err := s.vault.remove(ctx, b.ID); err != nil {
 			return pruned, err
 		}
 		if err := s.repo.delete(ctx, b.ID); err != nil {

@@ -303,6 +303,31 @@ node-facing view stopped filtering unhealthy backends. Health became a flag on e
 agent filters when it renders. Filtering server-side would have been a deadlock - a backend that is
 down would never be sent to a node, so it would never be probed, so it could never come back up.
 
+## Where backups live
+
+Backups on the control plane's own disk make that disk the single point of failure they exist to
+survive. The destination is now a seam: `vault` is an interface with a disk implementation and an
+object store one, and the sealing lives in a `pour` helper both share so encryption cannot drift
+between them.
+
+The seam is at placement rather than at writing, deliberately. Disk streams straight into its final
+file, as it always did; the object store seals into a staging file first, because an S3 PUT needs a
+Content-Length and the sealed length is only known once the stream ends. Putting the seam one level
+lower would have forced the disk path to copy through a temp file too, which is real I/O on a
+multi-gigabyte volume for no benefit.
+
+The client is written against the standard library rather than pulled in. The AWS SDK is tens of
+modules and this needs four verbs, and the repo's rule about dependencies being surface carried onto
+customer baremetal applies with full force to the one binary that runs there. SigV4 is about two
+hundred lines.
+
+What is *not* built is the part that would make the control plane stop being the data path. A node
+uploading straight to the object store needs a key to seal with, and the operator key deliberately
+never leaves the control plane. The honest version mints a per-backup key and wraps it with the
+operator key, exactly as volume encryption already does, and hands the unwrapped key to the node.
+That is a separate change; doing the easy version instead would have traded the feature's whole
+point for a shorter network path.
+
 ## Data protection
 
 Backup content is sealed with `kernel/sealed`, a streaming chunked AEAD over the standard library
