@@ -124,7 +124,13 @@ type Guard struct {
 	Rules      []GuardRule
 }
 
+type Egress struct {
+	Bridge  string
+	Gateway string
+}
+
 type Datapath interface {
+	ApplyEgress(ctx context.Context, networks []Egress) error
 	ApplyRoutes(ctx context.Context, routes []Route) error
 	ApplyForwards(ctx context.Context, forwards []Publish) error
 	ApplyGuards(ctx context.Context, guards []Guard) error

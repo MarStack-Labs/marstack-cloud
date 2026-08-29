@@ -90,10 +90,12 @@ func checkRules(rules []Rule) ([]Rule, error) {
 		prefix, err := netip.ParsePrefix(rule.Source)
 		if err != nil {
 			return nil, fault.Invalid("invalid_source",
-				"source must be a CIDR such as 10.20.0.0/16 or 0.0.0.0/0")
+				"source must be a CIDR such as 10.20.0.0/16, fd00::/8, 0.0.0.0/0 or ::/0")
 		}
-		if !prefix.Addr().Is4() {
-			return nil, fault.Invalid("invalid_source", "only IPv4 sources are supported")
+		if prefix.Addr().Is4In6() {
+			return nil, fault.Invalid("invalid_source",
+				"an IPv4 source written as IPv6 would be rendered into the wrong nftables "+
+					"family; write it as IPv4")
 		}
 		rule.Source = prefix.Masked().String()
 

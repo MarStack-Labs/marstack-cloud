@@ -5,10 +5,12 @@ package netdev
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
@@ -20,6 +22,7 @@ const (
 	bridgePrefix = "msbr-"
 	nftTable     = "marstack"
 	nftNAT       = "marstack_nat"
+	nftNAT6      = "marstack_nat6"
 	nftGuard     = "marstack_fw"
 	guestIface   = "eth0"
 	maxIfName    = 15
@@ -62,6 +65,8 @@ func prefixed(prefix, instanceID string) string {
 	}
 	return prefix + suffix
 }
+
+var egressMu sync.Mutex
 
 func run(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
@@ -115,22 +120,35 @@ func hasAddress(link, addr string) bool {
 }
 
 func enableForwarding() error {
-	const path = "/proc/sys/net/ipv4/ip_forward"
-
-	current, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
-	}
-	if strings.TrimSpace(string(current)) == "1" {
-		return nil
-	}
-	if err := os.WriteFile(path, []byte("1"), 0o644); err != nil {
-		return fmt.Errorf("enable ip forwarding: %w", err)
+	for _, path := range []string{
+		"/proc/sys/net/ipv4/ip_forward",
+		"/proc/sys/net/ipv6/conf/all/forwarding",
+	} {
+		current, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		if strings.TrimSpace(string(current)) == "1" {
+			continue
+		}
+		if err := os.WriteFile(path, []byte("1"), 0o644); err != nil {
+			return fmt.Errorf("enable forwarding at %s: %w", path, err)
+		}
 	}
 	return nil
 }
 
+func family(address string) string {
+	if strings.Contains(address, ":") {
+		return "ip6"
+	}
+	return "ip"
+}
+
 func EnsureEgress(bridge, cidr string) error {
+	egressMu.Lock()
+	defer egressMu.Unlock()
+
 	if err := run("nft", "add", "table", "inet", nftTable); err != nil {
 		return err
 	}
@@ -139,16 +157,78 @@ func EnsureEgress(bridge, cidr string) error {
 		return err
 	}
 
-	existing, err := output("nft", "list", "chain", "inet", nftTable, "postrouting")
+	listed, err := output("nft", "list", "chain", "inet", nftTable, "postrouting")
 	if err != nil {
 		return err
 	}
-	if strings.Contains(existing, "ip daddr != "+cidr) {
+
+	present := masqueradeRules(listed)
+	unique := deduped(append(present, egressRule(bridge, cidr)))
+
+	if len(unique) == len(present) {
 		return nil
 	}
+	return rewritePostrouting(unique)
+}
 
-	return run("nft", "add", "rule", "inet", nftTable, "postrouting",
-		"ip", "saddr", cidr, "ip", "daddr", "!=", cidr, "oifname", "!=", bridge, "masquerade")
+func egressRule(bridge, cidr string) string {
+	network := masked(cidr)
+	proto := family(network)
+
+	return fmt.Sprintf("%s saddr %s %s daddr != %s oifname != \"%s\" masquerade",
+		proto, network, proto, network, bridge)
+}
+
+func masked(cidr string) string {
+	prefix, err := netip.ParsePrefix(cidr)
+	if err != nil {
+		return cidr
+	}
+	return prefix.Masked().String()
+}
+
+func deduped(rules []string) []string {
+	seen := make(map[string]bool, len(rules))
+	unique := make([]string, 0, len(rules))
+
+	for _, rule := range rules {
+		if seen[rule] {
+			continue
+		}
+		seen[rule] = true
+		unique = append(unique, rule)
+	}
+	return unique
+}
+
+func masqueradeRules(listed string) []string {
+	rules := make([]string, 0, 4)
+	for _, line := range strings.Split(listed, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasSuffix(line, "masquerade") && strings.Contains(line, "saddr") {
+			rules = append(rules, line)
+		}
+	}
+	return rules
+}
+
+func rewritePostrouting(rules []string) error {
+	var ruleset strings.Builder
+	ruleset.WriteString("flush chain inet " + nftTable + " postrouting\n")
+	ruleset.WriteString("table inet " + nftTable + " {\n")
+	ruleset.WriteString("  chain postrouting {\n")
+	for _, rule := range rules {
+		ruleset.WriteString("    " + rule + "\n")
+	}
+	ruleset.WriteString("  }\n}\n")
+
+	cmd := exec.Command("nft", "-f", "-")
+	cmd.Stdin = strings.NewReader(ruleset.String())
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("rewrite the egress rules: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
 
 func (Datapath) ApplyRoutes(_ context.Context, routes []workload.Route) error {
@@ -176,9 +256,34 @@ func (Datapath) ApplyForwards(_ context.Context, forwards []workload.Publish) er
 func renderForwards(forwards []workload.Publish) string {
 	var ruleset strings.Builder
 
-	ruleset.WriteString("table ip " + nftNAT + " { }\n")
-	ruleset.WriteString("delete table ip " + nftNAT + "\n")
-	ruleset.WriteString("table ip " + nftNAT + " {\n")
+	four, six := splitByFamily(forwards)
+	ruleset.WriteString(natTable("ip", nftNAT, four))
+	ruleset.WriteString(natTable("ip6", nftNAT6, six))
+
+	return ruleset.String()
+}
+
+func splitByFamily(forwards []workload.Publish) (four, six []workload.Publish) {
+	for _, publish := range forwards {
+		address := publish.Address
+		if len(publish.Targets) > 0 {
+			address = publish.Targets[0]
+		}
+		if family(address) == "ip6" {
+			six = append(six, publish)
+			continue
+		}
+		four = append(four, publish)
+	}
+	return four, six
+}
+
+func natTable(proto, name string, forwards []workload.Publish) string {
+	var ruleset strings.Builder
+
+	ruleset.WriteString("table " + proto + " " + name + " { }\n")
+	ruleset.WriteString("delete table " + proto + " " + name + "\n")
+	ruleset.WriteString("table " + proto + " " + name + " {\n")
 	ruleset.WriteString("  chain prerouting {\n")
 	ruleset.WriteString("    type nat hook prerouting priority dstnat; policy accept;\n")
 	for _, publish := range forwards {
@@ -203,22 +308,35 @@ func forwardRule(publish workload.Publish) string {
 			return ""
 		}
 		return fmt.Sprintf("%s dport %d dnat to %s:%d",
-			publish.Protocol, publish.NodePort, publish.Address, publish.TargetPort)
+			publish.Protocol, publish.NodePort,
+			bracketed(publish.Address), publish.TargetPort)
 	}
 
+	proto := family(publish.Targets[0])
 	entries := make([]string, 0, len(publish.Targets))
 	for i, address := range publish.Targets {
+		if family(address) != proto {
+			return ""
+		}
 		entries = append(entries, fmt.Sprintf("%d : %s . %d", i, address, publish.TargetPort))
 	}
 
 	return fmt.Sprintf("%s dport %d ct mark set %s dnat to %s mod %d map { %s }",
-		publish.Protocol, publish.NodePort, balancedMark, selector(publish.Algorithm),
+		publish.Protocol, publish.NodePort, balancedMark,
+		selector(publish.Algorithm, proto),
 		len(publish.Targets), strings.Join(entries, ", "))
 }
 
-func selector(algorithm string) string {
+func bracketed(address string) string {
+	if family(address) == "ip6" {
+		return "[" + address + "]"
+	}
+	return address
+}
+
+func selector(algorithm, proto string) string {
 	if algorithm == "source_hash" {
-		return "jhash ip saddr"
+		return "jhash " + proto + " saddr"
 	}
 	return "numgen inc"
 }
@@ -248,10 +366,16 @@ func renderGuards(guards []workload.Guard) string {
 			if guard.IP == "" {
 				continue
 			}
+			proto := family(guard.IP)
 			for _, rule := range guard.Rules {
-				ruleset.WriteString("    ip daddr " + guard.IP + " " + guardMatch(rule) + " accept\n")
+				match, usable := guardMatch(proto, rule)
+				if !usable {
+					continue
+				}
+				ruleset.WriteString("    " + proto + " daddr " + guard.IP + " " +
+					match + " accept\n")
 			}
-			ruleset.WriteString("    ip daddr " + guard.IP + " drop\n")
+			ruleset.WriteString("    " + proto + " daddr " + guard.IP + " drop\n")
 		}
 		ruleset.WriteString("  }\n")
 	}
@@ -266,34 +390,55 @@ func renderGuards(guards []workload.Guard) string {
 		if guard.IP == "" {
 			continue
 		}
+		proto := family(guard.IP)
 		for _, rule := range guard.Rules {
-			ruleset.WriteString("    ip daddr " + guard.IP + " " + guardMatch(rule) + " accept\n")
+			match, usable := guardMatch(proto, rule)
+			if !usable {
+				continue
+			}
+			ruleset.WriteString("    " + proto + " daddr " + guard.IP + " " +
+				match + " accept\n")
 		}
-		ruleset.WriteString("    ip daddr " + guard.IP +
+		ruleset.WriteString("    " + proto + " daddr " + guard.IP +
 			" tcp flags & (syn | ack) == syn drop\n")
-		ruleset.WriteString("    ip daddr " + guard.IP + " icmp type echo-request drop\n")
+		ruleset.WriteString("    " + proto + " daddr " + guard.IP + " " +
+			echoRequest(proto) + " drop\n")
 	}
 	ruleset.WriteString("  }\n}\n")
 
 	return ruleset.String()
 }
 
-func guardMatch(rule workload.GuardRule) string {
+func echoRequest(proto string) string {
+	if proto == "ip6" {
+		return "icmpv6 type echo-request"
+	}
+	return "icmp type echo-request"
+}
+
+func guardMatch(proto string, rule workload.GuardRule) (string, bool) {
 	source := ""
-	if rule.Source != "" && rule.Source != "0.0.0.0/0" {
-		source = "ip saddr " + rule.Source + " "
+	if rule.Source != "" && rule.Source != "0.0.0.0/0" && rule.Source != "::/0" {
+		if family(rule.Source) != proto {
+			return "", false
+		}
+		source = proto + " saddr " + rule.Source + " "
 	}
 
 	switch rule.Protocol {
 	case "any":
-		return strings.TrimSpace(source)
+		return strings.TrimSpace(source), true
 	case "icmp":
-		return source + "ip protocol icmp"
+		if proto == "ip6" {
+			return source + "meta l4proto ipv6-icmp", true
+		}
+		return source + "ip protocol icmp", true
 	default:
 		if rule.FromPort == rule.ToPort {
-			return fmt.Sprintf("%s%s dport %d", source, rule.Protocol, rule.FromPort)
+			return fmt.Sprintf("%s%s dport %d", source, rule.Protocol, rule.FromPort), true
 		}
-		return fmt.Sprintf("%s%s dport %d-%d", source, rule.Protocol, rule.FromPort, rule.ToPort)
+		return fmt.Sprintf("%s%s dport %d-%d",
+			source, rule.Protocol, rule.FromPort, rule.ToPort), true
 	}
 }
 
@@ -326,9 +471,16 @@ func renderFilters(filters []workload.Filter) string {
 		if filter.Isolation != "" && filter.Isolation != "container" {
 			port = prefixed(tapPrefix, filter.InstanceID)
 		}
-		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" ether saddr != %s drop\n", port, filter.MAC))
-		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" ip saddr != %s drop\n", port, filter.IP))
-		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" arp saddr ip != %s drop\n", port, filter.IP))
+		ruleset.WriteString(fmt.Sprintf(
+			"    iifname \"%s\" ether saddr != %s drop\n", port, filter.MAC))
+		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" %s saddr != %s drop\n",
+			port, family(filter.IP), filter.IP))
+
+		if family(filter.IP) == "ip6" {
+			continue
+		}
+		ruleset.WriteString(fmt.Sprintf(
+			"    iifname \"%s\" arp saddr ip != %s drop\n", port, filter.IP))
 	}
 
 	ruleset.WriteString("  }\n}\n")
@@ -466,6 +618,21 @@ func Detach(instanceID string) error {
 			continue
 		}
 		if err := run("ip", "link", "del", host); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (Datapath) ApplyEgress(_ context.Context, networks []workload.Egress) error {
+	for _, n := range networks {
+		if n.Bridge == "" || n.Gateway == "" {
+			continue
+		}
+		if err := EnsureBridge(n.Bridge, n.Gateway); err != nil {
+			return err
+		}
+		if err := EnsureEgress(n.Bridge, n.Gateway); err != nil {
 			return err
 		}
 	}

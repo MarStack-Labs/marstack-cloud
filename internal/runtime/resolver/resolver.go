@@ -42,7 +42,7 @@ func (r *Resolver) Update(records map[string]string) {
 	parsed := make(map[string]netip.Addr, len(records))
 	for name, ip := range records {
 		addr, err := netip.ParseAddr(ip)
-		if err != nil || !addr.Is4() {
+		if err != nil || addr.Is4In6() {
 			continue
 		}
 		parsed[strings.ToLower(strings.TrimSuffix(name, "."))] = addr
@@ -140,7 +140,7 @@ func (r *Resolver) handle(conn *net.UDPConn, from *net.UDPAddr, query []byte) {
 	switch {
 	case !known:
 		_, _ = conn.WriteToUDP(emptyAnswer(query, q, rcodeNameError), from)
-	case q.qtype == typeA:
+	case q.qtype == typeA && addr.Is4(), q.qtype == typeAAAA && addr.Is6():
 		_, _ = conn.WriteToUDP(answer(query, q, addr), from)
 	default:
 		_, _ = conn.WriteToUDP(emptyAnswer(query, q, 0), from)

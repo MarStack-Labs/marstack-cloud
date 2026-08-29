@@ -8,6 +8,7 @@ const (
 	SupernetCIDR   = "10.0.0.0/8"
 	ProjectBits    = 16
 	SliceBits      = 26
+	SliceBitsV6    = 64
 	bridgePrefix   = "msbr-"
 	reservedSlices = 1
 )

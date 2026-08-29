@@ -491,6 +491,41 @@ make check      # vet + test + security scans
 - Extra NICs are attached by the container runtime only. qemu, cloud hypervisor and firecracker
   each need a second netdev plus guest configuration, and `Spec.Extra` is there for them; nothing
   reads it yet, so a vm asking for two networks gets addresses allocated and one interface.
+- A network is IPv4 **or** IPv6, never both. Dual stack means every address question in the platform
+  gets two answers, and dns, forwards, balancers and firewalls all ask it; one family per network
+  keeps that question single-valued, and an instance can still sit on one of each through multi-NIC.
+- IPv6 networks must be under `fc00::/7`. Handing instances a globally routable prefix this
+  platform allocated for you is not a default anyone should get by typing a cidr.
+- The slice is /26 for v4 and /64 for v6. A v6 subnet smaller than /64 breaks SLAAC and is the kind
+  of thing that works until something on the guest side assumes the standard.
+- Address arithmetic is byte-wise over `AsSlice()` so it works in both families. The old code used
+  `uint32`, and `isBroadcast` reserved the last address of a slice - IPv6 has no broadcast, so
+  reserving one there silently loses an address per slice.
+- nftables rules must be rendered in the family of the address. `ip daddr <v6 address>` is a syntax
+  error, and a ruleset that fails to load takes **every** instance's rules with it, not just the
+  one that was wrong. The same applies to `icmp` versus `icmpv6` and to arp, which v6 does not have.
+- Forwards are rendered into `table ip marstack_nat` and `table ip6 marstack_nat6`. One table holds
+  one address type, and both are emitted even when empty so a rule cannot outlive the balancer that
+  made it.
+- A balancer whose backends are not all one family renders nothing. One nftables map holds one
+  address type, so the alternative is a rule that will not load.
+- `Resolver.Update` used to drop every address that was not v4, which is why an IPv6 instance
+  answered NXDOMAIN with a perfectly good record in the control plane. It now keeps both and
+  `answer` emits A or AAAA to match; a v4 address written as v6 is still dropped, because it would
+  be answered as AAAA and no client asking for A would ever see it.
+
+- Two pre-existing bugs surfaced while verifying IPv6, both in `EnsureEgress`:
+  - The masquerade rule was rendered from the **gateway** (`10.0.0.1/16`) while nft stores the
+    masked network (`10.0.0.0/16`), so the "is it already there" check never matched and a rule was
+    appended on every call. A node found with 2924 duplicates in one chain. The rule is now rendered
+    from `prefix.Masked()`, and there is a test that the gateway and network forms are identical.
+  - Egress rules were only written when a workload **started**. An agent restart adopts running
+    workloads without calling `Start`, so those networks lost their masquerade rule until something
+    happened to restart. `ApplyEgress` now runs every reconcile pass over every network on the node,
+    which is what "the agent reconciles" was supposed to mean.
+- `EnsureEgress` holds `egressMu` and rewrites the whole chain rather than appending. Check-then-act
+  from several workload starts in one pass is what let duplicates in; the rewrite is also what heals
+  a chain that already has them.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

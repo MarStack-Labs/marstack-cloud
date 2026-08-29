@@ -107,8 +107,9 @@ func TestBadRulesAreRejected(t *testing.T) {
 		"port out of range":  `{"name":"a","rules":[{"protocol":"tcp","from_port":70000}]}`,
 		"inverted range":     `{"name":"a","rules":[{"protocol":"tcp","from_port":100,"to_port":50}]}`,
 		"source not a cidr":  `{"name":"a","rules":[{"protocol":"tcp","from_port":80,"source":"10.20.0.1"}]}`,
-		"ipv6 source":        `{"name":"a","rules":[{"protocol":"tcp","from_port":80,"source":"fd00::/64"}]}`,
-		"unknown field":      `{"name":"a","rules":[{"protocol":"tcp","port":80}]}`,
+		"v4 written as v6": `{"name":"a","rules":` +
+			`[{"protocol":"tcp","from_port":80,"source":"::ffff:10.20.0.0/112"}]}`,
+		"unknown field": `{"name":"a","rules":[{"protocol":"tcp","port":80}]}`,
 	}
 
 	for name, body := range cases {
@@ -185,5 +186,19 @@ func TestDeletingAFirewall(t *testing.T) {
 	}
 	if rec := request(t, h, http.MethodGet, "/v1/firewalls/web", ""); rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d", rec.Code)
+	}
+}
+
+func TestAnIPv6SourceIsAccepted(t *testing.T) {
+	h, _ := newTestModule(t)
+
+	body := `{"name":"six","rules":[{"protocol":"tcp","from_port":443,"source":"fd00::/8"}]}`
+	rec := request(t, h, http.MethodPost, "/v1/firewalls", body)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d: %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "fd00::/8") {
+		t.Fatalf("body = %s, want the source kept as given", rec.Body.String())
 	}
 }

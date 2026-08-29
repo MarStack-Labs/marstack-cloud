@@ -149,16 +149,17 @@ func TestUpdateReplacesTheZone(t *testing.T) {
 func TestUpdateIgnoresUnusableAddresses(t *testing.T) {
 	r := New(logging.New("error", io.Discard))
 	r.Update(map[string]string{
-		"good.default.internal": "10.20.0.65",
-		"bad.default.internal":  "not-an-address",
-		"v6.default.internal":   "fd00::1",
+		"good.default.internal":   "10.20.0.65",
+		"bad.default.internal":    "not-an-address",
+		"mapped.default.internal": "::ffff:10.20.0.66",
 	})
 
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	if len(r.records) != 1 {
-		t.Fatalf("records = %v, want only the usable one", r.records)
+		t.Fatalf("records = %v, want only the usable one: a v4 address written as v6 would "+
+			"be answered as AAAA, which no client asking for A would ever see", r.records)
 	}
 	if _, ok := r.records["good.default.internal"]; !ok {
 		t.Fatal("the usable record was dropped")
@@ -201,5 +202,26 @@ func TestDiscoverUpstreamsNeverReturnsLoopback(t *testing.T) {
 		if strings.HasPrefix(server, "127.") {
 			t.Fatalf("upstream %s is loopback: the resolver would forward to itself", server)
 		}
+	}
+}
+
+func TestAnIPv6RecordIsKeptAndAnsweredAsAAAA(t *testing.T) {
+	r := New(logging.New("error", io.Discard))
+	r.Update(map[string]string{
+		"four.default.internal": "10.20.0.5",
+		"six.sixnet.internal":   "fd00:dead:beef:1::2",
+	})
+
+	r.mu.RLock()
+	held := len(r.records)
+	six, hasSix := r.records["six.sixnet.internal"]
+	r.mu.RUnlock()
+
+	if held != 2 {
+		t.Fatalf("records = %d, want both: dropping every non-v4 address is why an IPv6 "+
+			"instance answered NXDOMAIN", held)
+	}
+	if !hasSix || !six.Is6() {
+		t.Fatalf("six = %v, want the v6 address kept", six)
 	}
 }

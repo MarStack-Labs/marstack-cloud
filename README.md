@@ -755,6 +755,65 @@ Setting labels replaces the whole set rather than merging, so a label goes away
 by being left out. Merging would need a delete route and a convention for what
 null means, and would make the call depend on what was there before.
 
+## IPv6
+
+A network can be IPv6 instead of IPv4:
+
+```sh
+marstack network create --name sixnet --cidr fd00:dead:beef::/48
+marstack instance create --name six-web --isolation container \
+  --image alpine:3.20 --network sixnet
+```
+
+```
+# inside the container
+eth0  inet6 fd00:dead:beef:1::2/64
+default via fd00:dead:beef::1 dev eth0
+
+# on the node
+ip6 saddr fd00:dead:beef::/48 ip6 daddr != fd00:dead:beef::/48 ... masquerade
+iifname "msv-js8ks6d5h0" ip6 saddr != fd00:dead:beef:1::2 drop
+
+# published from another node, over IPv6
+$ curl http://[fd61:5b69:...]:9443/
+over-v6
+```
+
+Slices are /64 rather than /26 — a v6 subnet smaller than /64 works until something
+guest-side assumes the standard. Address arithmetic is byte-wise now, so the same
+allocator serves both families, and the last address of a slice is only reserved
+for v4, which is the family that has a broadcast.
+
+**A network is one family or the other, never both.** Dual stack means every
+"what is this instance's address" question gets two answers, and DNS, published
+ports, balancers and firewalls all ask it. One family per network keeps that
+answer single-valued — and an instance can still sit on one of each, because it
+can have more than one interface.
+
+**Rules are rendered in the family of their address.** `ip daddr <v6 address>` is
+a syntax error, and a ruleset that fails to load takes *every* instance's rules
+with it. Published ports go into `table ip marstack_nat` or `table ip6
+marstack_nat6`; a balancer whose backends are not all one family renders nothing,
+because one nftables map holds one address type.
+
+IPv6 networks must be under `fc00::/7`. Handing instances a globally routable
+prefix should not be something you get by typing a CIDR.
+
+### Two bugs this found
+
+Verifying the above turned up two problems that had nothing to do with IPv6:
+
+The masquerade rule was rendered from the **gateway** (`10.0.0.1/16`) while
+nftables stores the masked network (`10.0.0.0/16`). The "is it already there"
+check therefore never matched, and a duplicate was appended on every call. One
+node had **2924** copies in a single chain. It renders from the masked prefix
+now, and there is a test that both forms are identical.
+
+Egress rules were only written when a workload *started*. An agent restart adopts
+running workloads without calling `Start`, so after a restart those networks had
+no masquerade rule until something happened to restart. They are now applied
+every reconcile pass, which is what "the agent reconciles" was supposed to mean.
+
 ## Putting an instance on more than one network
 
 An instance had one interface, and `nics.instance_id` was the primary key, so
@@ -1826,6 +1885,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 44  resize an instance's cpu and memory               done
 45  tls termination on a balancer                     done
 46  more than one network per instance                done (containers)
+47  ipv6 networks                                     done
 ```
 
 ## License

@@ -115,6 +115,7 @@ type fakeDatapath struct {
 	filters  []workload.Filter
 	forwards []workload.Publish
 	guards   []workload.Guard
+	egress   []workload.Egress
 	pruned   []workload.Keep
 	pruneErr error
 }
@@ -179,6 +180,13 @@ func (f *fakeDatapath) lastPrune(t *testing.T) workload.Keep {
 		t.Fatal("the datapath was never pruned")
 	}
 	return f.pruned[len(f.pruned)-1]
+}
+
+func (f *fakeDatapath) ApplyEgress(_ context.Context, networks []workload.Egress) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.egress = networks
+	return nil
 }
 
 func (f *fakeDatapath) ApplyRoutes(_ context.Context, routes []workload.Route) error {
@@ -1239,5 +1247,28 @@ func TestANodeThatNeverReachedTheControlPlaneStillFences(t *testing.T) {
 	if len(container.stopped) != 1 {
 		t.Fatalf("stops = %d, want a node that booted during a partition to fence itself: it "+
 			"cannot know whether its work was handed to somebody else", len(container.stopped))
+	}
+}
+
+func TestEgressIsAppliedEveryPassNotOnlyWhenAWorkloadStarts(t *testing.T) {
+	dp := &fakeDatapath{}
+	a := &Agent{log: logging.New("error", io.Discard), datapath: dp}
+
+	a.applyEgress(context.Background(), []networkView{
+		{Bridge: "msbr-a", CIDR: "10.20.0.0/16", Gateway: "10.20.0.1"},
+		{Bridge: "msbr-b", CIDR: "fd00:dead::/48", Gateway: "fd00:dead::1"},
+	})
+
+	dp.mu.Lock()
+	got := append([]workload.Egress(nil), dp.egress...)
+	dp.mu.Unlock()
+
+	if len(got) != 2 {
+		t.Fatalf("egress = %+v, want one per network: a workload adopted after an agent "+
+			"restart never calls Start, so a rule only written there is never written at all",
+			got)
+	}
+	if got[0].Gateway != "10.20.0.1/16" || got[1].Gateway != "fd00:dead::1/48" {
+		t.Fatalf("egress = %+v, want the gateway carried with its prefix length", got)
 	}
 }

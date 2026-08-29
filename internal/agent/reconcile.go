@@ -132,6 +132,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 
 	interfaces := a.interfacesByInstance(state.Networks)
 	disks := a.disksByInstance(ctx, state.Volumes)
+	a.applyEgress(ctx, state.Networks)
 	a.applyRoutes(ctx, state.Networks, state.Nodes)
 	a.applyFilters(ctx, state.Networks, isolationsOf(state.Instances))
 	a.applyForwards(ctx, state.Forwards, state.Balancers)
@@ -294,6 +295,28 @@ func (a *Agent) serveDNS(ctx context.Context, networks []networkView, records []
 		zone[record.FQDN] = record.IP
 	}
 	a.resolver.Update(zone)
+}
+
+func (a *Agent) applyEgress(ctx context.Context, networks []networkView) {
+	if a.datapath == nil {
+		return
+	}
+
+	wanted := make([]workload.Egress, 0, len(networks))
+	for _, n := range networks {
+		prefix, err := netip.ParsePrefix(n.CIDR)
+		if err != nil {
+			continue
+		}
+		wanted = append(wanted, workload.Egress{
+			Bridge:  n.Bridge,
+			Gateway: n.Gateway + "/" + strconv.Itoa(prefix.Bits()),
+		})
+	}
+
+	if err := a.datapath.ApplyEgress(ctx, wanted); err != nil {
+		a.log.Warn("could not apply the egress rules", "error", err)
+	}
 }
 
 func (a *Agent) applyRoutes(ctx context.Context, networks []networkView, nodes []nodeView) {

@@ -83,14 +83,19 @@ func answer(query []byte, q question, addr netip.Addr) []byte {
 	binary.BigEndian.PutUint16(reply[8:10], 0)
 	binary.BigEndian.PutUint16(reply[10:12], 0)
 
+	kind, size := uint16(typeA), uint16(4)
+	if addr.Is6() {
+		kind, size = typeAAAA, 16
+	}
+	raw := addr.AsSlice()
+
 	reply = binary.BigEndian.AppendUint16(reply, 0xC000|headerLen)
-	reply = binary.BigEndian.AppendUint16(reply, typeA)
+	reply = binary.BigEndian.AppendUint16(reply, kind)
 	reply = binary.BigEndian.AppendUint16(reply, classINET)
 	reply = binary.BigEndian.AppendUint32(reply, defaultTTL)
-	reply = binary.BigEndian.AppendUint16(reply, 4)
+	reply = binary.BigEndian.AppendUint16(reply, size)
 
-	raw := addr.As4()
-	return append(reply, raw[:]...)
+	return append(reply, raw...)
 }
 
 func emptyAnswer(query []byte, q question, rcode uint16) []byte {

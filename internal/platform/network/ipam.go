@@ -2,7 +2,6 @@ package network
 
 import (
 	"crypto/rand"
-	"encoding/binary"
 	"fmt"
 	"net/netip"
 	"strings"
@@ -13,8 +12,9 @@ func parsePrefix(cidr string) (netip.Prefix, error) {
 	if err != nil {
 		return netip.Prefix{}, fmt.Errorf("parse %q: %w", cidr, err)
 	}
-	if !prefix.Addr().Is4() {
-		return netip.Prefix{}, fmt.Errorf("%q is not an IPv4 prefix", cidr)
+	if prefix.Addr().Is4In6() {
+		return netip.Prefix{}, fmt.Errorf(
+			"%q is an IPv4 address written as IPv6; write it as IPv4", cidr)
 	}
 	return prefix.Masked(), nil
 }
@@ -23,12 +23,21 @@ func gatewayOf(prefix netip.Prefix) netip.Addr {
 	return prefix.Addr().Next()
 }
 
+func sliceBitsFor(network netip.Prefix) int {
+	if network.Addr().Is4() {
+		return SliceBits
+	}
+	return SliceBitsV6
+}
+
 func nextSlice(network netip.Prefix, taken map[string]bool) (netip.Prefix, error) {
-	if network.Bits() >= SliceBits {
-		return netip.Prefix{}, fmt.Errorf("network %s is too small to slice into /%d", network, SliceBits)
+	bits := sliceBitsFor(network)
+	if network.Bits() >= bits {
+		return netip.Prefix{}, fmt.Errorf(
+			"network %s is too small to slice into /%d", network, bits)
 	}
 
-	candidate := netip.PrefixFrom(network.Addr(), SliceBits).Masked()
+	candidate := netip.PrefixFrom(network.Addr(), bits).Masked()
 	for range reservedSlices {
 		next, err := advance(candidate)
 		if err != nil {
@@ -48,29 +57,44 @@ func nextSlice(network netip.Prefix, taken map[string]bool) (netip.Prefix, error
 		candidate = next
 	}
 
-	return netip.Prefix{}, fmt.Errorf("network %s has no free /%d slice left", network, SliceBits)
+	return netip.Prefix{}, fmt.Errorf("network %s has no free /%d slice left", network, bits)
 }
 
 func advance(prefix netip.Prefix) (netip.Prefix, error) {
-	step := uint32(1) << (32 - prefix.Bits())
+	width := prefix.Addr().BitLen()
 
-	value := toUint32(prefix.Addr())
-	if value+step < value {
+	next, carried := addPowerOfTwo(prefix.Addr(), width-prefix.Bits())
+	if carried {
 		return netip.Prefix{}, fmt.Errorf("address space exhausted after %s", prefix)
 	}
-
-	return netip.PrefixFrom(toAddr(value+step), prefix.Bits()), nil
+	return netip.PrefixFrom(next, prefix.Bits()), nil
 }
 
-func toUint32(addr netip.Addr) uint32 {
-	raw := addr.As4()
-	return binary.BigEndian.Uint32(raw[:])
-}
+func addPowerOfTwo(addr netip.Addr, exponent int) (netip.Addr, bool) {
+	raw := addr.AsSlice()
+	byteIndex := len(raw) - 1 - exponent/8
+	if byteIndex < 0 {
+		return addr, true
+	}
 
-func toAddr(value uint32) netip.Addr {
-	var raw [4]byte
-	binary.BigEndian.PutUint32(raw[:], value)
-	return netip.AddrFrom4(raw)
+	carry := byte(1) << (exponent % 8)
+	for i := byteIndex; i >= 0; i-- {
+		sum := raw[i] + carry
+		wrapped := sum < raw[i]
+		raw[i] = sum
+
+		if !wrapped {
+			carry = 0
+			break
+		}
+		carry = 1
+	}
+	if carry != 0 {
+		return addr, true
+	}
+
+	out, _ := netip.AddrFromSlice(raw)
+	return out, false
 }
 
 func nextAddress(slice netip.Prefix, taken map[string]bool) (netip.Addr, error) {
@@ -90,8 +114,15 @@ func nextAddress(slice netip.Prefix, taken map[string]bool) (netip.Addr, error) 
 }
 
 func isBroadcast(slice netip.Prefix, addr netip.Addr) bool {
-	host := uint32(1)<<(32-slice.Bits()) - 1
-	return toUint32(addr) == toUint32(slice.Addr())+host
+	if !slice.Addr().Is4() {
+		return false
+	}
+
+	last, carried := addPowerOfTwo(slice.Addr(), 32-slice.Bits())
+	if carried {
+		return false
+	}
+	return addr == last.Prev()
 }
 
 func randomMAC() (string, error) {

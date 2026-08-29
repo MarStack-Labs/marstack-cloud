@@ -38,9 +38,15 @@ func (s *service) create(ctx context.Context, params CreateParams) (Network, err
 	if err != nil {
 		return Network{}, fault.Invalid("invalid_cidr", err.Error())
 	}
-	if prefix.Bits() >= SliceBits {
+	if prefix.Bits() >= sliceBitsFor(prefix) {
+		return Network{}, fault.Invalid("invalid_cidr", fmt.Sprintf(
+			"the network must be larger than a single node slice, which is /%d here",
+			sliceBitsFor(prefix)))
+	}
+	if !prefix.Addr().Is4() && !prefix.Addr().IsPrivate() {
 		return Network{}, fault.Invalid("invalid_cidr",
-			"the network must be larger than a single node slice")
+			"an IPv6 network must be a unique local address block under fc00::/7; a globally "+
+				"routable prefix handed to instances is not something this allocates for you")
 	}
 
 	existing, err := s.repo.listNetworks(ctx)

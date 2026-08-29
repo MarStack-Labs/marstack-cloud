@@ -39,6 +39,10 @@ func DeleteLink(string) error {
 	return errUnsupported
 }
 
+func (Datapath) ApplyEgress(context.Context, []workload.Egress) error {
+	return errUnsupported
+}
+
 func (Datapath) ApplyRoutes(context.Context, []workload.Route) error {
 	return errUnsupported
 }
