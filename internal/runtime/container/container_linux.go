@@ -104,6 +104,10 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
+	if err := dropFiles(r.layout.rootfs(spec.InstanceID), spec.Files); err != nil {
+		return err
+	}
+
 	cgroupDir, err := createCgroup(spec.InstanceID, spec.VCPU, spec.MemoryMiB, r.layout)
 	if err != nil {
 		return err

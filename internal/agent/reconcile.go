@@ -652,6 +652,11 @@ func (a *Agent) reconcileOne(
 		return observedFailed, "this node has no runtime for isolation " + in.Isolation
 	}
 
+	drops, err := fileDrops(in.Files)
+	if err != nil {
+		return observedFailed, "could not read the config files: " + err.Error()
+	}
+
 	spec := workload.Spec{
 		InstanceID: in.ID,
 		Name:       in.Name,
@@ -666,6 +671,7 @@ func (a *Agent) reconcileOne(
 		MemoryMiB:  in.MemoryMiB,
 		SSHKeys:    in.SSHKeys,
 		Env:        in.Env,
+		Files:      drops,
 		Network:    iface,
 	}
 

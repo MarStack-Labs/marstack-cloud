@@ -39,7 +39,11 @@ func newService(repo *repository, now clock) *service {
 }
 
 func (s *service) envOf(in Instance) (map[string]string, error) {
-	return openEnv(in.EnvSealed, in.EnvKeyID, s.sealing)
+	return openEnv(in.EnvSealed, in.SealKeyID, s.sealing)
+}
+
+func (s *service) filesOf(in Instance) ([]File, error) {
+	return openFiles(in.FilesSealed, in.SealKeyID, s.sealing)
 }
 
 func (s *service) create(ctx context.Context, params CreateParams) (Instance, error) {
@@ -80,9 +84,17 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		}
 	}
 
-	envSealed, envKeyID, err := sealEnv(normalized.Env, s.sealing)
+	envSealed, sealKeyID, err := sealEnv(normalized.Env, s.sealing)
 	if err != nil {
 		return Instance{}, err
+	}
+
+	filesSealed, err := sealFiles(normalized.Files, s.sealing)
+	if err != nil {
+		return Instance{}, err
+	}
+	if filesSealed != "" {
+		sealKeyID = s.sealing.ActiveID()
 	}
 
 	now := s.now()
@@ -93,8 +105,10 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		Strict:        params.Strict,
 		NodeSelector:  normalized.NodeSelector,
 		EnvSealed:     envSealed,
-		EnvKeyID:      envKeyID,
+		SealKeyID:     sealKeyID,
 		EnvNames:      namesOf(normalized.Env),
+		FilesSealed:   filesSealed,
+		FilePaths:     pathsOf(normalized.Files),
 		SSHKeys:       authorized,
 		Name:          normalized.Name,
 		Isolation:     Isolation(normalized.Isolation),
@@ -356,6 +370,9 @@ func normalize(params CreateParams) (CreateParams, error) {
 		return params, err
 	}
 	if err := validateEnv(params.Env); err != nil {
+		return params, err
+	}
+	if err := validateFiles(params.Files); err != nil {
 		return params, err
 	}
 	if params.Group != "" {

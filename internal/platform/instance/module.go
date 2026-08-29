@@ -273,6 +273,16 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  23,
 			SQL:    `ALTER TABLE instances ADD COLUMN env_names TEXT NOT NULL DEFAULT '[]'`,
 		},
+		{
+			Module: "instance",
+			Index:  24,
+			SQL:    `ALTER TABLE instances ADD COLUMN files TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  25,
+			SQL:    `ALTER TABLE instances ADD COLUMN file_paths TEXT NOT NULL DEFAULT '[]'`,
+		},
 	}
 }
 

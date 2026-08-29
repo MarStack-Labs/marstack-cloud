@@ -65,7 +65,14 @@ type Spec struct {
 	MemoryMiB  int
 	SSHKeys    []string
 	Env        map[string]string
+	Files      []FileDrop
 	Network    *NetworkConfig
+}
+
+type FileDrop struct {
+	Path    string
+	Content []byte
+	Mode    uint32
 }
 
 type State struct {

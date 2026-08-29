@@ -22,6 +22,14 @@ const (
 	EnvironmentFile = "/etc/marstack/environment"
 )
 
+func writeFile(path string, mode uint32, content []byte) string {
+	return "  - path: " + yamlScalar(path) + "\n" +
+		fmt.Sprintf("    permissions: '%04o'\n", mode) +
+		"    owner: root:root\n" +
+		"    encoding: b64\n" +
+		"    content: " + base64.StdEncoding.EncodeToString(content) + "\n"
+}
+
 func environmentFile(env map[string]string) string {
 	names := make([]string, 0, len(env))
 	for name := range env {
@@ -64,14 +72,15 @@ func (r *Runtime) writeSeed(spec workload.Spec) (string, error) {
 			user += "  - " + yamlScalar(key) + "\n"
 		}
 	}
+	if len(spec.Env) > 0 || len(spec.Files) > 0 {
+		user += "write_files:\n"
+	}
 	if len(spec.Env) > 0 {
-		user += "write_files:\n" +
-			"  - path: " + EnvironmentFile + "\n" +
-			"    permissions: '0600'\n" +
-			"    owner: root:root\n" +
-			"    encoding: b64\n" +
-			"    content: " + base64.StdEncoding.EncodeToString([]byte(environmentFile(spec.Env))) +
-			"\n"
+		user += writeFile(EnvironmentFile, 0o600,
+			[]byte(environmentFile(spec.Env)))
+	}
+	for _, drop := range spec.Files {
+		user += writeFile(drop.Path, drop.Mode, drop.Content)
 	}
 	if len(spec.Command) > 0 {
 		user += "runcmd:\n  - " + shellQuote(spec.Command) + "\n"

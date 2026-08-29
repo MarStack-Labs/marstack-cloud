@@ -27,7 +27,7 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, project_id, placement_group, placement_strict, ssh_keys, node_selector, env, env_key_id, env_names, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
+const columns = `id, project_id, placement_group, placement_strict, ssh_keys, node_selector, env, env_key_id, env_names, files, file_paths, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
 	taken, err := r.nameTaken(ctx, in.ProjectID, in.Name)
@@ -58,11 +58,16 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 		return fmt.Errorf("encode the environment names: %w", err)
 	}
 
+	filePaths, err := json.Marshal(in.FilePaths)
+	if err != nil {
+		return fmt.Errorf("encode the file paths: %w", err)
+	}
+
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO instances (`+columns+`) VALUES `+
-			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.ID, in.ProjectID, in.Group, in.Strict, string(keys), string(selector),
-		in.EnvSealed, in.EnvKeyID, string(envNames), in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
+		in.EnvSealed, in.SealKeyID, string(envNames), in.FilesSealed, string(filePaths), in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
 		in.FirewallID, string(command), in.NetworkID,
 		string(in.RestartPolicy), in.RestartCount, in.VCPU, in.MemoryMiB,
 		string(in.Desired), string(in.Observed), in.ObservedMessage, in.NodeID,
@@ -374,6 +379,7 @@ func scanInstance(row scanner) (Instance, error) {
 		keys       string
 		selector   string
 		envNames   string
+		filePaths  string
 		policy     string
 		desired    string
 		observed   string
@@ -384,7 +390,8 @@ func scanInstance(row scanner) (Instance, error) {
 
 	if err := row.Scan(
 		&in.ID, &in.ProjectID, &in.Group, &in.Strict, &keys, &selector,
-		&in.EnvSealed, &in.EnvKeyID, &envNames, &in.Name, &isolation, &in.Image,
+		&in.EnvSealed, &in.SealKeyID, &envNames, &in.FilesSealed, &filePaths,
+		&in.Name, &isolation, &in.Image,
 		&in.ISO, &in.Kernel, &in.DiskGiB,
 		&in.FirewallID, &command, &in.NetworkID,
 		&policy, &in.RestartCount, &in.VCPU, &in.MemoryMiB,
@@ -396,6 +403,12 @@ func scanInstance(row scanner) (Instance, error) {
 	if keys != "" {
 		if err := json.Unmarshal([]byte(keys), &in.SSHKeys); err != nil {
 			return Instance{}, fmt.Errorf("decode ssh keys: %w", err)
+		}
+	}
+
+	if filePaths != "" {
+		if err := json.Unmarshal([]byte(filePaths), &in.FilePaths); err != nil {
+			return Instance{}, fmt.Errorf("decode the file paths: %w", err)
 		}
 	}
 

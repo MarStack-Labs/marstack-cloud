@@ -794,6 +794,28 @@ Storing them anyway with a warning in a log would be the usual compromise. A
 warning nobody reads is not protection, and env is new enough that nothing
 depends on a plaintext path.
 
+Whole files work the same way:
+
+```sh
+marstack instance create --name web ... \
+  --file /etc/app/app.conf=./app.conf:0640
+```
+
+```
+# on the node, inside the container's rootfs
+-rw-r----- 1 root root 54 /var/lib/marstack/instances/i-.../rootfs/etc/app/app.conf
+```
+
+Content is sealed like env and never served back; the **paths** are readable, so
+`file_paths` still tells an operator what a workload was given. Checked live: the
+file arrived with the right mode and content, and the content appears nowhere in
+the control plane's data directory.
+
+Files are written through `os.OpenRoot` on the rootfs rather than by joining
+paths. An image is untrusted input — ship one whose `/etc` is a symlink to `/`
+and a joined path drops the caller's config onto the host instead. There is a
+test that builds exactly that image.
+
 For a container the variables are merged over the image's own, replacing rather
 than shadowing. For a vm there is no single process to hand an environment to,
 so cloud-init writes `/etc/marstack/environment` at 0600 for the guest to source
@@ -1638,6 +1660,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 39  operator labels on nodes                          done
 40  placing a workload by node selector               done
 41  sealed environment injection                      done
+42  sealed config file injection                      done
 ```
 
 ## License

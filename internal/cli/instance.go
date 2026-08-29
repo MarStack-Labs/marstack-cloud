@@ -13,6 +13,7 @@ type instanceView struct {
 	Name            string            `json:"name"`
 	NodeSelector    map[string]string `json:"node_selector,omitempty"`
 	EnvNames        []string          `json:"env_names,omitempty"`
+	FilePaths       []string          `json:"file_paths,omitempty"`
 	Isolation       string            `json:"isolation"`
 	Image           string            `json:"image"`
 	VCPU            int               `json:"vcpu"`
@@ -92,11 +93,13 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		Strict        bool              `json:"placement_strict,omitempty"`
 		NodeSelector  map[string]string `json:"node_selector,omitempty"`
 		Env           map[string]string `json:"env,omitempty"`
+		Files         []fileSpec        `json:"files,omitempty"`
 		Keys          []string          `json:"keys,omitempty"`
 	}
 	var (
 		selectors []string
 		envPairs  []string
+		filePairs []string
 	)
 
 	cmd := &cobra.Command{
@@ -128,6 +131,12 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 				}
 				req.Env[name] = value
 			}
+
+			files, err := readFiles(filePairs)
+			if err != nil {
+				return err
+			}
+			req.Files = files
 
 			var created instanceView
 			if err := g.client().do(
@@ -164,6 +173,9 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringArrayVar(&envPairs, "env", nil,
 		"NAME=value passed to the workload, repeatable; needs a control plane started with "+
 			"--backup-key-file, and values are never served back")
+	cmd.Flags().StringArrayVar(&filePairs, "file", nil,
+		"/path/in/the/workload=local-file[:mode] to write before it starts, repeatable; "+
+			"content is sealed at rest and never served back")
 	cmd.Flags().StringArrayVar(&selectors, "node-selector", nil,
 		"only place on a node carrying key=value, repeatable and combined with and")
 	cmd.Flags().StringArrayVar(&req.Keys, "key", nil,

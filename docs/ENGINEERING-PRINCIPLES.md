@@ -402,6 +402,19 @@ make check      # vet + test + security scans
   so arbitrary bytes survive YAML. A whole machine has no single process to hand an environment to,
   so it is a file the guest may source, not a process environment. That file and the seed ISO carry
   the values in the clear on the node, exactly as the console password already does.
+- Config files follow env exactly: sealed with the same key, paths kept in the clear in
+  `file_paths`, content served only to the node. `SealKeyID` is one column for both - an instance is
+  sealed with one key or none, and two key columns would let them drift into a state no rotation
+  path handles.
+- `dropFiles` writes through `os.OpenRoot` on the rootfs, not `filepath.Join`. An image is untrusted
+  input: ship one whose `/etc` is a symlink to `/` and a joined path writes the caller's config
+  straight onto the host. There is a Linux test that builds exactly that image, and swapping
+  `OpenRoot` for a join makes it fail.
+- A file path must be absolute and already clean. Accepting `/etc/../x` would mean the path an
+  operator reads back in `file_paths` is not the path the node writes, and two files may not name
+  the same path because which one wins would be undefined.
+- The container's files are written before the cgroup is created and long before init runs, so a
+  workload never observes a half-populated config directory.
 
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other

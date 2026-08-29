@@ -46,9 +46,16 @@ type instanceView struct {
 	RestartCount    int               `json:"restart_count,omitempty"`
 	SSHKeys         []string          `json:"ssh_keys,omitempty"`
 	Env             map[string]string `json:"env,omitempty"`
+	Files           []fileView        `json:"files,omitempty"`
 	DesiredState    string            `json:"desired_state"`
 	ObservedState   string            `json:"observed_state"`
 	ObservedMessage string            `json:"observed_message,omitempty"`
+}
+
+type fileView struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Mode    string `json:"mode,omitempty"`
 }
 
 type instanceListBody struct {

@@ -99,11 +99,19 @@ type Instance struct {
 	Strict          bool
 	NodeSelector    map[string]string
 	EnvSealed       string
-	EnvKeyID        string
+	SealKeyID       string
 	EnvNames        []string
+	FilesSealed     string
+	FilePaths       []string
 	SSHKeys         []string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+}
+
+type File struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Mode    string `json:"mode,omitempty"`
 }
 
 type Footprint struct {
@@ -119,6 +127,7 @@ type CreateParams struct {
 	Strict        bool
 	NodeSelector  map[string]string
 	Env           map[string]string
+	Files         []File
 	Keys          []string
 	Isolation     string
 	Image         string
@@ -137,6 +146,10 @@ const (
 	MaxCommandArgs = 64
 
 	MaxNodeSelector = 8
+
+	MaxFiles       = 16
+	MaxFileBytes   = 128 * 1024
+	MaxFilePathLen = 4096
 
 	MaxEnv         = 64
 	MaxEnvNameLen  = 128

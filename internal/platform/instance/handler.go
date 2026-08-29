@@ -27,6 +27,7 @@ type createRequest struct {
 	Strict        bool              `json:"placement_strict,omitempty"`
 	NodeSelector  map[string]string `json:"node_selector,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
+	Files         []File            `json:"files,omitempty"`
 	Keys          []string          `json:"keys,omitempty"`
 }
 
@@ -55,6 +56,7 @@ type response struct {
 	Strict          bool              `json:"placement_strict,omitempty"`
 	NodeSelector    map[string]string `json:"node_selector,omitempty"`
 	EnvNames        []string          `json:"env_names,omitempty"`
+	FilePaths       []string          `json:"file_paths,omitempty"`
 	SSHKeys         []string          `json:"ssh_keys,omitempty"`
 	Desired         string            `json:"desired_state"`
 	Observed        string            `json:"observed_state"`
@@ -89,6 +91,7 @@ func toResponse(in Instance) response {
 		Strict:          in.Strict,
 		NodeSelector:    in.NodeSelector,
 		EnvNames:        in.EnvNames,
+		FilePaths:       in.FilePaths,
 		SSHKeys:         in.SSHKeys,
 		Desired:         string(in.Desired),
 		Observed:        string(in.Observed),
@@ -101,7 +104,8 @@ func toResponse(in Instance) response {
 
 type nodeResponse struct {
 	response
-	Env map[string]string `json:"env,omitempty"`
+	Env   map[string]string `json:"env,omitempty"`
+	Files []File            `json:"files,omitempty"`
 }
 
 type nodeListResponse struct {
@@ -124,6 +128,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		Strict:        req.Strict,
 		NodeSelector:  req.NodeSelector,
 		Env:           req.Env,
+		Files:         req.Files,
 		Keys:          req.Keys,
 		Name:          req.Name,
 		Isolation:     req.Isolation,
@@ -209,9 +214,16 @@ func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 		if err != nil {
 			return err
 		}
+
+		files, err := h.svc.filesOf(in)
+		if err != nil {
+			return err
+		}
+
 		body.Instances = append(body.Instances, nodeResponse{
 			response: toResponse(in),
 			Env:      env,
+			Files:    files,
 		})
 	}
 
