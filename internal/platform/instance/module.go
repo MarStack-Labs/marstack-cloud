@@ -44,6 +44,7 @@ type Keys interface {
 
 type Quota interface {
 	AdmitInstance(ctx context.Context, projectID string, vcpu, memoryMiB int) error
+	AdmitGrowth(ctx context.Context, projectID string, vcpu, memoryMiB int) error
 }
 
 type Firewalls interface {
@@ -293,6 +294,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /v1/instances/{id}", httpx.Wrap(m.log, m.handler.delete))
 	mux.Handle("POST /v1/instances/{id}/start", httpx.Wrap(m.log, m.handler.start))
 	mux.Handle("POST /v1/instances/{id}/stop", httpx.Wrap(m.log, m.handler.stop))
+	mux.Handle("POST /v1/instances/{id}/resize", httpx.Wrap(m.log, m.handler.resize))
 
 	mux.Handle("GET /v1/nodes/{nodeID}/instances", httpx.Wrap(m.log, m.handler.listForNode))
 	mux.Handle("PUT /v1/nodes/{nodeID}/instances/{instanceID}/status", httpx.Wrap(m.log, m.handler.reportStatus))

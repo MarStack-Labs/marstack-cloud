@@ -337,6 +337,26 @@ func (r *repository) releasePlacement(ctx context.Context, id, nodeID string, no
 	return expectOneRow(res, "release placement")
 }
 
+func (r *repository) setSize(
+	ctx context.Context, id string, vcpu, memoryMiB int, now time.Time,
+) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE instances SET vcpu = ?, memory_mib = ?, updated_at = ? WHERE id = ?`,
+		vcpu, memoryMiB, now.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("resize instance: %w", err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("resize instance: %w", err)
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
 func (r *repository) setDesired(ctx context.Context, id string, desired DesiredState, now time.Time) error {
 	res, err := r.db.ExecContext(ctx,
 		`UPDATE instances SET desired_state = ?, updated_at = ? WHERE id = ?`,

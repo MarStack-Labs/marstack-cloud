@@ -463,3 +463,11 @@ func (r *Runtime) Remove(ctx context.Context, instanceID string) error {
 	}
 	return nil
 }
+
+func (r *Runtime) Resize(_ context.Context, instanceID string, vcpu, memoryMiB int) error {
+	dir := r.layout.cgroup(instanceID)
+	if !cgroupHasProcesses(dir) {
+		return nil
+	}
+	return applyLimits(dir, vcpu, memoryMiB)
+}

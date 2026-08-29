@@ -199,6 +199,46 @@ func (s *service) setDesired(
 	return s.get(ctx, id)
 }
 
+func (s *service) resize(
+	ctx context.Context, id, projectID string, vcpu, memoryMiB int,
+) (Instance, error) {
+	in, err := s.getIn(ctx, id, projectID)
+	if err != nil {
+		return Instance{}, err
+	}
+
+	if vcpu == 0 {
+		vcpu = in.VCPU
+	}
+	if memoryMiB == 0 {
+		memoryMiB = in.MemoryMiB
+	}
+	if vcpu == in.VCPU && memoryMiB == in.MemoryMiB {
+		return in, nil
+	}
+
+	if vcpu < MinVCPU || vcpu > MaxVCPU {
+		return Instance{}, fault.Invalid("invalid_vcpu", fmt.Sprintf(
+			"vcpu must be between %d and %d", MinVCPU, MaxVCPU))
+	}
+	if memoryMiB < MinMemoryMiB || memoryMiB > MaxMemoryMiB {
+		return Instance{}, fault.Invalid("invalid_memory", fmt.Sprintf(
+			"memory_mib must be between %d and %d", MinMemoryMiB, MaxMemoryMiB))
+	}
+
+	if s.quota != nil {
+		if err := s.quota.AdmitGrowth(ctx, projectID,
+			max(vcpu-in.VCPU, 0), max(memoryMiB-in.MemoryMiB, 0)); err != nil {
+			return Instance{}, err
+		}
+	}
+
+	if err := s.repo.setSize(ctx, id, vcpu, memoryMiB, s.now()); err != nil {
+		return Instance{}, translate(err)
+	}
+	return s.get(ctx, id)
+}
+
 func (s *service) delete(ctx context.Context, id, projectID string) error {
 	if _, err := s.getIn(ctx, id, projectID); err != nil {
 		return err

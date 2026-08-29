@@ -31,6 +31,11 @@ type createRequest struct {
 	Keys          []string          `json:"keys,omitempty"`
 }
 
+type resizeRequest struct {
+	VCPU      int `json:"vcpu,omitempty"`
+	MemoryMiB int `json:"memory_mib,omitempty"`
+}
+
 type statusRequest struct {
 	ObservedState string `json:"observed_state"`
 	Message       string `json:"message,omitempty"`
@@ -199,6 +204,22 @@ func (h *handler) transition(w http.ResponseWriter, r *http.Request, desired Des
 		return err
 	}
 	httpx.Write(w, http.StatusAccepted, toResponse(in))
+	return nil
+}
+
+func (h *handler) resize(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[resizeRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	in, err := h.svc.resize(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, req.VCPU, req.MemoryMiB)
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(in))
 	return nil
 }
 

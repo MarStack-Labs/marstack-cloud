@@ -70,6 +70,7 @@ func newInstanceCmd(g *globals) *cobra.Command {
 		newInstanceGetCmd(g),
 		newInstanceStartCmd(g),
 		newInstanceStopCmd(g),
+		newInstanceResizeCmd(g),
 		newInstanceDeleteCmd(g),
 		newInstanceConsoleCmd(),
 	)
@@ -183,6 +184,45 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 
 	must(cmd.MarkFlagRequired("name"))
 
+	return cmd
+}
+
+func newInstanceResizeCmd(g *globals) *cobra.Command {
+	var body struct {
+		VCPU      int `json:"vcpu,omitempty"`
+		MemoryMiB int `json:"memory_mib,omitempty"`
+	}
+
+	cmd := &cobra.Command{
+		Use:   "resize <id>",
+		Short: "Change how much cpu and memory an instance may use",
+		Long: "Change how much cpu and memory an instance may use.\n\n" +
+			"A container takes the new limits on the next reconcile pass without restarting,\n" +
+			"because cgroup limits are writable while it runs. A vm, microvm or sandbox keeps\n" +
+			"the size it booted with until it is stopped and started again - nothing here\n" +
+			"hot-plugs cpu or memory into a guest.\n\n" +
+			"Leave a flag off to keep that dimension as it is.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if body.VCPU == 0 && body.MemoryMiB == 0 {
+				return errors.New("give --vcpu, --memory-mib, or both")
+			}
+
+			var resized instanceView
+			if err := g.client().do(
+				cmd.Context(), "POST", "/v1/instances/"+args[0]+"/resize", body, &resized,
+			); err != nil {
+				return err
+			}
+			if resized.Isolation != "container" {
+				cmd.PrintErrln("this isolation takes the new size on its next start, not now")
+			}
+			return renderInstance(cmd, g, resized)
+		},
+	}
+
+	cmd.Flags().IntVar(&body.VCPU, "vcpu", 0, "virtual CPUs")
+	cmd.Flags().IntVar(&body.MemoryMiB, "memory-mib", 0, "memory in MiB")
 	return cmd
 }
 

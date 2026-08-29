@@ -74,15 +74,11 @@ func createCgroup(id string, vcpu, memoryMiB int, l layout) (string, error) {
 		return "", fmt.Errorf("create cgroup: %w", err)
 	}
 
-	limits := map[string]string{
-		"memory.max": strconv.Itoa(memoryMiB * 1024 * 1024),
-		"cpu.max":    fmt.Sprintf("%d %d", vcpu*cpuPeriodMicros, cpuPeriodMicros),
-		"pids.max":   "512",
+	if err := os.WriteFile(filepath.Join(dir, "pids.max"), []byte("512"), 0o644); err != nil {
+		return "", fmt.Errorf("write pids.max: %w", err)
 	}
-	for file, value := range limits {
-		if err := os.WriteFile(filepath.Join(dir, file), []byte(value), 0o644); err != nil {
-			return "", fmt.Errorf("write %s: %w", file, err)
-		}
+	if err := applyLimits(dir, vcpu, memoryMiB); err != nil {
+		return "", err
 	}
 
 	return dir, nil
@@ -109,4 +105,17 @@ func processBelongsToCgroup(pid int, id string) bool {
 		return false
 	}
 	return strings.Contains(string(raw), filepath.Join(cgroupSlice, id))
+}
+
+func applyLimits(dir string, vcpu, memoryMiB int) error {
+	limits := map[string]string{
+		"memory.max": strconv.Itoa(memoryMiB * 1024 * 1024),
+		"cpu.max":    fmt.Sprintf("%d %d", vcpu*cpuPeriodMicros, cpuPeriodMicros),
+	}
+	for file, value := range limits {
+		if err := os.WriteFile(filepath.Join(dir, file), []byte(value), 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", file, err)
+		}
+	}
+	return nil
 }

@@ -436,6 +436,17 @@ make check      # vet + test + security scans
   three seconds, which is 300 requests against a default of 50 a second, and the first thing the
   limiter did was make an unrelated cordon test fail. Tests about placement must not silently become
   tests about throttling; `ratelimit_test.go` is where the limit is exercised on purpose.
+- Resize is an optional interface the agent type-asserts, not a method on `Runtime`. Only the
+  container runtime can honour it while a workload runs; adding it to `Runtime` would make three
+  drivers accept a call they cannot fulfil, which is exactly what the L rule forbids.
+- The agent reapplies the size on **every** reconcile pass while a container runs, rather than on a
+  change. It has no memory of the last size, the cgroup write is idempotent and cheap, and a pass
+  that skipped it would leave a resize unapplied after an agent restart.
+- A vm keeps the size it booted with. Nothing here hot-plugs cpu or memory into a guest, and the
+  CLI says so on the spot rather than letting an operator assume it took effect.
+- A resize claims only the **growth** against the quota, never the absolute size. Claiming the
+  absolute size double-counts what the instance already holds and refuses a resize that fits;
+  claiming nothing lets a project grow past its limit one resize at a time. Both are mutation tests.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

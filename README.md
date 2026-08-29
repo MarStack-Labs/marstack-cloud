@@ -755,6 +755,37 @@ Setting labels replaces the whole set rather than merging, so a label goes away
 by being left out. Merging would need a delete route and a convention for what
 null means, and would make the call depend on what was there before.
 
+## Changing an instance's size without rebuilding it
+
+An instance was the size it was created at. Now:
+
+```
+$ marstack instance resize i-t3tzmk3cn84me --vcpu 2 --memory-mib 1024
+NAME      ID                SIZE          DESIRED   OBSERVED
+sizebox   i-t3tzmk3cn84me   2cpu/1024Mi   running   running
+```
+
+```
+# on the node, before and after
+memory.max: 536870912      →  1073741824
+cpu.max:    100000 100000  →  200000 100000
+pid:        419289         →  419289
+```
+
+The pid is the point: **a container takes the new limits without restarting**,
+because cgroup limits are writable while it runs.
+
+A vm, microvm or sandbox does not. Nothing here hot-plugs cpu or memory into a
+guest, so those keep the size they booted with until they are stopped and
+started, and the CLI says so rather than letting you assume otherwise. That is
+why resize is an optional interface the agent asks for rather than a method on
+`Runtime` — three of the four drivers cannot honour it, and a driver that accepts
+a call it cannot fulfil is the failure mode the L rule exists to prevent.
+
+A resize claims only the **growth** against the quota. Claiming the absolute size
+would double-count what the instance already holds and refuse a resize that fits;
+claiming nothing would let a project grow past its limit one resize at a time.
+
 ## Not letting one client take the platform down
 
 Every caller could send as fast as it liked, and each bogus token cost a hash
@@ -1690,6 +1721,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 41  sealed environment injection                      done
 42  sealed config file injection                      done
 43  per caller api rate limiting                      done
+44  resize an instance's cpu and memory               done
 ```
 
 ## License

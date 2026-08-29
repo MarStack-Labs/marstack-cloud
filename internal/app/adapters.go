@@ -379,6 +379,15 @@ type instanceQuota struct {
 	quotas *quota.Module
 }
 
+func (q instanceQuota) AdmitGrowth(
+	ctx context.Context, projectID string, vcpu, memoryMiB int,
+) error {
+	return q.quotas.Admit(ctx, projectID, quota.Claim{
+		VCPU:      vcpu,
+		MemoryMiB: memoryMiB,
+	})
+}
+
 func (q instanceQuota) AdmitInstance(
 	ctx context.Context, projectID string, vcpu, memoryMiB int,
 ) error {

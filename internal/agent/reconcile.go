@@ -693,6 +693,21 @@ func (a *Agent) reconcileOne(
 	}
 }
 
+type resizer interface {
+	Resize(ctx context.Context, instanceID string, vcpu, memoryMiB int) error
+}
+
+func (a *Agent) resizeInPlace(ctx context.Context, runtime workload.Runtime, spec workload.Spec) {
+	live, able := runtime.(resizer)
+	if !able {
+		return
+	}
+	if err := live.Resize(ctx, spec.InstanceID, spec.VCPU, spec.MemoryMiB); err != nil {
+		a.log.Warn("could not apply a new size to a running workload",
+			"instance", spec.InstanceID, "error", err)
+	}
+}
+
 func (a *Agent) ensureRunning(
 	ctx context.Context,
 	runtime workload.Runtime,
@@ -702,6 +717,7 @@ func (a *Agent) ensureRunning(
 ) (string, string) {
 	switch state.Phase {
 	case workload.PhaseRunning:
+		a.resizeInPlace(ctx, runtime, spec)
 		return observedRunning, state.Message
 
 	case workload.PhaseExited:
