@@ -755,6 +755,42 @@ Setting labels replaces the whole set rather than merging, so a label goes away
 by being left out. Merging would need a delete route and a convention for what
 null means, and would make the call depend on what was there before.
 
+## Placing a workload where it has to go
+
+Labels only matter if something reads them. `--node-selector` is that:
+
+```
+$ marstack instance create --name pinned-prod --isolation container \
+    --image alpine:3.20 --node-selector tier=prod
+
+$ marstack instance get i-wp071ce286gw0 -o json | grep -A2 node_selector
+  "node_selector": { "tier": "prod" },
+  "node_id": "n-tcvkwmvckcq62"        # bm-1, tier=prod
+```
+
+That node was the **busier** of the two — 14 instances against 6. Load balancing
+alone would have chosen the other one, which is what makes it a real check
+rather than a coincidence.
+
+A selector filters candidates before anything is scored. It is a requirement,
+not a preference: scoring it would let a node that does not match at all win on
+being cheaper.
+
+**Nothing falls back.** Ask for a label no node carries and the instance waits,
+and says what it is waiting for:
+
+```
+$ marstack instance create --name pinned-tape ... --node-selector disk=tape
+node    : (none)
+message : no ready node carries disk=tape
+```
+
+A workload asking for an nvme disk quietly placed on a machine without one is
+worse than one that waits and tells you. The wait is a reason rather than a
+state, so labelling a node later places it on the next pass — no retry, no
+resubmit. That was checked live: labelling `bm-1` with `disk=tape` picked the
+held instance up within one interval.
+
 ## Reading a list without reading all of it
 
 Every list endpoint returned the whole table. That is fine at twenty instances
@@ -1555,6 +1591,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 37  paged instance listing                            done
 38  paged volume, backup and snapshot listings        done
 39  operator labels on nodes                          done
+40  placing a workload by node selector               done
 ```
 
 ## License

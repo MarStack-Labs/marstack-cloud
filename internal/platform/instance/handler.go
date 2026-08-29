@@ -11,21 +11,22 @@ import (
 )
 
 type createRequest struct {
-	Name          string   `json:"name"`
-	Isolation     string   `json:"isolation"`
-	Image         string   `json:"image"`
-	ISO           string   `json:"iso,omitempty"`
-	Kernel        string   `json:"kernel,omitempty"`
-	DiskGiB       int      `json:"disk_gib,omitempty"`
-	FirewallID    string   `json:"firewall_id,omitempty"`
-	Command       []string `json:"command,omitempty"`
-	NetworkID     string   `json:"network_id,omitempty"`
-	RestartPolicy string   `json:"restart_policy,omitempty"`
-	VCPU          int      `json:"vcpu,omitempty"`
-	MemoryMiB     int      `json:"memory_mib,omitempty"`
-	Group         string   `json:"placement_group,omitempty"`
-	Strict        bool     `json:"placement_strict,omitempty"`
-	Keys          []string `json:"keys,omitempty"`
+	Name          string            `json:"name"`
+	Isolation     string            `json:"isolation"`
+	Image         string            `json:"image"`
+	ISO           string            `json:"iso,omitempty"`
+	Kernel        string            `json:"kernel,omitempty"`
+	DiskGiB       int               `json:"disk_gib,omitempty"`
+	FirewallID    string            `json:"firewall_id,omitempty"`
+	Command       []string          `json:"command,omitempty"`
+	NetworkID     string            `json:"network_id,omitempty"`
+	RestartPolicy string            `json:"restart_policy,omitempty"`
+	VCPU          int               `json:"vcpu,omitempty"`
+	MemoryMiB     int               `json:"memory_mib,omitempty"`
+	Group         string            `json:"placement_group,omitempty"`
+	Strict        bool              `json:"placement_strict,omitempty"`
+	NodeSelector  map[string]string `json:"node_selector,omitempty"`
+	Keys          []string          `json:"keys,omitempty"`
 }
 
 type statusRequest struct {
@@ -35,29 +36,30 @@ type statusRequest struct {
 }
 
 type response struct {
-	ID              string   `json:"id"`
-	Name            string   `json:"name"`
-	Isolation       string   `json:"isolation"`
-	Image           string   `json:"image,omitempty"`
-	ISO             string   `json:"iso,omitempty"`
-	Kernel          string   `json:"kernel,omitempty"`
-	DiskGiB         int      `json:"disk_gib,omitempty"`
-	FirewallID      string   `json:"firewall_id,omitempty"`
-	Command         []string `json:"command,omitempty"`
-	NetworkID       string   `json:"network_id,omitempty"`
-	RestartPolicy   string   `json:"restart_policy"`
-	RestartCount    int      `json:"restart_count"`
-	VCPU            int      `json:"vcpu"`
-	MemoryMiB       int      `json:"memory_mib"`
-	Group           string   `json:"placement_group,omitempty"`
-	Strict          bool     `json:"placement_strict,omitempty"`
-	SSHKeys         []string `json:"ssh_keys,omitempty"`
-	Desired         string   `json:"desired_state"`
-	Observed        string   `json:"observed_state"`
-	ObservedMessage string   `json:"observed_message,omitempty"`
-	NodeID          string   `json:"node_id,omitempty"`
-	CreatedAt       string   `json:"created_at"`
-	UpdatedAt       string   `json:"updated_at"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Isolation       string            `json:"isolation"`
+	Image           string            `json:"image,omitempty"`
+	ISO             string            `json:"iso,omitempty"`
+	Kernel          string            `json:"kernel,omitempty"`
+	DiskGiB         int               `json:"disk_gib,omitempty"`
+	FirewallID      string            `json:"firewall_id,omitempty"`
+	Command         []string          `json:"command,omitempty"`
+	NetworkID       string            `json:"network_id,omitempty"`
+	RestartPolicy   string            `json:"restart_policy"`
+	RestartCount    int               `json:"restart_count"`
+	VCPU            int               `json:"vcpu"`
+	MemoryMiB       int               `json:"memory_mib"`
+	Group           string            `json:"placement_group,omitempty"`
+	Strict          bool              `json:"placement_strict,omitempty"`
+	NodeSelector    map[string]string `json:"node_selector,omitempty"`
+	SSHKeys         []string          `json:"ssh_keys,omitempty"`
+	Desired         string            `json:"desired_state"`
+	Observed        string            `json:"observed_state"`
+	ObservedMessage string            `json:"observed_message,omitempty"`
+	NodeID          string            `json:"node_id,omitempty"`
+	CreatedAt       string            `json:"created_at"`
+	UpdatedAt       string            `json:"updated_at"`
 }
 
 type listResponse struct {
@@ -83,6 +85,7 @@ func toResponse(in Instance) response {
 		MemoryMiB:       in.MemoryMiB,
 		Group:           in.Group,
 		Strict:          in.Strict,
+		NodeSelector:    in.NodeSelector,
 		SSHKeys:         in.SSHKeys,
 		Desired:         string(in.Desired),
 		Observed:        string(in.Observed),
@@ -107,6 +110,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		ProjectID:     scope.From(r.Context()).ProjectID,
 		Group:         req.Group,
 		Strict:        req.Strict,
+		NodeSelector:  req.NodeSelector,
 		Keys:          req.Keys,
 		Name:          req.Name,
 		Isolation:     req.Isolation,

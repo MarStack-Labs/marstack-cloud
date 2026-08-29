@@ -63,7 +63,9 @@ func (s nodeSource) ReadyNodes(ctx context.Context) ([]scheduler.Candidate, erro
 
 	candidates := make([]scheduler.Candidate, 0, len(ready))
 	for _, n := range ready {
-		candidates = append(candidates, scheduler.Candidate{ID: n.ID, Name: n.Name, Zone: n.Zone})
+		candidates = append(candidates, scheduler.Candidate{
+			ID: n.ID, Name: n.Name, Zone: n.Zone, Labels: n.Labels,
+		})
 	}
 	return candidates, nil
 }
@@ -87,6 +89,7 @@ func (s instanceSource) PendingPlacement(ctx context.Context) ([]scheduler.Pendi
 			NetworkID: in.NetworkID,
 			Group:     in.Group,
 			Strict:    in.Strict,
+			Selector:  in.NodeSelector,
 		})
 	}
 	return pending, nil

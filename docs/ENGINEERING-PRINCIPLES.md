@@ -370,6 +370,18 @@ make check      # vet + test + security scans
   silently turn the replace back into a merge, which is a mutation test in `label_test.go`.
 - `?label=k=v` repeats to mean and, never or. An or filter reads the same and answers a different
   question, so if one is ever wanted it needs its own syntax rather than a flag on this one.
+- A node selector filters candidates before `bestFor` rather than scoring inside it. A selector is a
+  requirement, not a preference: folding it into the sort would let a heavily labelled node lose to
+  a cheaper one that does not match at all.
+- An unmatched selector holds the instance and records why. It must not fall back to any node - a
+  workload asking for a gpu quietly placed on a machine without one is worse than one that waits and
+  says so. Both halves are mutation tested.
+- The hold is a reason, not a state, so labelling a node later gets the instance placed on the next
+  pass with no retry logic. Verified live: an instance held on `disk=tape` was placed the moment a
+  node was given that label.
+- A selector is stored as JSON in one column, the same shape as `ssh_keys` and `command`. A join
+  table would be the right answer if anything queried instances by selector; nothing does, and the
+  scheduler already holds every candidate in memory.
 
 - Runtime packages are split by build tag. Portable constants live in the untagged file; anything
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other

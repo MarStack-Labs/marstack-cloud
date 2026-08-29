@@ -97,6 +97,7 @@ type Instance struct {
 	NodeID          string
 	Group           string
 	Strict          bool
+	NodeSelector    map[string]string
 	SSHKeys         []string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
@@ -113,6 +114,7 @@ type CreateParams struct {
 	Name          string
 	Group         string
 	Strict        bool
+	NodeSelector  map[string]string
 	Keys          []string
 	Isolation     string
 	Image         string
@@ -129,6 +131,8 @@ type CreateParams struct {
 
 const (
 	MaxCommandArgs = 64
+
+	MaxNodeSelector = 8
 
 	DefaultDiskGiB = 10
 	MaxDiskGiB     = 2048

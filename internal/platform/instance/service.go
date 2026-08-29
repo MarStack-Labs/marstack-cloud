@@ -80,6 +80,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		ProjectID:     params.ProjectID,
 		Group:         normalized.Group,
 		Strict:        params.Strict,
+		NodeSelector:  normalized.NodeSelector,
 		SSHKeys:       authorized,
 		Name:          normalized.Name,
 		Isolation:     Isolation(normalized.Isolation),
@@ -348,6 +349,19 @@ func normalize(params CreateParams) (CreateParams, error) {
 	if params.Strict && params.Group == "" {
 		return params, fault.Invalid("invalid_placement",
 			"strict placement without a group has nothing to spread away from")
+	}
+	if len(params.NodeSelector) > MaxNodeSelector {
+		return params, fault.Invalid("invalid_node_selector", fmt.Sprintf(
+			"a node selector names at most %d labels, and %d were given",
+			MaxNodeSelector, len(params.NodeSelector)))
+	}
+	for key, value := range params.NodeSelector {
+		if err := validate.Name("node_selector_key", key); err != nil {
+			return params, err
+		}
+		if err := validate.Name("node_selector_value", value); err != nil {
+			return params, err
+		}
 	}
 	if err := validate.OneOf("isolation", params.Isolation, AllIsolations()...); err != nil {
 		return params, err

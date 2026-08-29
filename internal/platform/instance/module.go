@@ -248,6 +248,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  19,
 			SQL:    `ALTER TABLE instances ADD COLUMN ssh_keys TEXT NOT NULL DEFAULT '[]'`,
 		},
+		{
+			Module: "instance",
+			Index:  20,
+			SQL:    `ALTER TABLE instances ADD COLUMN node_selector TEXT NOT NULL DEFAULT '{}'`,
+		},
 	}
 }
 

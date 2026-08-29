@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,9 +20,19 @@ const (
 )
 
 type Candidate struct {
-	ID   string
-	Name string
-	Zone string
+	ID     string
+	Name   string
+	Zone   string
+	Labels map[string]string
+}
+
+func (c Candidate) matches(selector map[string]string) bool {
+	for key, want := range selector {
+		if c.Labels[key] != want {
+			return false
+		}
+	}
+	return true
 }
 
 type Pending struct {
@@ -31,6 +42,7 @@ type Pending struct {
 	NetworkID string
 	Group     string
 	Strict    bool
+	Selector  map[string]string
 }
 
 type Stranded struct {
@@ -188,7 +200,13 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			return err
 		}
 
-		target, room := bestFor(candidates, counts, load, members)
+		eligible := matching(candidates, p.Selector)
+		if len(eligible) == 0 {
+			s.holdUnmatched(ctx, p)
+			continue
+		}
+
+		target, room := bestFor(eligible, counts, load, members)
 		if p.Strict && p.Group != "" && !room {
 			s.hold(ctx, p)
 			continue
@@ -459,6 +477,45 @@ func (s *Scheduler) membersOf(
 	}
 	cache[group] = members
 	return members, nil
+}
+
+func matching(candidates []Candidate, selector map[string]string) []Candidate {
+	if len(selector) == 0 {
+		return candidates
+	}
+
+	eligible := make([]Candidate, 0, len(candidates))
+	for _, c := range candidates {
+		if c.matches(selector) {
+			eligible = append(eligible, c)
+		}
+	}
+	return eligible
+}
+
+func describe(selector map[string]string) string {
+	keys := make([]string, 0, len(selector))
+	for key := range selector {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	pairs := make([]string, 0, len(keys))
+	for _, key := range keys {
+		pairs = append(pairs, key+"="+selector[key])
+	}
+	return strings.Join(pairs, " ")
+}
+
+func (s *Scheduler) holdUnmatched(ctx context.Context, p Pending) {
+	reason := "no ready node carries " + describe(p.Selector)
+
+	s.log.Info("placement held",
+		"instance", p.ID, "name", p.Name, "selector", describe(p.Selector))
+	if err := s.instances.HoldPlacement(ctx, p.ID, reason); err != nil {
+		s.log.Warn("could not record why a placement was held",
+			"instance", p.ID, "error", err)
+	}
 }
 
 func (s *Scheduler) hold(ctx context.Context, p Pending) {

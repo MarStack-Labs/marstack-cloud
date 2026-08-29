@@ -1,26 +1,29 @@
 package cli
 
 import (
+	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
 
 type instanceView struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Isolation       string `json:"isolation"`
-	Image           string `json:"image"`
-	VCPU            int    `json:"vcpu"`
-	MemoryMiB       int    `json:"memory_mib"`
-	RestartPolicy   string `json:"restart_policy,omitempty"`
-	RestartCount    int    `json:"restart_count,omitempty"`
-	Desired         string `json:"desired_state"`
-	Observed        string `json:"observed_state"`
-	ObservedMessage string `json:"observed_message,omitempty"`
-	NodeID          string `json:"node_id,omitempty"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	NodeSelector    map[string]string `json:"node_selector,omitempty"`
+	Isolation       string            `json:"isolation"`
+	Image           string            `json:"image"`
+	VCPU            int               `json:"vcpu"`
+	MemoryMiB       int               `json:"memory_mib"`
+	RestartPolicy   string            `json:"restart_policy,omitempty"`
+	RestartCount    int               `json:"restart_count,omitempty"`
+	Desired         string            `json:"desired_state"`
+	Observed        string            `json:"observed_state"`
+	ObservedMessage string            `json:"observed_message,omitempty"`
+	NodeID          string            `json:"node_id,omitempty"`
+	CreatedAt       string            `json:"created_at"`
+	UpdatedAt       string            `json:"updated_at"`
 }
 
 type instanceListView struct {
@@ -73,21 +76,23 @@ func newInstanceCmd(g *globals) *cobra.Command {
 
 func newInstanceCreateCmd(g *globals) *cobra.Command {
 	var req struct {
-		Name          string   `json:"name"`
-		Isolation     string   `json:"isolation"`
-		Image         string   `json:"image"`
-		ISO           string   `json:"iso,omitempty"`
-		Kernel        string   `json:"kernel,omitempty"`
-		DiskGiB       int      `json:"disk_gib,omitempty"`
-		FirewallID    string   `json:"firewall_id,omitempty"`
-		Command       []string `json:"command,omitempty"`
-		RestartPolicy string   `json:"restart_policy,omitempty"`
-		VCPU          int      `json:"vcpu,omitempty"`
-		MemoryMiB     int      `json:"memory_mib,omitempty"`
-		Group         string   `json:"placement_group,omitempty"`
-		Strict        bool     `json:"placement_strict,omitempty"`
-		Keys          []string `json:"keys,omitempty"`
+		Name          string            `json:"name"`
+		Isolation     string            `json:"isolation"`
+		Image         string            `json:"image"`
+		ISO           string            `json:"iso,omitempty"`
+		Kernel        string            `json:"kernel,omitempty"`
+		DiskGiB       int               `json:"disk_gib,omitempty"`
+		FirewallID    string            `json:"firewall_id,omitempty"`
+		Command       []string          `json:"command,omitempty"`
+		RestartPolicy string            `json:"restart_policy,omitempty"`
+		VCPU          int               `json:"vcpu,omitempty"`
+		MemoryMiB     int               `json:"memory_mib,omitempty"`
+		Group         string            `json:"placement_group,omitempty"`
+		Strict        bool              `json:"placement_strict,omitempty"`
+		NodeSelector  map[string]string `json:"node_selector,omitempty"`
+		Keys          []string          `json:"keys,omitempty"`
 	}
+	var selectors []string
 
 	cmd := &cobra.Command{
 		Use:   "create [-- command args...]",
@@ -95,6 +100,17 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req.Command = args
+
+			for _, pair := range selectors {
+				key, value, found := strings.Cut(pair, "=")
+				if !found {
+					return errors.New("a node selector is key=value, and " + pair + " has no value")
+				}
+				if req.NodeSelector == nil {
+					req.NodeSelector = map[string]string{}
+				}
+				req.NodeSelector[key] = value
+			}
 
 			var created instanceView
 			if err := g.client().do(
@@ -128,6 +144,8 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 		"instances sharing this name are spread across nodes and zones")
 	cmd.Flags().BoolVar(&req.Strict, "placement-strict", false,
 		"hold this instance pending rather than share a node with its group")
+	cmd.Flags().StringArrayVar(&selectors, "node-selector", nil,
+		"only place on a node carrying key=value, repeatable and combined with and")
 	cmd.Flags().StringArrayVar(&req.Keys, "key", nil,
 		"ssh key to install at first boot, by name; repeat for more, isolation vm only")
 
