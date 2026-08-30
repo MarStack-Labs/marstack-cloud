@@ -39,12 +39,24 @@ done
 
 ip link set lo up 2>/dev/null
 
-if [ -n "$MS_IP" ]; then
-	ip addr add "$MS_IP" dev eth0
-	ip link set eth0 up
-	[ -n "$MS_GW" ] && ip route add "$MS_GW" dev eth0
-	[ -n "$MS_GW" ] && ip route add default via "$MS_GW"
-fi
+device=0
+while [ "$device" -lt "${MS_NICS:-0}" ]; do
+	eval "address=\$MS_IP_$device"
+	eval "gateway=\$MS_GW_$device"
+	link="eth$device"
+
+	if [ -n "$address" ]; then
+		ip addr add "$address" dev "$link"
+		ip link set "$link" up
+
+		if [ -n "$gateway" ]; then
+			ip route add "$gateway" dev "$link"
+			[ "$device" = 0 ] && ip route add default via "$gateway"
+		fi
+	fi
+
+	device=$((device + 1))
+done
 
 if [ -n "$MS_DNS" ]; then
 	printf 'nameserver %s\n' "$MS_DNS" > /etc/resolv.conf
@@ -120,12 +132,18 @@ func writeGuestFiles(staging string, spec workload.Spec, command, env []string) 
 		return fmt.Errorf("write guest command: %w", err)
 	}
 
-	settings := ""
-	if spec.Network != nil {
-		settings += "MS_IP=" + shellQuote(spec.Network.IP+"/"+strconv.Itoa(spec.Network.Prefix)) + "\n"
-		settings += "MS_GW=" + shellQuote(spec.Network.Gateway) + "\n"
-		settings += "MS_DNS=" + shellQuote(spec.Network.Nameserver) + "\n"
-		settings += "MS_SEARCH=" + shellQuote(spec.Network.SearchDomain) + "\n"
+	nics := interfaces(spec)
+
+	settings := "MS_NICS=" + strconv.Itoa(len(nics)) + "\n"
+	for device, cfg := range nics {
+		suffix := strconv.Itoa(device)
+		settings += "MS_IP_" + suffix + "=" +
+			shellQuote(cfg.IP+"/"+strconv.Itoa(cfg.Prefix)) + "\n"
+		settings += "MS_GW_" + suffix + "=" + shellQuote(cfg.Gateway) + "\n"
+	}
+	if len(nics) > 0 {
+		settings += "MS_DNS=" + shellQuote(nics[0].Nameserver) + "\n"
+		settings += "MS_SEARCH=" + shellQuote(nics[0].SearchDomain) + "\n"
 	}
 	settings += "MS_NAME=" + shellQuote(spec.Name) + "\n"
 

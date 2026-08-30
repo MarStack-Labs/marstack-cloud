@@ -9,12 +9,16 @@ import (
 	"strconv"
 )
 
+type nic struct {
+	Tap string
+	MAC string
+}
+
 type bootConfig struct {
 	Kernel     string
 	Cmdline    string
 	Rootfs     string
-	Tap        string
-	MAC        string
+	NICs       []nic
 	VCPU       int
 	MemoryMiB  int
 	SerialSock string
@@ -63,8 +67,8 @@ func (cloudHypervisor) Arguments(cfg bootConfig) ([]string, error) {
 		"--serial", "socket=" + cfg.SerialSock,
 		"--console", "off",
 	}
-	if cfg.Tap != "" {
-		args = append(args, "--net", "tap="+cfg.Tap+",mac="+cfg.MAC)
+	for _, n := range cfg.NICs {
+		args = append(args, "--net", "tap="+n.Tap+",mac="+n.MAC)
 	}
 	return args, nil
 }
@@ -127,8 +131,12 @@ func (firecracker) Arguments(cfg bootConfig) ([]string, error) {
 		}},
 		Machine: machine{VCPUCount: cfg.VCPU, MemSizeMiB: cfg.MemoryMiB},
 	}
-	if cfg.Tap != "" {
-		doc.Interfaces = []iface{{IfaceID: "eth0", HostDevName: cfg.Tap, GuestMAC: cfg.MAC}}
+	for device, n := range cfg.NICs {
+		doc.Interfaces = append(doc.Interfaces, iface{
+			IfaceID:     "eth" + strconv.Itoa(device),
+			HostDevName: n.Tap,
+			GuestMAC:    n.MAC,
+		})
 	}
 
 	encoded, err := json.MarshalIndent(doc, "", "  ")

@@ -488,9 +488,10 @@ make check      # vet + test + security scans
   one constant that only these two use.
 - `interfacesByInstance` returns a slice per instance. It used to be `map[string]*NetworkConfig`,
   where a second NIC silently overwrote the first - the map key is the instance, not the interface.
-- Extra NICs are attached by the container and qemu runtimes. Cloud Hypervisor and Firecracker each
-  still need a second netdev plus guest configuration, so a microvm or sandbox asking for two
-  networks gets both addresses allocated and one interface.
+- Every isolation attaches extra NICs now. The three VMM paths differ only in how an interface is
+  declared: qemu repeats `-netdev`/`-device`, Cloud Hypervisor repeats `--net`, and Firecracker
+  grows its `network-interfaces` array. All three take the mac of **that** device; one mac across
+  two virtual NICs is a bridge loop, and it is a mutation test in each.
 - A vm gets one tap and one `-netdev`/`-device` pair per interface, with device 0 keeping the tap
   name it always had. Reusing one mac across two `virtio-net-pci` devices is a bridge loop, so
   `macOf` reads the mac of that device rather than of the primary.
@@ -504,6 +505,13 @@ make check      # vet + test + security scans
 - Do not write that route as `to: <address>/<prefix>`. The guest address has host bits set, netplan
   refuses the file, and **every** interface including eth0 is then left unconfigured - a wrong
   route on eth1 takes the whole guest off the network. Found live; both forms are now tested.
+- The microvm guest init already had the right shape for one interface, including the link route to
+  the gateway. It now loops over `MS_NICS` reading `MS_IP_n` and `MS_GW_n`, and only device 0 adds
+  the default route. `MS_DNS` and `MS_SEARCH` stay singular and come from device 0 - two resolvers
+  in one `resolv.conf` leaves which one answers to the guest.
+- A microvm or sandbox interface can take a while to come up. A dual-NIC sandbox looked like it had
+  a broken eth0 for a minute and then answered; before concluding a VMM path is broken, build the
+  single-NIC control of the same isolation and give both the same time.
 - A network is IPv4 **or** IPv6, never both. Dual stack means every address question in the platform
   gets two answers, and dns, forwards, balancers and firewalls all ask it; one family per network
   keeps that question single-valued, and an instance can still sit on one of each through multi-NIC.

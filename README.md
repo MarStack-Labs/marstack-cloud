@@ -881,9 +881,21 @@ has host bits set, netplan refuses the file, and *every* interface including eth
 is left unconfigured. A wrong route on eth1 takes the whole guest off the network.
 Both forms are tested now.
 
-**Microvms and sandboxes still get one interface.** Cloud Hypervisor and
-Firecracker each need a second netdev plus guest-side configuration; the addresses
-are allocated either way.
+Microvms and sandboxes too. The three VMM paths differ only in how an interface
+is declared:
+
+| | how a second interface is added |
+|---|---|
+| qemu | another `-netdev` / `-device virtio-net-pci` pair |
+| Cloud Hypervisor | another `--net tap=…,mac=…` |
+| Firecracker | another entry in `network-interfaces` |
+
+Each takes the mac of *that* device. The guest side differs too: a vm gets
+cloud-init, while a microvm's init script loops over `MS_NICS` and reads
+`MS_IP_n` / `MS_GW_n`. Only device 0 adds a default route, and the resolver stays
+singular either way.
+
+Checked live on all four isolations, both interfaces answering.
 
 ## Terminating TLS at the balancer
 
@@ -1907,7 +1919,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 43  per caller api rate limiting                      done
 44  resize an instance's cpu and memory               done
 45  tls termination on a balancer                     done
-46  more than one network per instance                done (containers, vms)
+46  more than one network per instance                done
 47  ipv6 networks                                     done
 ```
 

@@ -71,7 +71,8 @@ func TestFirecrackerWritesAConfigFile(t *testing.T) {
 	config := filepath.Join(dir, "config.json")
 
 	args, err := Firecracker().Arguments(bootConfig{
-		Kernel: "/k", Cmdline: "console=ttyS0", Rootfs: "/r", Tap: "mst-a", MAC: "02:00:00:00:00:01",
+		Kernel: "/k", Cmdline: "console=ttyS0", Rootfs: "/r",
+		NICs: []nic{{Tap: "mst-a", MAC: "02:00:00:00:00:01"}},
 		VCPU: 2, MemoryMiB: 256, ConfigFile: config,
 	})
 	if err != nil {

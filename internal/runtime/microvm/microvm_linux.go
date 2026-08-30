@@ -167,7 +167,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
-	tap, mac, err := r.prepareNetwork(spec)
+	nics, err := r.prepareNetwork(spec)
 	if err != nil {
 		return err
 	}
@@ -180,8 +180,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		Kernel:     kernel,
 		Cmdline:    cmdline(time.Now(), r.vmm.ConsoleDevice()),
 		Rootfs:     r.rootfsFile(spec.InstanceID),
-		Tap:        tap,
-		MAC:        mac,
+		NICs:       nics,
 		VCPU:       spec.VCPU,
 		MemoryMiB:  spec.MemoryMiB,
 		SerialSock: r.serialSocket(spec.InstanceID),
@@ -238,7 +237,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		"pid", cmd.Process.Pid,
 		"vcpu", spec.VCPU,
 		"memory_mib", spec.MemoryMiB,
-		"tap", tap,
+		"taps", len(nics),
 	)
 	return nil
 }
@@ -255,23 +254,31 @@ func cmdline(now time.Time, console string) string {
 	}, " ")
 }
 
-func (r *Runtime) prepareNetwork(spec workload.Spec) (string, string, error) {
+func interfaces(spec workload.Spec) []workload.NetworkConfig {
 	if spec.Network == nil {
-		return "", "", nil
+		return nil
 	}
+	return append([]workload.NetworkConfig{*spec.Network}, spec.Extra...)
+}
 
-	if err := netdev.EnsureBridge(spec.Network.Bridge, spec.Network.BridgeAddr); err != nil {
-		return "", "", err
-	}
-	if err := netdev.EnsureEgress(spec.Network.Bridge, spec.Network.BridgeAddr); err != nil {
-		return "", "", err
-	}
+func (r *Runtime) prepareNetwork(spec workload.Spec) ([]nic, error) {
+	built := make([]nic, 0, len(interfaces(spec)))
 
-	tap := netdev.TapName(spec.InstanceID, 0)
-	if err := netdev.EnsureTap(tap, spec.Network.Bridge); err != nil {
-		return "", "", err
+	for device, cfg := range interfaces(spec) {
+		if err := netdev.EnsureBridge(cfg.Bridge, cfg.BridgeAddr); err != nil {
+			return nil, err
+		}
+		if err := netdev.EnsureEgress(cfg.Bridge, cfg.BridgeAddr); err != nil {
+			return nil, err
+		}
+
+		tap := netdev.TapName(spec.InstanceID, device)
+		if err := netdev.EnsureTap(tap, cfg.Bridge); err != nil {
+			return nil, err
+		}
+		built = append(built, nic{Tap: tap, MAC: cfg.MAC})
 	}
-	return tap, spec.Network.MAC, nil
+	return built, nil
 }
 
 func (r *Runtime) reap(instanceID string, entry *tracked) {
@@ -391,8 +398,10 @@ func (r *Runtime) Remove(ctx context.Context, instanceID string) error {
 	delete(r.running, instanceID)
 	r.mu.Unlock()
 
-	if err := netdev.DeleteLink(netdev.TapName(instanceID, 0)); err != nil {
-		return err
+	for device := range netdev.MaxDevices {
+		if err := netdev.DeleteLink(netdev.TapName(instanceID, device)); err != nil {
+			return err
+		}
 	}
 	if err := os.RemoveAll(r.instanceDir(instanceID)); err != nil {
 		return fmt.Errorf("remove instance directory: %w", err)
