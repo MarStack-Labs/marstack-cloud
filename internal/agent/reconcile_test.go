@@ -87,7 +87,7 @@ func (f *fakeRuntime) removals() []string {
 type fakeResolver struct {
 	mu       sync.Mutex
 	listened []string
-	zone     map[string]string
+	zone     map[string][]string
 }
 
 func (f *fakeResolver) Listen(_ context.Context, address string) error {
@@ -97,13 +97,13 @@ func (f *fakeResolver) Listen(_ context.Context, address string) error {
 	return nil
 }
 
-func (f *fakeResolver) Update(records map[string]string) {
+func (f *fakeResolver) Update(records map[string][]string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.zone = records
 }
 
-func (f *fakeResolver) snapshotZone() map[string]string {
+func (f *fakeResolver) snapshotZone() map[string][]string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.zone
@@ -760,7 +760,7 @@ func TestReconcileServesTheZoneOnEachGateway(t *testing.T) {
 	}
 
 	zone := res.snapshotZone()
-	if zone["web-2.default.internal"] != "10.20.0.130" {
+	if held := zone["web-2.default.internal"]; len(held) != 1 || held[0] != "10.20.0.130" {
 		t.Fatalf("zone = %v, want a record for a workload on another node", zone)
 	}
 }

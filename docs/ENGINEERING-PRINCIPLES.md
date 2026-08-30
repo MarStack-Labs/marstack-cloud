@@ -512,9 +512,12 @@ make check      # vet + test + security scans
 - A microvm or sandbox interface can take a while to come up. A dual-NIC sandbox looked like it had
   a broken eth0 for a minute and then answered; before concluding a VMM path is broken, build the
   single-NIC control of the same isolation and give both the same time.
-- A network is IPv4 **or** IPv6, never both. Dual stack means every address question in the platform
-  gets two answers, and dns, forwards, balancers and firewalls all ask it; one family per network
-  keeps that question single-valued, and an instance can still sit on one of each through multi-NIC.
+- A network has one range per **family**: `cidr` and optionally `cidr6` of the other family. The
+  first is the primary and is what dns A records, published ports, balancers and firewalls read;
+  the second is additional. That is the same containment as device 0 in multi-NIC - "the instance's
+  address" stays single-valued, and dual stack is a second address rather than a second answer.
+- The second range must be the other family. Two v4 ranges on one network would make "the address"
+  ambiguous again for no gain, since a second v4 range is a second network.
 - IPv6 networks must be under `fc00::/7`. Handing instances a globally routable prefix this
   platform allocated for you is not a default anyone should get by typing a cidr.
 - The slice is /26 for v4 and /64 for v6. A v6 subnet smaller than /64 breaks SLAAC and is the kind
@@ -530,6 +533,9 @@ make check      # vet + test + security scans
   made it.
 - A balancer whose backends are not all one family renders nothing. One nftables map holds one
   address type, so the alternative is a rule that will not load.
+- One name can now hold an address per family and `Resolver.Update` takes `map[string][]string`.
+  `pick` chooses by query type, so an AAAA query against a v4-only name gets an empty answer rather
+  than the v4 address - answering with the wrong family sends a client somewhere it cannot reach.
 - `Resolver.Update` used to drop every address that was not v4, which is why an IPv6 instance
   answered NXDOMAIN with a perfectly good record in the control plane. It now keeps both and
   `answer` emits A or AAAA to match; a v4 address written as v6 is still dropped, because it would

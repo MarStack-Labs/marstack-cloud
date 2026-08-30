@@ -66,6 +66,7 @@ type nicView struct {
 	InstanceID string `json:"instance_id"`
 	Device     int    `json:"device"`
 	IP         string `json:"ip"`
+	IP6        string `json:"ip6,omitempty"`
 	MAC        string `json:"mac"`
 }
 
@@ -80,7 +81,10 @@ type networkView struct {
 	Bridge    string     `json:"bridge"`
 	CIDR      string     `json:"cidr"`
 	Gateway   string     `json:"gateway"`
+	CIDR6     string     `json:"cidr6,omitempty"`
+	Gateway6  string     `json:"gateway6,omitempty"`
 	Slice     string     `json:"slice"`
+	Slice6    string     `json:"slice6,omitempty"`
 	NICs      []nicView  `json:"nics"`
 	Peers     []peerView `json:"peers"`
 }

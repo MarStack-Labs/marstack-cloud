@@ -158,6 +158,26 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  18,
 			SQL:    `CREATE UNIQUE INDEX nics_device_unique ON nics (instance_id, device)`,
 		},
+		{
+			Module: "network",
+			Index:  19,
+			SQL:    `ALTER TABLE networks ADD COLUMN cidr6 TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "network",
+			Index:  20,
+			SQL:    `ALTER TABLE networks ADD COLUMN gateway6 TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "network",
+			Index:  21,
+			SQL:    `ALTER TABLE node_slices ADD COLUMN cidr6 TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "network",
+			Index:  22,
+			SQL:    `ALTER TABLE nics ADD COLUMN ip6 TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -205,6 +225,10 @@ func (m *Module) NICOf(ctx context.Context, instanceID string) (NIC, error) {
 
 func (m *Module) AllAddresses(ctx context.Context) (map[string]string, error) {
 	return m.svc.allAddresses(ctx)
+}
+
+func (m *Module) AllAddresses6(ctx context.Context) (map[string]string, error) {
+	return m.svc.allAddresses6(ctx)
 }
 
 func (m *Module) NetworkNames(ctx context.Context) (map[string]string, error) {

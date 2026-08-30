@@ -226,11 +226,16 @@ func (r *Runtime) prepareNetwork(spec workload.Spec) error {
 		return nil
 	}
 	for _, cfg := range append([]workload.NetworkConfig{*spec.Network}, spec.Extra...) {
-		if err := netdev.EnsureBridge(cfg.Bridge, cfg.BridgeAddr); err != nil {
-			return err
-		}
-		if err := netdev.EnsureEgress(cfg.Bridge, cfg.BridgeAddr); err != nil {
-			return err
+		for _, address := range []string{cfg.BridgeAddr, cfg.BridgeAddr6} {
+			if address == "" {
+				continue
+			}
+			if err := netdev.EnsureBridge(cfg.Bridge, address); err != nil {
+				return err
+			}
+			if err := netdev.EnsureEgress(cfg.Bridge, address); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -249,6 +254,9 @@ func (r *Runtime) attachNetwork(spec workload.Spec, pid int) error {
 			IP:         cfg.IP,
 			Prefix:     cfg.Prefix,
 			Gateway:    cfg.Gateway,
+			IP6:        cfg.IP6,
+			Prefix6:    cfg.Prefix6,
+			Gateway6:   cfg.Gateway6,
 			MAC:        cfg.MAC,
 			Device:     device,
 		}); err != nil {

@@ -19,14 +19,21 @@ type Network struct {
 	Name      string
 	CIDR      string
 	Gateway   string
+	CIDR6     string
+	Gateway6  string
 	Bridge    string
 	CreatedAt time.Time
+}
+
+func (n Network) DualStack() bool {
+	return n.CIDR6 != ""
 }
 
 type Slice struct {
 	NetworkID string
 	NodeID    string
 	CIDR      string
+	CIDR6     string
 	CreatedAt time.Time
 }
 
@@ -36,6 +43,7 @@ type NIC struct {
 	Device     int
 	NodeID     string
 	IP         string
+	IP6        string
 	MAC        string
 	CreatedAt  time.Time
 }
@@ -46,4 +54,5 @@ type CreateParams struct {
 	ProjectID string
 	Name      string
 	CIDR      string
+	CIDR6     string
 }

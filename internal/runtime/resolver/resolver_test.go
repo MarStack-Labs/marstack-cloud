@@ -31,8 +31,13 @@ func query(name string, qtype uint16) []byte {
 func newTestResolver(t *testing.T, records map[string]string) (*Resolver, string) {
 	t.Helper()
 
+	zone := make(map[string][]string, len(records))
+	for name, ip := range records {
+		zone[name] = []string{ip}
+	}
+
 	r := New(logging.New("error", io.Discard))
-	r.Update(records)
+	r.Update(zone)
 	t.Cleanup(r.Close)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -133,7 +138,7 @@ func TestIPv6QueryForAKnownNameIsEmptyNotAnError(t *testing.T) {
 func TestUpdateReplacesTheZone(t *testing.T) {
 	r, addr := newTestResolver(t, map[string]string{"web-1.default.internal": "10.20.0.65"})
 
-	r.Update(map[string]string{"web-2.default.internal": "10.20.0.66"})
+	r.Update(map[string][]string{"web-2.default.internal": {"10.20.0.66"}})
 
 	gone := ask(t, addr, query("web-1.default.internal", typeA))
 	if rcode := binary.BigEndian.Uint16(gone[2:4]) & 0x000F; rcode != rcodeNameError {
@@ -148,10 +153,10 @@ func TestUpdateReplacesTheZone(t *testing.T) {
 
 func TestUpdateIgnoresUnusableAddresses(t *testing.T) {
 	r := New(logging.New("error", io.Discard))
-	r.Update(map[string]string{
-		"good.default.internal":   "10.20.0.65",
-		"bad.default.internal":    "not-an-address",
-		"mapped.default.internal": "::ffff:10.20.0.66",
+	r.Update(map[string][]string{
+		"good.default.internal":   {"10.20.0.65"},
+		"bad.default.internal":    {"not-an-address"},
+		"mapped.default.internal": {"::ffff:10.20.0.66"},
 	})
 
 	r.mu.RLock()
@@ -207,9 +212,9 @@ func TestDiscoverUpstreamsNeverReturnsLoopback(t *testing.T) {
 
 func TestAnIPv6RecordIsKeptAndAnsweredAsAAAA(t *testing.T) {
 	r := New(logging.New("error", io.Discard))
-	r.Update(map[string]string{
-		"four.default.internal": "10.20.0.5",
-		"six.sixnet.internal":   "fd00:dead:beef:1::2",
+	r.Update(map[string][]string{
+		"four.default.internal": {"10.20.0.5"},
+		"six.sixnet.internal":   {"fd00:dead:beef:1::2"},
 	})
 
 	r.mu.RLock()
@@ -217,11 +222,54 @@ func TestAnIPv6RecordIsKeptAndAnsweredAsAAAA(t *testing.T) {
 	six, hasSix := r.records["six.sixnet.internal"]
 	r.mu.RUnlock()
 
+	if hasSix && len(six) != 1 {
+		t.Fatalf("six = %v, want one address", six)
+	}
+
 	if held != 2 {
 		t.Fatalf("records = %d, want both: dropping every non-v4 address is why an IPv6 "+
 			"instance answered NXDOMAIN", held)
 	}
-	if !hasSix || !six.Is6() {
+	if !hasSix || !six[0].Is6() {
 		t.Fatalf("six = %v, want the v6 address kept", six)
+	}
+}
+
+func TestOneNameCanCarryBothFamilies(t *testing.T) {
+	r := New(logging.New("error", io.Discard))
+	r.Update(map[string][]string{
+		"dual.default.internal": {"10.20.0.5", "fd00:dead::5"},
+	})
+
+	r.mu.RLock()
+	held := r.records["dual.default.internal"]
+	r.mu.RUnlock()
+
+	if len(held) != 2 {
+		t.Fatalf("records = %v, want both addresses kept for one name", held)
+	}
+
+	four, okFour := pick(held, typeA)
+	if !okFour || !four.Is4() {
+		t.Fatalf("an A query got %v", four)
+	}
+
+	six, okSix := pick(held, typeAAAA)
+	if !okSix || !six.Is6() {
+		t.Fatalf("an AAAA query got %v", six)
+	}
+}
+
+func TestAQueryForAFamilyTheNameDoesNotHaveIsEmptyNotWrong(t *testing.T) {
+	r := New(logging.New("error", io.Discard))
+	r.Update(map[string][]string{"four.default.internal": {"10.20.0.5"}})
+
+	r.mu.RLock()
+	held := r.records["four.default.internal"]
+	r.mu.RUnlock()
+
+	if _, ok := pick(held, typeAAAA); ok {
+		t.Fatal("an AAAA query was answered from a v4 record, which sends a client to an " +
+			"address it cannot reach")
 	}
 }

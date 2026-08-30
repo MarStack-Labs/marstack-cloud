@@ -6,6 +6,8 @@ type networkView struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	CIDR      string `json:"cidr"`
+	CIDR6     string `json:"cidr6,omitempty"`
+	Gateway6  string `json:"gateway6,omitempty"`
 	Gateway   string `json:"gateway"`
 	Bridge    string `json:"bridge"`
 	CreatedAt string `json:"created_at"`
@@ -15,10 +17,14 @@ type networkListView struct {
 	Networks []networkView `json:"networks"`
 }
 
-var networkHeaders = []string{"NAME", "ID", "CIDR", "GATEWAY", "BRIDGE"}
+var networkHeaders = []string{"NAME", "ID", "CIDR", "GATEWAY", "SECOND RANGE", "BRIDGE"}
 
 func networkRow(n networkView) []string {
-	return []string{n.Name, n.ID, n.CIDR, n.Gateway, n.Bridge}
+	second := n.CIDR6
+	if second == "" {
+		second = "-"
+	}
+	return []string{n.Name, n.ID, n.CIDR, n.Gateway, second, n.Bridge}
 }
 
 func newNetworkCmd(g *globals) *cobra.Command {
@@ -33,8 +39,9 @@ func newNetworkCmd(g *globals) *cobra.Command {
 
 func newNetworkCreateCmd(g *globals) *cobra.Command {
 	var req struct {
-		Name string `json:"name"`
-		CIDR string `json:"cidr,omitempty"`
+		Name  string `json:"name"`
+		CIDR  string `json:"cidr,omitempty"`
+		CIDR6 string `json:"cidr6,omitempty"`
 	}
 
 	cmd := &cobra.Command{
@@ -55,6 +62,8 @@ func newNetworkCreateCmd(g *globals) *cobra.Command {
 
 	cmd.Flags().StringVar(&req.Name, "name", "", "network name, unique within the platform")
 	cmd.Flags().StringVar(&req.CIDR, "cidr", "", "address range, must not overlap another network")
+	cmd.Flags().StringVar(&req.CIDR6, "cidr6", "",
+		"a second range of the other family, so every instance takes one address from each")
 	must(cmd.MarkFlagRequired("name"))
 
 	return cmd

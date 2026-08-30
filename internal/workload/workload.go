@@ -17,9 +17,13 @@ const (
 type NetworkConfig struct {
 	Bridge       string
 	BridgeAddr   string
+	BridgeAddr6  string
 	IP           string
 	Prefix       int
 	Gateway      string
+	IP6          string
+	Prefix6      int
+	Gateway6     string
 	MAC          string
 	Nameserver   string
 	SearchDomain string
@@ -97,6 +101,7 @@ type Filter struct {
 	Isolation  string
 	Bridge     string
 	IP         string
+	IP6        string
 	MAC        string
 	Device     int
 }
@@ -125,8 +130,9 @@ type Guard struct {
 }
 
 type Egress struct {
-	Bridge  string
-	Gateway string
+	Bridge   string
+	Gateway  string
+	Gateway6 string
 }
 
 type Datapath interface {
@@ -140,7 +146,7 @@ type Datapath interface {
 
 type Resolver interface {
 	Listen(ctx context.Context, address string) error
-	Update(records map[string]string)
+	Update(records map[string][]string)
 }
 
 type Sample struct {

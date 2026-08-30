@@ -784,11 +784,33 @@ guest-side assumes the standard. Address arithmetic is byte-wise now, so the sam
 allocator serves both families, and the last address of a slice is only reserved
 for v4, which is the family that has a broadcast.
 
-**A network is one family or the other, never both.** Dual stack means every
-"what is this instance's address" question gets two answers, and DNS, published
-ports, balancers and firewalls all ask it. One family per network keeps that
-answer single-valued — and an instance can still sit on one of each, because it
-can have more than one interface.
+**A network can be dual stack**, with a second range of the other family:
+
+```sh
+marstack network create --name dualnet \
+  --cidr 10.98.0.0/16 --cidr6 fd00:beef:1::/48
+```
+
+```
+# one interface, one address from each
+eth0  inet  10.98.0.65/26
+eth0  inet6 fd00:beef:1:1::1/64
+
+default via 10.98.0.1      dev eth0
+default via fd00:beef:1::1 dev eth0
+
+# one name, an answer per query type
+A     dualbox.dualnet.internal -> 10.98.0.65
+AAAA  dualbox.dualnet.internal -> fd00:beef:1:1::1
+```
+
+The first range stays **the** address: published ports, balancers and firewalls
+read it, and so does the A record. The second is additional. That is the same
+containment as device 0 in multi-NIC — "what is this instance's address" keeps one
+answer, and dual stack adds an address rather than an ambiguity.
+
+The second range must be the other family. Two v4 ranges on one network would
+bring the ambiguity back for nothing, since a second v4 range is a second network.
 
 **Rules are rendered in the family of their address.** `ip daddr <v6 address>` is
 a syntax error, and a ruleset that fails to load takes *every* instance's rules
@@ -1940,6 +1962,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 45  tls termination on a balancer                     done
 46  more than one network per instance                done
 47  ipv6 networks                                     done
+48  dual stack networks                               done
 ```
 
 ## License

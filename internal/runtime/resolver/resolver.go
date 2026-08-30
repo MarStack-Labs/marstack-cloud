@@ -24,7 +24,7 @@ type Resolver struct {
 	log *slog.Logger
 
 	mu        sync.RWMutex
-	records   map[string]netip.Addr
+	records   map[string][]netip.Addr
 	upstreams []string
 	listeners map[string]*net.UDPConn
 }
@@ -32,25 +32,41 @@ type Resolver struct {
 func New(log *slog.Logger) *Resolver {
 	return &Resolver{
 		log:       log,
-		records:   map[string]netip.Addr{},
+		records:   map[string][]netip.Addr{},
 		listeners: map[string]*net.UDPConn{},
 		upstreams: discoverUpstreams(),
 	}
 }
 
-func (r *Resolver) Update(records map[string]string) {
-	parsed := make(map[string]netip.Addr, len(records))
-	for name, ip := range records {
-		addr, err := netip.ParseAddr(ip)
-		if err != nil || addr.Is4In6() {
-			continue
+func (r *Resolver) Update(records map[string][]string) {
+	parsed := make(map[string][]netip.Addr, len(records))
+	for name, addresses := range records {
+		key := strings.ToLower(strings.TrimSuffix(name, "."))
+
+		for _, ip := range addresses {
+			addr, err := netip.ParseAddr(ip)
+			if err != nil || addr.Is4In6() {
+				continue
+			}
+			parsed[key] = append(parsed[key], addr)
 		}
-		parsed[strings.ToLower(strings.TrimSuffix(name, "."))] = addr
 	}
 
 	r.mu.Lock()
 	r.records = parsed
 	r.mu.Unlock()
+}
+
+func pick(held []netip.Addr, qtype uint16) (netip.Addr, bool) {
+	for _, addr := range held {
+		if qtype == typeA && addr.Is4() {
+			return addr, true
+		}
+		if qtype == typeAAAA && addr.Is6() {
+			return addr, true
+		}
+	}
+	return netip.Addr{}, false
 }
 
 func (r *Resolver) Listen(ctx context.Context, address string) error {
@@ -134,13 +150,15 @@ func (r *Resolver) handle(conn *net.UDPConn, from *net.UDPAddr, query []byte) {
 	}
 
 	r.mu.RLock()
-	addr, known := r.records[q.name]
+	held, known := r.records[q.name]
 	r.mu.RUnlock()
+
+	addr, servable := pick(held, q.qtype)
 
 	switch {
 	case !known:
 		_, _ = conn.WriteToUDP(emptyAnswer(query, q, rcodeNameError), from)
-	case q.qtype == typeA && addr.Is4(), q.qtype == typeAAAA && addr.Is6():
+	case servable:
 		_, _ = conn.WriteToUDP(answer(query, q, addr), from)
 	default:
 		_, _ = conn.WriteToUDP(emptyAnswer(query, q, 0), from)

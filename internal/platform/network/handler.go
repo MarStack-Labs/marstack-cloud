@@ -9,14 +9,17 @@ import (
 )
 
 type createRequest struct {
-	Name string `json:"name"`
-	CIDR string `json:"cidr,omitempty"`
+	Name  string `json:"name"`
+	CIDR  string `json:"cidr,omitempty"`
+	CIDR6 string `json:"cidr6,omitempty"`
 }
 
 type response struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	CIDR      string `json:"cidr"`
+	CIDR6     string `json:"cidr6,omitempty"`
+	Gateway6  string `json:"gateway6,omitempty"`
 	Gateway   string `json:"gateway"`
 	Bridge    string `json:"bridge"`
 	CreatedAt string `json:"created_at"`
@@ -30,6 +33,7 @@ type nicResponse struct {
 	InstanceID string `json:"instance_id"`
 	Device     int    `json:"device"`
 	IP         string `json:"ip"`
+	IP6        string `json:"ip6,omitempty"`
 	MAC        string `json:"mac"`
 }
 
@@ -44,7 +48,10 @@ type nodeNetworkResponse struct {
 	Bridge    string         `json:"bridge"`
 	CIDR      string         `json:"cidr"`
 	Gateway   string         `json:"gateway"`
+	CIDR6     string         `json:"cidr6,omitempty"`
+	Gateway6  string         `json:"gateway6,omitempty"`
 	Slice     string         `json:"slice"`
+	Slice6    string         `json:"slice6,omitempty"`
 	NICs      []nicResponse  `json:"nics"`
 	Peers     []peerResponse `json:"peers"`
 }
@@ -58,6 +65,8 @@ func toResponse(n Network) response {
 		ID:        n.ID,
 		Name:      n.Name,
 		CIDR:      n.CIDR,
+		CIDR6:     n.CIDR6,
+		Gateway6:  n.Gateway6,
 		Gateway:   n.Gateway,
 		Bridge:    n.Bridge,
 		CreatedAt: n.CreatedAt.Format(time.RFC3339Nano),
@@ -78,6 +87,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		ProjectID: scope.From(r.Context()).ProjectID,
 		Name:      req.Name,
 		CIDR:      req.CIDR,
+		CIDR6:     req.CIDR6,
 	})
 	if err != nil {
 		return err
@@ -125,7 +135,10 @@ func (h *handler) nodeView(w http.ResponseWriter, r *http.Request) error {
 			Bridge:    v.Network.Bridge,
 			CIDR:      v.Network.CIDR,
 			Gateway:   v.Network.Gateway,
+			CIDR6:     v.Network.CIDR6,
+			Gateway6:  v.Network.Gateway6,
 			Slice:     v.Slice.CIDR,
+			Slice6:    v.Slice.CIDR6,
 			NICs:      make([]nicResponse, 0, len(v.NICs)),
 			Peers:     make([]peerResponse, 0, len(v.Peers)),
 		}
@@ -134,6 +147,7 @@ func (h *handler) nodeView(w http.ResponseWriter, r *http.Request) error {
 				InstanceID: nic.InstanceID,
 				Device:     nic.Device,
 				IP:         nic.IP,
+				IP6:        nic.IP6,
 				MAC:        nic.MAC,
 			})
 		}

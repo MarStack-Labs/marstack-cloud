@@ -25,6 +25,7 @@ type InstanceSource interface {
 
 type AddressSource interface {
 	AllAddresses(ctx context.Context) (map[string]string, error)
+	AllAddresses6(ctx context.Context) (map[string]string, error)
 	NetworkNames(ctx context.Context) (map[string]string, error)
 }
 
@@ -90,6 +91,11 @@ func (m *Module) Records(ctx context.Context) ([]Record, error) {
 		return nil, err
 	}
 
+	second, err := m.addresses.AllAddresses6(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	networks, err := m.addresses.NetworkNames(ctx)
 	if err != nil {
 		return nil, err
@@ -105,12 +111,19 @@ func (m *Module) Records(ctx context.Context) ([]Record, error) {
 		if !named {
 			continue
 		}
-		records = append(records, Record{
-			FQDN: strings.Join([]string{in.Name, zone, Suffix}, "."),
-			IP:   ip,
-		})
+		fqdn := strings.Join([]string{in.Name, zone, Suffix}, ".")
+		records = append(records, Record{FQDN: fqdn, IP: ip})
+
+		if ip6, dual := second[in.ID]; dual {
+			records = append(records, Record{FQDN: fqdn, IP: ip6})
+		}
 	}
 
-	sort.Slice(records, func(i, j int) bool { return records[i].FQDN < records[j].FQDN })
+	sort.Slice(records, func(i, j int) bool {
+		if records[i].FQDN != records[j].FQDN {
+			return records[i].FQDN < records[j].FQDN
+		}
+		return records[i].IP < records[j].IP
+	})
 	return records, nil
 }

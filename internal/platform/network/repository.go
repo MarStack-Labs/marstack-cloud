@@ -17,7 +17,7 @@ var (
 	errCIDRTaken = errors.New("address already allocated")
 )
 
-const networkColumns = `id, project_id, name, cidr, gateway, bridge, created_at`
+const networkColumns = `id, project_id, name, cidr, gateway, cidr6, gateway6, bridge, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -29,8 +29,8 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insertNetwork(ctx context.Context, n Network) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO networks (`+networkColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		n.ID, n.ProjectID, n.Name, n.CIDR, n.Gateway, n.Bridge,
+		`INSERT INTO networks (`+networkColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.ID, n.ProjectID, n.Name, n.CIDR, n.Gateway, n.CIDR6, n.Gateway6, n.Bridge,
 		n.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -103,7 +103,7 @@ func (r *repository) listNetworksIn(ctx context.Context, projectID string) ([]Ne
 
 func (r *repository) slice(ctx context.Context, networkID, nodeID string) (Slice, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT network_id, node_id, cidr, created_at FROM node_slices WHERE network_id = ? AND node_id = ?`,
+		`SELECT network_id, node_id, cidr, cidr6, created_at FROM node_slices WHERE network_id = ? AND node_id = ?`,
 		networkID, nodeID,
 	)
 
@@ -111,7 +111,7 @@ func (r *repository) slice(ctx context.Context, networkID, nodeID string) (Slice
 		s          Slice
 		createdRaw string
 	)
-	if err := row.Scan(&s.NetworkID, &s.NodeID, &s.CIDR, &createdRaw); err != nil {
+	if err := row.Scan(&s.NetworkID, &s.NodeID, &s.CIDR, &s.CIDR6, &createdRaw); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Slice{}, errNotFound
 		}
@@ -144,9 +144,47 @@ func (r *repository) takenSlices(ctx context.Context, networkID string) (map[str
 	return taken, rows.Err()
 }
 
+func (r *repository) takenSlices6(ctx context.Context, networkID string) (map[string]bool, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT cidr6 FROM node_slices WHERE network_id = ? AND cidr6 != ''`, networkID)
+	if err != nil {
+		return nil, fmt.Errorf("list second slices: %w", err)
+	}
+	defer rows.Close()
+
+	taken := map[string]bool{}
+	for rows.Next() {
+		var cidr string
+		if err := rows.Scan(&cidr); err != nil {
+			return nil, fmt.Errorf("scan second slice: %w", err)
+		}
+		taken[cidr] = true
+	}
+	return taken, rows.Err()
+}
+
+func (r *repository) takenAddresses6(ctx context.Context, networkID string) (map[string]bool, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT ip6 FROM nics WHERE network_id = ? AND ip6 != ''`, networkID)
+	if err != nil {
+		return nil, fmt.Errorf("list second addresses: %w", err)
+	}
+	defer rows.Close()
+
+	taken := map[string]bool{}
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err != nil {
+			return nil, fmt.Errorf("scan second address: %w", err)
+		}
+		taken[ip] = true
+	}
+	return taken, rows.Err()
+}
+
 func (r *repository) slicesExcept(ctx context.Context, networkID, nodeID string) ([]Slice, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT network_id, node_id, cidr, created_at FROM node_slices
+		`SELECT network_id, node_id, cidr, cidr6, created_at FROM node_slices
 		 WHERE network_id = ? AND node_id != ? ORDER BY cidr`,
 		networkID, nodeID,
 	)
@@ -161,7 +199,7 @@ func (r *repository) slicesExcept(ctx context.Context, networkID, nodeID string)
 			s          Slice
 			createdRaw string
 		)
-		if err := rows.Scan(&s.NetworkID, &s.NodeID, &s.CIDR, &createdRaw); err != nil {
+		if err := rows.Scan(&s.NetworkID, &s.NodeID, &s.CIDR, &s.CIDR6, &createdRaw); err != nil {
 			return nil, fmt.Errorf("scan peer slice: %w", err)
 		}
 		created, err := time.Parse(time.RFC3339Nano, createdRaw)
@@ -176,8 +214,9 @@ func (r *repository) slicesExcept(ctx context.Context, networkID, nodeID string)
 
 func (r *repository) insertSlice(ctx context.Context, s Slice) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO node_slices (network_id, node_id, cidr, created_at) VALUES (?, ?, ?, ?)`,
-		s.NetworkID, s.NodeID, s.CIDR, s.CreatedAt.Format(time.RFC3339Nano),
+		`INSERT INTO node_slices (network_id, node_id, cidr, cidr6, created_at)
+			VALUES (?, ?, ?, ?, ?)`,
+		s.NetworkID, s.NodeID, s.CIDR, s.CIDR6, s.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -216,7 +255,7 @@ func (r *repository) deleteNetwork(ctx context.Context, id string) error {
 
 func (r *repository) nic(ctx context.Context, instanceID string) (NIC, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT instance_id, network_id, device, node_id, ip, mac, created_at
+		`SELECT instance_id, network_id, device, node_id, ip, ip6, mac, created_at
 		 FROM nics WHERE instance_id = ? ORDER BY device LIMIT 1`,
 		instanceID,
 	)
@@ -228,7 +267,7 @@ func scanNICRow(row *sql.Row) (NIC, error) {
 		n          NIC
 		createdRaw string
 	)
-	if err := row.Scan(&n.InstanceID, &n.NetworkID, &n.Device, &n.NodeID, &n.IP, &n.MAC, &createdRaw); err != nil {
+	if err := row.Scan(&n.InstanceID, &n.NetworkID, &n.Device, &n.NodeID, &n.IP, &n.IP6, &n.MAC, &createdRaw); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return NIC{}, errNotFound
 		}
@@ -263,9 +302,9 @@ func (r *repository) takenAddresses(ctx context.Context, networkID string) (map[
 
 func (r *repository) insertNIC(ctx context.Context, n NIC) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO nics (instance_id, network_id, device, node_id, ip, mac, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		n.InstanceID, n.NetworkID, n.Device, n.NodeID, n.IP, n.MAC,
+		`INSERT INTO nics (instance_id, network_id, device, node_id, ip, ip6, mac, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.InstanceID, n.NetworkID, n.Device, n.NodeID, n.IP, n.IP6, n.MAC,
 		n.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -279,7 +318,7 @@ func (r *repository) insertNIC(ctx context.Context, n NIC) error {
 
 func (r *repository) nicsOnNode(ctx context.Context, nodeID string) ([]NIC, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT instance_id, network_id, device, node_id, ip, mac, created_at
+		`SELECT instance_id, network_id, device, node_id, ip, ip6, mac, created_at
 		 FROM nics WHERE node_id = ? ORDER BY ip`,
 		nodeID,
 	)
@@ -294,7 +333,7 @@ func (r *repository) nicsOnNode(ctx context.Context, nodeID string) ([]NIC, erro
 			n          NIC
 			createdRaw string
 		)
-		if err := rows.Scan(&n.InstanceID, &n.NetworkID, &n.Device, &n.NodeID, &n.IP, &n.MAC, &createdRaw); err != nil {
+		if err := rows.Scan(&n.InstanceID, &n.NetworkID, &n.Device, &n.NodeID, &n.IP, &n.IP6, &n.MAC, &createdRaw); err != nil {
 			return nil, fmt.Errorf("scan nic: %w", err)
 		}
 		created, err := time.Parse(time.RFC3339Nano, createdRaw)
@@ -325,9 +364,30 @@ func (r *repository) allAddresses(ctx context.Context) (map[string]string, error
 	return addresses, rows.Err()
 }
 
+func (r *repository) allAddresses6(ctx context.Context) (map[string]string, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT instance_id, ip6 FROM nics WHERE ip6 != '' ORDER BY device`)
+	if err != nil {
+		return nil, fmt.Errorf("list all second addresses: %w", err)
+	}
+	defer rows.Close()
+
+	addresses := map[string]string{}
+	for rows.Next() {
+		var instanceID, ip string
+		if err := rows.Scan(&instanceID, &ip); err != nil {
+			return nil, fmt.Errorf("scan second address: %w", err)
+		}
+		if _, held := addresses[instanceID]; !held {
+			addresses[instanceID] = ip
+		}
+	}
+	return addresses, rows.Err()
+}
+
 func (r *repository) nicsOf(ctx context.Context, instanceID string) ([]NIC, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT instance_id, network_id, device, node_id, ip, mac, created_at
+		`SELECT instance_id, network_id, device, node_id, ip, ip6, mac, created_at
 		 FROM nics WHERE instance_id = ? ORDER BY device`, instanceID)
 	if err != nil {
 		return nil, fmt.Errorf("list the nics of an instance: %w", err)
@@ -341,7 +401,7 @@ func (r *repository) nicsOf(ctx context.Context, instanceID string) ([]NIC, erro
 			createdRaw string
 		)
 		if err := rows.Scan(&n.InstanceID, &n.NetworkID, &n.Device, &n.NodeID,
-			&n.IP, &n.MAC, &createdRaw); err != nil {
+			&n.IP, &n.IP6, &n.MAC, &createdRaw); err != nil {
 			return nil, fmt.Errorf("scan nic: %w", err)
 		}
 		created, err := time.Parse(time.RFC3339Nano, createdRaw)
@@ -370,8 +430,8 @@ func scanNetwork(row scanner) (Network, error) {
 		n          Network
 		createdRaw string
 	)
-	if err := row.Scan(&n.ID, &n.ProjectID, &n.Name, &n.CIDR, &n.Gateway, &n.Bridge,
-		&createdRaw); err != nil {
+	if err := row.Scan(&n.ID, &n.ProjectID, &n.Name, &n.CIDR, &n.Gateway,
+		&n.CIDR6, &n.Gateway6, &n.Bridge, &createdRaw); err != nil {
 		return Network{}, err
 	}
 

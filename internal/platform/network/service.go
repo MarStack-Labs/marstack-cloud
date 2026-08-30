@@ -49,19 +49,45 @@ func (s *service) create(ctx context.Context, params CreateParams) (Network, err
 				"routable prefix handed to instances is not something this allocates for you")
 	}
 
+	var second netip.Prefix
+	if params.CIDR6 != "" {
+		if second, err = parsePrefix(params.CIDR6); err != nil {
+			return Network{}, fault.Invalid("invalid_cidr6", err.Error())
+		}
+		if second.Addr().Is4() == prefix.Addr().Is4() {
+			return Network{}, fault.Invalid("invalid_cidr6",
+				"the second range must be the other address family; a network carries at most "+
+					"one range per family and an instance takes one address from each")
+		}
+		if !second.Addr().Is4() && !second.Addr().IsPrivate() {
+			return Network{}, fault.Invalid("invalid_cidr6",
+				"an IPv6 range must be a unique local address block under fc00::/7")
+		}
+		if second.Bits() >= sliceBitsFor(second) {
+			return Network{}, fault.Invalid("invalid_cidr6", fmt.Sprintf(
+				"the second range must be larger than a single node slice, which is /%d here",
+				sliceBitsFor(second)))
+		}
+	}
+
 	existing, err := s.repo.listNetworks(ctx)
 	if err != nil {
 		return Network{}, translate(err)
 	}
 	for _, other := range existing {
-		taken, parseErr := parsePrefix(other.CIDR)
-		if parseErr != nil {
-			continue
-		}
-		if taken.Overlaps(prefix) {
-			return Network{}, fault.Conflict("network_overlaps",
-				"the range overlaps network "+other.Name+" ("+other.CIDR+"), and every node "+
-					"routes to a peer slice by its prefix, so two networks cannot share one")
+		for _, taken := range []string{other.CIDR, other.CIDR6} {
+			if taken == "" {
+				continue
+			}
+			held, parseErr := parsePrefix(taken)
+			if parseErr != nil {
+				continue
+			}
+			if held.Overlaps(prefix) || (second.IsValid() && held.Overlaps(second)) {
+				return Network{}, fault.Conflict("network_overlaps",
+					"the range overlaps network "+other.Name+" ("+taken+"), and every node "+
+						"routes to a peer slice by its prefix, so two networks cannot share one")
+			}
 		}
 	}
 
@@ -74,6 +100,10 @@ func (s *service) create(ctx context.Context, params CreateParams) (Network, err
 		Gateway:   gatewayOf(prefix).String(),
 		Bridge:    bridgeName(id),
 		CreatedAt: s.now(),
+	}
+	if second.IsValid() {
+		n.CIDR6 = second.String()
+		n.Gateway6 = gatewayOf(second).String()
 	}
 
 	if err := s.repo.insertNetwork(ctx, n); err != nil {
@@ -227,6 +257,24 @@ func (s *service) ensureSlice(ctx context.Context, networkID, nodeID string) (Sl
 		CIDR:      candidate.String(),
 		CreatedAt: s.now(),
 	}
+
+	if n.DualStack() {
+		second, parseErr := parsePrefix(n.CIDR6)
+		if parseErr != nil {
+			return Slice{}, fault.Internal(parseErr)
+		}
+
+		taken6, err := s.repo.takenSlices6(ctx, networkID)
+		if err != nil {
+			return Slice{}, translate(err)
+		}
+
+		chosen, err := nextSlice(second, taken6)
+		if err != nil {
+			return Slice{}, fault.Conflict("network_exhausted", err.Error())
+		}
+		slice.CIDR6 = chosen.String()
+	}
 	if err := s.repo.insertSlice(ctx, slice); err != nil {
 		if errors.Is(err, errCIDRTaken) {
 			return s.repo.slice(ctx, networkID, nodeID)
@@ -281,12 +329,32 @@ func (s *service) allocate(ctx context.Context, instanceID, networkID, nodeID st
 		return NIC{}, fault.Internal(err)
 	}
 
+	second := ""
+	if slice.CIDR6 != "" {
+		prefix6, parseErr := parsePrefix(slice.CIDR6)
+		if parseErr != nil {
+			return NIC{}, fault.Internal(parseErr)
+		}
+
+		taken6, err := s.repo.takenAddresses6(ctx, networkID)
+		if err != nil {
+			return NIC{}, translate(err)
+		}
+
+		chosen, err := nextAddress(prefix6, taken6)
+		if err != nil {
+			return NIC{}, fault.Conflict("slice_exhausted", err.Error())
+		}
+		second = chosen.String()
+	}
+
 	nic := NIC{
 		InstanceID: instanceID,
 		NetworkID:  networkID,
 		Device:     device,
 		NodeID:     nodeID,
 		IP:         address.String(),
+		IP6:        second,
 		MAC:        mac,
 		CreatedAt:  s.now(),
 	}
@@ -294,6 +362,14 @@ func (s *service) allocate(ctx context.Context, instanceID, networkID, nodeID st
 		return NIC{}, translate(err)
 	}
 	return nic, nil
+}
+
+func (s *service) allAddresses6(ctx context.Context) (map[string]string, error) {
+	addresses, err := s.repo.allAddresses6(ctx)
+	if err != nil {
+		return nil, translate(err)
+	}
+	return addresses, nil
 }
 
 func (s *service) allAddresses(ctx context.Context) (map[string]string, error) {

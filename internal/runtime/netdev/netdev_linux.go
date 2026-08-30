@@ -476,6 +476,11 @@ func renderFilters(filters []workload.Filter) string {
 		ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" %s saddr != %s drop\n",
 			port, family(filter.IP), filter.IP))
 
+		if filter.IP6 != "" {
+			ruleset.WriteString(fmt.Sprintf("    iifname \"%s\" ip6 saddr != %s drop\n",
+				port, filter.IP6))
+		}
+
 		if family(filter.IP) == "ip6" {
 			continue
 		}
@@ -578,6 +583,18 @@ func Attach(pid int, cfg Interface) error {
 	if cfg.Device == 0 {
 		steps = append(steps, []string{"ip", "route", "add", "default", "via", cfg.Gateway})
 	}
+
+	if cfg.IP6 != "" {
+		second := cfg.IP6 + "/" + strconv.Itoa(cfg.Prefix6)
+		steps = append(steps,
+			[]string{"ip", "-6", "addr", "add", second, "dev", guest},
+			[]string{"ip", "-6", "route", "add", cfg.Gateway6, "dev", guest},
+		)
+		if cfg.Device == 0 {
+			steps = append(steps,
+				[]string{"ip", "-6", "route", "add", "default", "via", cfg.Gateway6})
+		}
+	}
 	for _, step := range steps {
 		args := append([]string{"--target", target, "--net", "--"}, step...)
 		if err := run("nsenter", args...); err != nil {
@@ -626,14 +643,19 @@ func Detach(instanceID string) error {
 
 func (Datapath) ApplyEgress(_ context.Context, networks []workload.Egress) error {
 	for _, n := range networks {
-		if n.Bridge == "" || n.Gateway == "" {
+		if n.Bridge == "" {
 			continue
 		}
-		if err := EnsureBridge(n.Bridge, n.Gateway); err != nil {
-			return err
-		}
-		if err := EnsureEgress(n.Bridge, n.Gateway); err != nil {
-			return err
+		for _, address := range []string{n.Gateway, n.Gateway6} {
+			if address == "" {
+				continue
+			}
+			if err := EnsureBridge(n.Bridge, address); err != nil {
+				return err
+			}
+			if err := EnsureEgress(n.Bridge, address); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

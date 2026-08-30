@@ -254,9 +254,13 @@ func (a *Agent) interfacesByInstance(networks []networkView) map[string][]worklo
 				config: workload.NetworkConfig{
 					Bridge:       n.Bridge,
 					BridgeAddr:   n.Gateway + "/" + strconv.Itoa(network.Bits()),
+					BridgeAddr6:  bridgeAddress6(n),
 					IP:           nic.IP,
 					Prefix:       slice.Bits(),
 					Gateway:      n.Gateway,
+					IP6:          nic.IP6,
+					Prefix6:      sliceBits6(n),
+					Gateway6:     n.Gateway6,
 					MAC:          nic.MAC,
 					Nameserver:   n.Gateway,
 					SearchDomain: n.Name + "." + dnsSuffix,
@@ -290,9 +294,9 @@ func (a *Agent) serveDNS(ctx context.Context, networks []networkView, records []
 		}
 	}
 
-	zone := make(map[string]string, len(records))
+	zone := make(map[string][]string, len(records))
 	for _, record := range records {
-		zone[record.FQDN] = record.IP
+		zone[record.FQDN] = append(zone[record.FQDN], record.IP)
 	}
 	a.resolver.Update(zone)
 }
@@ -309,8 +313,9 @@ func (a *Agent) applyEgress(ctx context.Context, networks []networkView) {
 			continue
 		}
 		wanted = append(wanted, workload.Egress{
-			Bridge:  n.Bridge,
-			Gateway: n.Gateway + "/" + strconv.Itoa(prefix.Bits()),
+			Bridge:   n.Bridge,
+			Gateway:  n.Gateway + "/" + strconv.Itoa(prefix.Bits()),
+			Gateway6: bridgeAddress6(n),
 		})
 	}
 
@@ -371,6 +376,7 @@ func (a *Agent) applyFilters(ctx context.Context, networks []networkView, isolat
 				Isolation:  isolations[nic.InstanceID],
 				Bridge:     n.Bridge,
 				IP:         nic.IP,
+				IP6:        nic.IP6,
 				MAC:        nic.MAC,
 				Device:     nic.Device,
 			})
@@ -891,6 +897,25 @@ func extras(nics []workload.NetworkConfig) []workload.NetworkConfig {
 		return nil
 	}
 	return nics[1:]
+}
+
+func bridgeAddress6(n networkView) string {
+	if n.CIDR6 == "" || n.Gateway6 == "" {
+		return ""
+	}
+	prefix, err := netip.ParsePrefix(n.CIDR6)
+	if err != nil {
+		return ""
+	}
+	return n.Gateway6 + "/" + strconv.Itoa(prefix.Bits())
+}
+
+func sliceBits6(n networkView) int {
+	prefix, err := netip.ParsePrefix(n.Slice6)
+	if err != nil {
+		return 0
+	}
+	return prefix.Bits()
 }
 
 type attachedNIC struct {
