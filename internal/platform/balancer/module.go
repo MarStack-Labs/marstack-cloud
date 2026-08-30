@@ -131,6 +131,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  15,
 			SQL:    `ALTER TABLE balancers ADD COLUMN tls_expires_at TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "balancer",
+			Index:  16,
+			SQL:    `ALTER TABLE balancers ADD COLUMN family TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 

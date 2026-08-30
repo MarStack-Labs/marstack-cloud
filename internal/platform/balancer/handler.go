@@ -19,6 +19,7 @@ type createRequest struct {
 	CheckPath  string   `json:"check_path,omitempty"`
 	Rise       int      `json:"rise,omitempty"`
 	Fall       int      `json:"fall,omitempty"`
+	Family     string   `json:"family,omitempty"`
 	Instances  []string `json:"instances,omitempty"`
 }
 
@@ -61,6 +62,7 @@ type response struct {
 	Rise       int               `json:"rise,omitempty"`
 	Fall       int               `json:"fall,omitempty"`
 	Backends   []backendResponse `json:"backends"`
+	Family     string            `json:"family,omitempty"`
 	TLS        *tlsResponse      `json:"tls,omitempty"`
 	CreatedAt  string            `json:"created_at"`
 }
@@ -126,6 +128,7 @@ func toResponse(b Balancer) response {
 		Rise:       b.Rise,
 		Fall:       b.Fall,
 		Backends:   backends,
+		Family:     b.Family,
 		CreatedAt:  b.CreatedAt.Format(time.RFC3339Nano),
 	}
 }
@@ -152,6 +155,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		CheckPath:  req.CheckPath,
 		Rise:       req.Rise,
 		Fall:       req.Fall,
+		Family:     req.Family,
 		Instances:  req.Instances,
 	})
 	if err != nil {

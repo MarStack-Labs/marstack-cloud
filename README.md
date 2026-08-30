@@ -1154,6 +1154,40 @@ letting each replica be refused later. A service that accepts a selector it can
 never use records `blocked` every pass forever, and says nothing at the moment
 somebody typed it.
 
+A service template now carries what an instance does — a node selector, an
+environment, and the networks its replicas join:
+
+```sh
+marstack service create --name dsvc --replicas 2 --image alpine:3.20 \
+  --network ds --env NAME=dsvc --node-selector tier=prod
+```
+
+The environment is sealed with the same key and unsealed **once per pass**, not
+once per replica: replicas of one service share one template.
+
+**Publishing the second address.** A forward or a balancer takes a `--family`,
+so a dual stack instance can be reached on either side:
+
+```sh
+marstack balancer create --name sixlb --listen-port 9500 \
+  --target-port 80 --family ipv6 --instance i-... --instance i-...
+```
+
+```
+# on the node, in the v6 table
+tcp dport 9500 ct mark set 0x1 dnat ip6 to numgen inc mod 2
+    map { 0 : fd00:cafe:0:1::1 . 80, 1 : fd00:cafe:0:1::2 . 80 }
+
+# six requests over IPv6 from the other node
+6 dsvc
+```
+
+Asking for a family the instance does not have is refused rather than quietly
+falling back: a rule pointing at an address that does not exist is a published
+port that answers nothing and says nothing. And a balancer resolves *every*
+backend in its own family, because one nftables map holds one address type and a
+mixed set renders as no rule at all.
+
 ## Reading a list without reading all of it
 
 Every list endpoint returned the whole table. That is fine at twenty instances
@@ -1963,6 +1997,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 46  more than one network per instance                done
 47  ipv6 networks                                     done
 48  dual stack networks                               done
+49  publishing either side of a dual stack instance   done
 ```
 
 ## License

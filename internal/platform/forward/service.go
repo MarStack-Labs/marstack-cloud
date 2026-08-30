@@ -82,6 +82,25 @@ func (s *service) create(ctx context.Context, params CreateParams) (Forward, err
 	if endpoint.ProjectID != params.ProjectID {
 		return Forward{}, fault.NotFound("instance_not_found", "no instance with that id exists")
 	}
+	family := params.Family
+	if family == "" {
+		family = FamilyIPv4
+	}
+	if err := validate.OneOf("family", family, Families()...); err != nil {
+		return Forward{}, err
+	}
+
+	address := endpoint.Address
+	if family == FamilyIPv6 {
+		address = endpoint.Address6
+	}
+	endpoint.Address = address
+
+	if family == FamilyIPv6 && endpoint.Address6 == "" && endpoint.NodeID != "" {
+		return Forward{}, fault.Conflict("no_address_in_family",
+			"the instance has no IPv6 address, because its network carries no IPv6 range")
+	}
+
 	if endpoint.NodeID == "" || endpoint.Address == "" {
 		return Forward{}, fault.Conflict("instance_unreachable",
 			"the instance has no address yet, so there is nothing to publish")
@@ -96,6 +115,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Forward, err
 		TargetPort: params.TargetPort,
 		NodeID:     endpoint.NodeID,
 		Address:    endpoint.Address,
+		Family:     family,
 		CreatedAt:  s.now(),
 	}
 

@@ -3,8 +3,15 @@ package sealed
 import (
 	"bytes"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+)
+
+var (
+	ErrNoKey      = errors.New("this control plane holds no key to seal with")
+	ErrKeyMissing = errors.New("this control plane does not hold the key it was sealed with")
 )
 
 type Keyring struct {
@@ -69,4 +76,39 @@ func OpenBytes(text string, k Key) ([]byte, error) {
 		return nil, err
 	}
 	return io.ReadAll(reader)
+}
+
+func SealJSON(value any, keys *Keyring) (string, string, error) {
+	active, sealing := keys.Active()
+	if !sealing {
+		return "", "", ErrNoKey
+	}
+
+	plain, err := json.Marshal(value)
+	if err != nil {
+		return "", "", fmt.Errorf("encode before sealing: %w", err)
+	}
+
+	blob, err := SealBytes(plain, active)
+	if err != nil {
+		return "", "", err
+	}
+	return blob, keys.ActiveID(), nil
+}
+
+func OpenJSON(blob, keyID string, keys *Keyring, into any) error {
+	if blob == "" {
+		return nil
+	}
+
+	k, held := keys.Find(keyID)
+	if !held {
+		return fmt.Errorf("%w: %s", ErrKeyMissing, keyID)
+	}
+
+	plain, err := OpenBytes(blob, k)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(plain, into)
 }

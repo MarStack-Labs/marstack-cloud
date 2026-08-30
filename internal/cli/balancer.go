@@ -33,6 +33,7 @@ type balancerView struct {
 	Rise       int                   `json:"rise"`
 	Fall       int                   `json:"fall"`
 	Backends   []balancerBackendView `json:"backends"`
+	Family     string                `json:"family,omitempty"`
 	TLS        *balancerTLSView      `json:"tls,omitempty"`
 	CreatedAt  string                `json:"created_at"`
 }
@@ -239,6 +240,7 @@ func newBalancerCreateCmd(g *globals) *cobra.Command {
 		CheckPath  string   `json:"check_path,omitempty"`
 		Rise       int      `json:"rise,omitempty"`
 		Fall       int      `json:"fall,omitempty"`
+		Family     string   `json:"family,omitempty"`
 		Instances  []string `json:"instances,omitempty"`
 	}
 
@@ -275,6 +277,8 @@ func newBalancerCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().IntVar(&req.ListenPort, "listen-port", 0,
 		"port claimed on every node, defaults to the target port")
 	cmd.Flags().StringVar(&req.Protocol, "protocol", "tcp", "tcp or udp")
+	cmd.Flags().StringVar(&req.Family, "family", "",
+		"which of a dual stack instance's addresses to balance: ipv4 or ipv6")
 	cmd.Flags().StringVar(&req.Algorithm, "algorithm", "round_robin",
 		"round_robin or source_hash, which keeps one client on one backend")
 	cmd.Flags().StringVar(&req.Service, "service", "",

@@ -133,6 +133,13 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 	}
 
 	at := s.now()
+	if params.Family == "" {
+		params.Family = FamilyIPv4
+	}
+	if err := validate.OneOf("family", params.Family, Families()...); err != nil {
+		return Balancer{}, err
+	}
+
 	b := Balancer{
 		ID:         ids.New("lb"),
 		ProjectID:  params.ProjectID,
@@ -146,6 +153,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 		CheckPath:  params.CheckPath,
 		Rise:       params.Rise,
 		Fall:       params.Fall,
+		Family:     params.Family,
 		CreatedAt:  at,
 	}
 
@@ -366,8 +374,8 @@ func (s *service) withHealth(ctx context.Context, b Balancer) Balancer {
 		if err != nil {
 			continue
 		}
-		backend.Address = member.Address
-		backend.Running = member.Running && member.Address != ""
+		backend.Address = member.AddressIn(b.Family)
+		backend.Running = member.Running && backend.Address != ""
 
 		if b.Check == CheckNone {
 			backend.Healthy = backend.Running

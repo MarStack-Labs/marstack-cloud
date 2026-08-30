@@ -80,9 +80,15 @@ func newServiceCreateCmd(g *globals) *cobra.Command {
 		Group         string            `json:"placement_group,omitempty"`
 		Strict        bool              `json:"placement_strict,omitempty"`
 		NodeSelector  map[string]string `json:"node_selector,omitempty"`
+		ExtraNetworks []string          `json:"extra_networks,omitempty"`
+		Env           map[string]string `json:"env,omitempty"`
 		Keys          []string          `json:"keys,omitempty"`
 	}
-	var selectors []string
+	var (
+		selectors []string
+		envPairs  []string
+		networks  []string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "create [-- command args...]",
@@ -96,6 +102,23 @@ func newServiceCreateCmd(g *globals) *cobra.Command {
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req.Command = args
+
+			if len(networks) > 0 {
+				req.NetworkID = networks[0]
+				req.ExtraNetworks = networks[1:]
+			}
+
+			for _, pair := range envPairs {
+				name, value, found := strings.Cut(pair, "=")
+				if !found {
+					return errors.New("an environment variable is NAME=value, and " +
+						pair + " has no value")
+				}
+				if req.Env == nil {
+					req.Env = map[string]string{}
+				}
+				req.Env[name] = value
+			}
 
 			for _, pair := range selectors {
 				key, value, found := strings.Cut(pair, "=")
@@ -131,10 +154,13 @@ func newServiceCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&req.Kernel, "kernel", "", "kernel image for microvm and sandbox")
 	cmd.Flags().IntVar(&req.DiskGiB, "disk-gib", 0, "root disk size for a vm")
 	cmd.Flags().StringVar(&req.FirewallID, "firewall", "", "firewall every replica carries")
-	cmd.Flags().StringVar(&req.NetworkID, "network", "", "network every replica joins")
 	cmd.Flags().StringVar(&req.RestartPolicy, "restart", "", "never, on-failure, or always")
 	cmd.Flags().IntVar(&req.VCPU, "vcpu", 0, "virtual CPUs per replica")
 	cmd.Flags().IntVar(&req.MemoryMiB, "memory-mib", 0, "memory per replica in MiB")
+	cmd.Flags().StringArrayVar(&envPairs, "env", nil,
+		"NAME=value every replica runs with, repeatable; sealed at rest and never served back")
+	cmd.Flags().StringArrayVar(&networks, "network", nil,
+		"network every replica joins, repeatable; the first is eth0")
 	cmd.Flags().StringArrayVar(&selectors, "node-selector", nil,
 		"only place replicas on nodes carrying key=value, repeatable and combined with and")
 	cmd.Flags().StringVar(&req.Group, "placement-group", "",

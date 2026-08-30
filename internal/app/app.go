@@ -146,6 +146,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	volumes.UseKeys(sealed.NewKeyring(cfg.BackupKeys))
 	instances.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
 	balancers.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
+	services.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
 	tokens.UseProjects(projects)
 	quotas.UseProjects(projects)
 	quotas.UseUsage(projectUsage{instances: instances, volumes: volumes})

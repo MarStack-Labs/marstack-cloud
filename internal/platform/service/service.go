@@ -11,6 +11,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -26,6 +27,7 @@ type service struct {
 	repo      *repository
 	workloads Workloads
 	events    events.Recorder
+	sealing   *sealed.Keyring
 	log       *slog.Logger
 	now       clock
 }
@@ -69,6 +71,22 @@ func (s *service) create(ctx context.Context, params CreateParams) (Service, err
 	if err := checkSelector(params.Template.NodeSelector); err != nil {
 		return Service{}, err
 	}
+	if err := checkEnv(params.Template.Env); err != nil {
+		return Service{}, err
+	}
+	if len(params.Template.ExtraNetworks) > MaxExtraNetworks {
+		return Service{}, fault.Invalid("invalid_networks", fmt.Sprintf(
+			"a replica takes at most %d networks beyond its first", MaxExtraNetworks))
+	}
+
+	envSealed, envKeyID, err := sealEnv(params.Template.Env, s.sealing)
+	if err != nil {
+		return Service{}, err
+	}
+	params.Template.EnvSealed = envSealed
+	params.Template.EnvKeyID = envKeyID
+	params.Template.EnvNames = namesOf(params.Template.Env)
+	params.Template.Env = nil
 	if params.Template.Image == "" && params.Template.ISO == "" {
 		return Service{}, fault.Invalid("invalid_template",
 			"a service needs an image or an iso to make replicas from")
@@ -249,12 +267,19 @@ func (s *service) growTo(ctx context.Context, svc Service, present []Member) (in
 		wanted = MaxCreatePerPass
 	}
 
+	env, err := openEnv(svc.Template.EnvSealed, svc.Template.EnvKeyID, s.sealing)
+	if err != nil {
+		s.block(ctx, svc, err.Error())
+		return 0, 0, nil
+	}
+
 	created := 0
 	for range wanted {
 		id, err := s.workloads.Create(ctx, Workload{
 			ProjectID: svc.ProjectID,
 			Name:      replicaName(svc.Name),
 			Template:  svc.Template,
+			Env:       env,
 		})
 		if err != nil {
 			s.block(ctx, svc, err.Error())

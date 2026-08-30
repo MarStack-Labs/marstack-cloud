@@ -23,6 +23,14 @@ const (
 	EnvironmentFile = "/etc/marstack/environment"
 )
 
+func addressList(cfg workload.NetworkConfig) string {
+	addresses := []string{fmt.Sprintf("%s/%d", cfg.IP, cfg.Prefix)}
+	if cfg.IP6 != "" {
+		addresses = append(addresses, fmt.Sprintf("%s/%d", cfg.IP6, cfg.Prefix6))
+	}
+	return strings.Join(addresses, ", ")
+}
+
 func writeFile(path string, mode uint32, content []byte) string {
 	return "  - path: " + yamlScalar(path) + "\n" +
 		fmt.Sprintf("    permissions: '%04o'\n", mode) +
@@ -163,7 +171,7 @@ func networkConfig(spec workload.Spec) string {
 			"    match:",
 			"      macaddress: "+cfg.MAC,
 			"    set-name: "+name,
-			fmt.Sprintf("    addresses: [%s/%d]", cfg.IP, cfg.Prefix),
+			"    addresses: ["+addressList(cfg)+"]",
 		)
 
 		lines = append(lines, "    routes:")
@@ -172,6 +180,12 @@ func networkConfig(spec workload.Spec) string {
 				"      - to: "+cfg.Gateway+"/32",
 				"        scope: link",
 			)
+			if cfg.IP6 != "" {
+				lines = append(lines,
+					"      - to: "+cfg.Gateway6+"/128",
+					"        scope: link",
+				)
+			}
 			continue
 		}
 
@@ -180,6 +194,13 @@ func networkConfig(spec workload.Spec) string {
 			"        via: "+cfg.Gateway,
 			"        on-link: true",
 		)
+		if cfg.IP6 != "" {
+			lines = append(lines,
+				"      - to: ::/0",
+				"        via: "+cfg.Gateway6,
+				"        on-link: true",
+			)
+		}
 		if cfg.Nameserver == "" {
 			continue
 		}

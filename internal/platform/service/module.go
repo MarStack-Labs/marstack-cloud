@@ -8,6 +8,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -85,6 +86,26 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  5,
 			SQL:    `ALTER TABLE services ADD COLUMN node_selector TEXT NOT NULL DEFAULT '{}'`,
 		},
+		{
+			Module: "service",
+			Index:  6,
+			SQL:    `ALTER TABLE services ADD COLUMN env TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "service",
+			Index:  7,
+			SQL:    `ALTER TABLE services ADD COLUMN env_key_id TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "service",
+			Index:  8,
+			SQL:    `ALTER TABLE services ADD COLUMN env_names TEXT NOT NULL DEFAULT '[]'`,
+		},
+		{
+			Module: "service",
+			Index:  9,
+			SQL:    `ALTER TABLE services ADD COLUMN extra_networks TEXT NOT NULL DEFAULT '[]'`,
+		},
 	}
 }
 
@@ -94,6 +115,10 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/services/{id}", httpx.Wrap(m.log, m.handler.get))
 	mux.Handle("POST /v1/services/{id}/scale", httpx.Wrap(m.log, m.handler.scale))
 	mux.Handle("DELETE /v1/services/{id}", httpx.Wrap(m.log, m.handler.delete))
+}
+
+func (m *Module) UseSealing(ring *sealed.Keyring) {
+	m.svc.sealing = ring
 }
 
 func (m *Module) UseWorkloads(workloads Workloads) {

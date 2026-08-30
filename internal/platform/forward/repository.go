@@ -16,7 +16,7 @@ var (
 	errPortUsed = errors.New("node port already published")
 )
 
-const columns = `id, project_id, instance_id, protocol, node_port, target_port, node_id, address, created_at`
+const columns = `id, project_id, instance_id, protocol, node_port, target_port, node_id, address, family, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -28,8 +28,9 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, f Forward) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO forwards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		f.ID, f.ProjectID, f.InstanceID, f.Protocol, f.NodePort, f.TargetPort, f.NodeID, f.Address,
+		`INSERT INTO forwards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		f.ID, f.ProjectID, f.InstanceID, f.Protocol, f.NodePort, f.TargetPort, f.NodeID,
+		f.Address, f.Family,
 		f.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -124,7 +125,7 @@ func scan(row scanner) (Forward, error) {
 	var created string
 
 	if err := row.Scan(&f.ID, &f.ProjectID, &f.InstanceID, &f.Protocol, &f.NodePort, &f.TargetPort,
-		&f.NodeID, &f.Address, &created); err != nil {
+		&f.NodeID, &f.Address, &f.Family, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Forward{}, err
 		}

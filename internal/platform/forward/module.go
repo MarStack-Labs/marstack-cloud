@@ -60,6 +60,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  4,
 			SQL:    `ALTER TABLE forwards ADD COLUMN project_id TEXT NOT NULL DEFAULT 'prj-default'`,
 		},
+		{
+			Module: "forward",
+			Index:  5,
+			SQL:    `ALTER TABLE forwards ADD COLUMN family TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 

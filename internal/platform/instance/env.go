@@ -2,7 +2,7 @@ package instance
 
 import (
 	"encoding/base64"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -52,50 +52,33 @@ func sealEnv(env map[string]string, keys *sealed.Keyring) (string, string, error
 		return "", "", nil
 	}
 
-	active, sealing := keys.Active()
-	if !sealing {
+	blob, keyID, err := sealed.SealJSON(env, keys)
+	if errors.Is(err, sealed.ErrNoKey) {
 		return "", "", fault.Conflict("no_sealing_key",
 			"this control plane has no key to seal an environment with, and storing "+
 				"credentials in the clear is not something it will do quietly: start it with "+
 				"--backup-key-file, or leave env off")
 	}
-
-	plain, err := json.Marshal(env)
 	if err != nil {
-		return "", "", fmt.Errorf("encode the environment: %w", err)
+		return "", "", fault.Internal(fmt.Errorf("seal the environment: %w", err))
 	}
-
-	blob, err := sealed.SealBytes(plain, active)
-	if err != nil {
-		return "", "", fmt.Errorf("seal the environment: %w", err)
-	}
-	return blob, keys.ActiveID(), nil
+	return blob, keyID, nil
 }
 
 func openEnv(blob, keyID string, keys *sealed.Keyring) (map[string]string, error) {
+	env := map[string]string{}
+
+	err := sealed.OpenJSON(blob, keyID, keys, &env)
+	if errors.Is(err, sealed.ErrKeyMissing) {
+		return nil, fault.Conflict("env_key_missing",
+			"this instance's environment was sealed with key "+keyID+
+				", which this control plane does not hold")
+	}
+	if err != nil {
+		return nil, fault.Internal(fmt.Errorf("unseal the environment: %w", err))
+	}
 	if blob == "" {
 		return nil, nil
-	}
-
-	plain := []byte(blob)
-	if keyID != "" {
-		k, held := keys.Find(keyID)
-		if !held {
-			return nil, fault.Conflict("env_key_missing",
-				"this instance's environment was sealed with key "+keyID+
-					", which this control plane does not hold")
-		}
-
-		opened, err := sealed.OpenBytes(blob, k)
-		if err != nil {
-			return nil, fault.Internal(fmt.Errorf("unseal the environment: %w", err))
-		}
-		plain = opened
-	}
-
-	env := map[string]string{}
-	if err := json.Unmarshal(plain, &env); err != nil {
-		return nil, fault.Internal(fmt.Errorf("decode the environment: %w", err))
 	}
 	return env, nil
 }
@@ -166,45 +149,29 @@ func sealFiles(files []File, keys *sealed.Keyring) (string, error) {
 		return "", nil
 	}
 
-	active, sealing := keys.Active()
-	if !sealing {
+	blob, _, err := sealed.SealJSON(files, keys)
+	if errors.Is(err, sealed.ErrNoKey) {
 		return "", fault.Conflict("no_sealing_key",
 			"this control plane has no key to seal a config file with, and a config file is "+
 				"where credentials end up: start it with --backup-key-file, or leave files off")
 	}
-
-	plain, err := json.Marshal(files)
 	if err != nil {
-		return "", fmt.Errorf("encode the files: %w", err)
-	}
-
-	blob, err := sealed.SealBytes(plain, active)
-	if err != nil {
-		return "", fmt.Errorf("seal the files: %w", err)
+		return "", fault.Internal(fmt.Errorf("seal the files: %w", err))
 	}
 	return blob, nil
 }
 
 func openFiles(blob, keyID string, keys *sealed.Keyring) ([]File, error) {
-	if blob == "" {
-		return nil, nil
-	}
+	var files []File
 
-	k, held := keys.Find(keyID)
-	if !held {
+	err := sealed.OpenJSON(blob, keyID, keys, &files)
+	if errors.Is(err, sealed.ErrKeyMissing) {
 		return nil, fault.Conflict("seal_key_missing",
 			"this instance's files were sealed with key "+keyID+
 				", which this control plane does not hold")
 	}
-
-	plain, err := sealed.OpenBytes(blob, k)
 	if err != nil {
 		return nil, fault.Internal(fmt.Errorf("unseal the files: %w", err))
-	}
-
-	var files []File
-	if err := json.Unmarshal(plain, &files); err != nil {
-		return nil, fault.Internal(fmt.Errorf("decode the files: %w", err))
 	}
 	return files, nil
 }

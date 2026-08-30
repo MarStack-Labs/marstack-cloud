@@ -19,6 +19,7 @@ type Forward struct {
 	TargetPort int
 	NodeID     string
 	Address    string
+	Family     string
 	CreatedAt  time.Time
 }
 
@@ -28,12 +29,23 @@ type CreateParams struct {
 	Protocol   string
 	NodePort   int
 	TargetPort int
+	Family     string
 }
 
 type Endpoint struct {
 	ProjectID string
 	NodeID    string
 	Address   string
+	Address6  string
+}
+
+const (
+	FamilyIPv4 = "ipv4"
+	FamilyIPv6 = "ipv6"
+)
+
+func Families() []string {
+	return []string{FamilyIPv4, FamilyIPv6}
 }
 
 func Protocols() []string {

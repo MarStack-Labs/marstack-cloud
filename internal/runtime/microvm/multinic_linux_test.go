@@ -140,3 +140,16 @@ func TestSettingsCarryEveryInterfaceAndOneResolver(t *testing.T) {
 		t.Fatalf("the extra interface lost its gateway: %+v", nics[1])
 	}
 }
+
+func TestTheGuestInitConfiguresTheSecondFamilyToo(t *testing.T) {
+	for _, want := range []string{
+		`eval "address6=\$MS_IP6_$device"`,
+		`ip -6 addr add "$address6" dev "$link"`,
+		`ip -6 route add "$gateway6" dev "$link"`,
+		`[ "$device" = 0 ] && ip -6 route add default via "$gateway6"`,
+	} {
+		if !strings.Contains(guestInit, want) {
+			t.Fatalf("the guest init is missing %q:\n%s", want, guestInit)
+		}
+	}
+}

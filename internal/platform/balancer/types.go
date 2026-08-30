@@ -38,6 +38,7 @@ type Balancer struct {
 	TargetPort int
 	Algorithm  string
 	ServiceID  string
+	Family     string
 	Check      string
 	CheckPath  string
 	Rise       int
@@ -77,6 +78,7 @@ type CreateParams struct {
 	TargetPort int
 	Algorithm  string
 	ServiceID  string
+	Family     string
 	Check      string
 	CheckPath  string
 	Rise       int
@@ -88,7 +90,24 @@ type Member struct {
 	ProjectID string
 	NodeID    string
 	Address   string
+	Address6  string
 	Running   bool
+}
+
+const (
+	FamilyIPv4 = "ipv4"
+	FamilyIPv6 = "ipv6"
+)
+
+func Families() []string {
+	return []string{FamilyIPv4, FamilyIPv6}
+}
+
+func (m Member) AddressIn(family string) string {
+	if family == FamilyIPv6 {
+		return m.Address6
+	}
+	return m.Address
 }
 
 type Report struct {

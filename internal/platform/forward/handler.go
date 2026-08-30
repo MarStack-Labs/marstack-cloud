@@ -13,6 +13,7 @@ type createRequest struct {
 	Protocol   string `json:"protocol,omitempty"`
 	NodePort   int    `json:"node_port,omitempty"`
 	TargetPort int    `json:"target_port"`
+	Family     string `json:"family,omitempty"`
 }
 
 type response struct {
@@ -23,6 +24,7 @@ type response struct {
 	TargetPort int    `json:"target_port"`
 	NodeID     string `json:"node_id"`
 	Address    string `json:"address"`
+	Family     string `json:"family,omitempty"`
 	CreatedAt  string `json:"created_at"`
 }
 
@@ -39,6 +41,7 @@ func toResponse(f Forward) response {
 		TargetPort: f.TargetPort,
 		NodeID:     f.NodeID,
 		Address:    f.Address,
+		Family:     f.Family,
 		CreatedAt:  f.CreatedAt.Format(time.RFC3339Nano),
 	}
 }
@@ -59,6 +62,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		Protocol:   req.Protocol,
 		NodePort:   req.NodePort,
 		TargetPort: req.TargetPort,
+		Family:     req.Family,
 	})
 	if err != nil {
 		return err

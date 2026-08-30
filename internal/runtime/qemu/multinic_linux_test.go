@@ -127,3 +127,66 @@ func TestAnExtraInterfaceCanReachItsGateway(t *testing.T) {
 		t.Fatalf("eth1 lost its address:\n%s", eth1)
 	}
 }
+
+func dualStackSpec() workload.Spec {
+	spec := dualSpec()
+	spec.Network.IP6 = "fd00:a::5"
+	spec.Network.Prefix6 = 64
+	spec.Network.Gateway6 = "fd00:a::1"
+
+	spec.Extra[0].IP6 = "fd00:b::5"
+	spec.Extra[0].Prefix6 = 64
+	spec.Extra[0].Gateway6 = "fd00:b::1"
+	return spec
+}
+
+func TestBothFamiliesLandOnOneInterface(t *testing.T) {
+	config := networkConfig(dualStackSpec())
+
+	if !strings.Contains(config, "addresses: [10.20.0.5/26, fd00:a::5/64]") {
+		t.Fatalf("eth0 does not carry both addresses:\n%s", config)
+	}
+	if !strings.Contains(config, "addresses: [10.90.0.5/26, fd00:b::5/64]") {
+		t.Fatalf("eth1 does not carry both addresses:\n%s", config)
+	}
+}
+
+func TestThereIsOneDefaultRoutePerFamily(t *testing.T) {
+	config := networkConfig(dualStackSpec())
+
+	if strings.Count(config, "to: default") != 1 {
+		t.Fatalf("v4 default routes = %d, want 1:\n%s",
+			strings.Count(config, "to: default"), config)
+	}
+	if strings.Count(config, "to: ::/0") != 1 {
+		t.Fatalf("v6 default routes = %d, want 1:\n%s",
+			strings.Count(config, "to: ::/0"), config)
+	}
+}
+
+func TestAnExtraInterfaceReachesBothOfItsGateways(t *testing.T) {
+	config := networkConfig(dualStackSpec())
+	eth1 := config[strings.Index(config, "  eth1:"):]
+
+	if !strings.Contains(eth1, "to: 10.90.0.1/32") {
+		t.Fatalf("eth1 has no link route to its v4 gateway:\n%s", eth1)
+	}
+	if !strings.Contains(eth1, "to: fd00:b::1/128") {
+		t.Fatalf("eth1 has no link route to its v6 gateway, so it answers neighbour "+
+			"discovery and nothing else:\n%s", eth1)
+	}
+	if strings.Contains(eth1, "to: ::/0") {
+		t.Fatalf("eth1 took a v6 default route:\n%s", eth1)
+	}
+}
+
+func TestASingleFamilyInterfaceIsUnchanged(t *testing.T) {
+	config := networkConfig(dualSpec())
+
+	if strings.Contains(config, "::") {
+		t.Fatalf("a v6 route or address appeared with no v6 address given:\n%s", config)
+	}
+	if !strings.Contains(config, "addresses: [10.20.0.5/26]") {
+		t.Fatalf("the single-family form changed:\n%s", config)
+	}
+}

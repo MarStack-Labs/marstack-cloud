@@ -560,6 +560,22 @@ make check      # vet + test + security scans
   it at replica-create time. A service that accepts a selector it can never use records `blocked`
   every pass forever and nothing tells the operator at the moment they typed it. This is the
   `validate.Name` case docs/ENGINEERING-PRINCIPLES.md allows - shared mechanism, not a shared rule.
+- A forward and a balancer carry a `family`, defaulting to ipv4, which decides **which** of a dual
+  stack instance's addresses is published. Without it the second address exists and nothing can
+  reach it from outside, which is most of the point of having it.
+- Asking for a family the instance does not have is refused rather than silently falling back to the
+  other one. A rule pointing at an address that does not exist is a published port that answers
+  nothing, and the operator has no way to tell.
+- A balancer resolves **every** backend in its own family through `Member.AddressIn`. Resolving per
+  backend would let a mixed set through, and one nftables map holds one address type - the whole
+  rule then renders as nothing.
+- `sealed.SealJSON` and `OpenJSON` live in the kernel because `instance` and `service` both seal a
+  template's environment and neither may import the other. Same move as the keyring. They return
+  `ErrNoKey` and `ErrKeyMissing` rather than a `fault`, so each module can phrase the refusal in
+  terms of what it is about to do.
+- A service seals its environment once and unseals it once per pass in `growTo`, not once per
+  replica. The replicas of one service share one template, so the alternative is the same AEAD open
+  repeated for every replica the pass creates.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

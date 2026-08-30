@@ -25,6 +25,8 @@ type createRequest struct {
 	Group         string            `json:"placement_group,omitempty"`
 	Strict        bool              `json:"placement_strict,omitempty"`
 	NodeSelector  map[string]string `json:"node_selector,omitempty"`
+	ExtraNetworks []string          `json:"extra_networks,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
 	Keys          []string          `json:"keys,omitempty"`
 }
 
@@ -55,6 +57,8 @@ type response struct {
 	Group         string            `json:"placement_group,omitempty"`
 	Strict        bool              `json:"placement_strict,omitempty"`
 	NodeSelector  map[string]string `json:"node_selector,omitempty"`
+	ExtraNetworks []string          `json:"extra_networks,omitempty"`
+	EnvNames      []string          `json:"env_names,omitempty"`
 	Keys          []string          `json:"keys,omitempty"`
 	Blocked       string            `json:"blocked,omitempty"`
 	Members       []memberResponse  `json:"members"`
@@ -93,6 +97,8 @@ func toResponse(s Service) response {
 		Group:         s.Template.Group,
 		Strict:        s.Template.Strict,
 		NodeSelector:  s.Template.NodeSelector,
+		ExtraNetworks: s.Template.ExtraNetworks,
+		EnvNames:      s.Template.EnvNames,
 		Keys:          s.Template.Keys,
 		Blocked:       s.Blocked,
 		Members:       members,
@@ -129,6 +135,8 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 			MemoryMiB:     req.MemoryMiB,
 			Group:         req.Group,
 			NodeSelector:  req.NodeSelector,
+			ExtraNetworks: req.ExtraNetworks,
+			Env:           req.Env,
 			Strict:        req.Strict,
 			Keys:          req.Keys,
 		},

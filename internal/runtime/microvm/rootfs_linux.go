@@ -55,6 +55,19 @@ while [ "$device" -lt "${MS_NICS:-0}" ]; do
 		fi
 	fi
 
+	eval "address6=\$MS_IP6_$device"
+	eval "gateway6=\$MS_GW6_$device"
+
+	if [ -n "$address6" ]; then
+		ip -6 addr add "$address6" dev "$link"
+		ip link set "$link" up
+
+		if [ -n "$gateway6" ]; then
+			ip -6 route add "$gateway6" dev "$link"
+			[ "$device" = 0 ] && ip -6 route add default via "$gateway6"
+		fi
+	fi
+
 	device=$((device + 1))
 done
 
@@ -140,6 +153,13 @@ func writeGuestFiles(staging string, spec workload.Spec, command, env []string) 
 		settings += "MS_IP_" + suffix + "=" +
 			shellQuote(cfg.IP+"/"+strconv.Itoa(cfg.Prefix)) + "\n"
 		settings += "MS_GW_" + suffix + "=" + shellQuote(cfg.Gateway) + "\n"
+
+		if cfg.IP6 == "" {
+			continue
+		}
+		settings += "MS_IP6_" + suffix + "=" +
+			shellQuote(cfg.IP6+"/"+strconv.Itoa(cfg.Prefix6)) + "\n"
+		settings += "MS_GW6_" + suffix + "=" + shellQuote(cfg.Gateway6) + "\n"
 	}
 	if len(nics) > 0 {
 		settings += "MS_DNS=" + shellQuote(nics[0].Nameserver) + "\n"

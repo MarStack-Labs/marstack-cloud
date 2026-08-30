@@ -10,7 +10,11 @@ const (
 	MaxCreatePerPass = 4
 )
 
-const MaxNodeSelector = 8
+const (
+	MaxNodeSelector  = 8
+	MaxEnv           = 64
+	MaxExtraNetworks = 3
+)
 
 type Template struct {
 	Isolation     string
@@ -27,6 +31,11 @@ type Template struct {
 	Group         string
 	Strict        bool
 	NodeSelector  map[string]string
+	ExtraNetworks []string
+	Env           map[string]string
+	EnvSealed     string
+	EnvKeyID      string
+	EnvNames      []string
 	Keys          []string
 }
 
@@ -58,4 +67,5 @@ type Workload struct {
 	ProjectID string
 	Name      string
 	Template  Template
+	Env       map[string]string
 }

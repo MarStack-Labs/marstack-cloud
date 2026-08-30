@@ -19,7 +19,8 @@ var (
 
 const columns = `id, project_id, name, replicas, isolation, image, iso, kernel, disk_gib,
 	firewall_id, command, network_id, restart_policy, vcpu, memory_mib,
-	placement_group, placement_strict, node_selector, ssh_keys, blocked, created_at, updated_at`
+	placement_group, placement_strict, node_selector, extra_networks,
+	env, env_key_id, env_names, ssh_keys, blocked, created_at, updated_at`
 
 type repository struct {
 	db *sql.DB
@@ -44,13 +45,24 @@ func (r *repository) insert(ctx context.Context, s Service) error {
 		return fmt.Errorf("encode the node selector: %w", err)
 	}
 
+	extra, err := json.Marshal(s.Template.ExtraNetworks)
+	if err != nil {
+		return fmt.Errorf("encode the extra networks: %w", err)
+	}
+
+	envNames, err := json.Marshal(s.Template.EnvNames)
+	if err != nil {
+		return fmt.Errorf("encode the environment names: %w", err)
+	}
+
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO services (`+columns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		s.ID, s.ProjectID, s.Name, s.Replicas, s.Template.Isolation, s.Template.Image,
 		s.Template.ISO, s.Template.Kernel, s.Template.DiskGiB, s.Template.FirewallID,
 		string(command), s.Template.NetworkID, s.Template.RestartPolicy, s.Template.VCPU,
 		s.Template.MemoryMiB, s.Template.Group, s.Template.Strict, string(selector),
+		string(extra), s.Template.EnvSealed, s.Template.EnvKeyID, string(envNames),
 		string(keys), s.Blocked,
 		s.CreatedAt.Format(time.RFC3339Nano), s.UpdatedAt.Format(time.RFC3339Nano),
 	)
@@ -238,13 +250,15 @@ func scan(row scanner) (Service, error) {
 		s                Service
 		command, keys    string
 		selector         string
+		extra, envNames  string
 		created, updated string
 	)
 	if err := row.Scan(&s.ID, &s.ProjectID, &s.Name, &s.Replicas, &s.Template.Isolation,
 		&s.Template.Image, &s.Template.ISO, &s.Template.Kernel, &s.Template.DiskGiB,
 		&s.Template.FirewallID, &command, &s.Template.NetworkID, &s.Template.RestartPolicy,
 		&s.Template.VCPU, &s.Template.MemoryMiB, &s.Template.Group, &s.Template.Strict,
-		&selector, &keys, &s.Blocked, &created, &updated); err != nil {
+		&selector, &extra, &s.Template.EnvSealed, &s.Template.EnvKeyID, &envNames,
+		&keys, &s.Blocked, &created, &updated); err != nil {
 		return Service{}, fmt.Errorf("scan service: %w", err)
 	}
 
@@ -257,6 +271,16 @@ func scan(row scanner) (Service, error) {
 	if selector != "" {
 		if err := json.Unmarshal([]byte(selector), &s.Template.NodeSelector); err != nil {
 			return Service{}, fmt.Errorf("decode the node selector: %w", err)
+		}
+	}
+	if extra != "" {
+		if err := json.Unmarshal([]byte(extra), &s.Template.ExtraNetworks); err != nil {
+			return Service{}, fmt.Errorf("decode the extra networks: %w", err)
+		}
+	}
+	if envNames != "" {
+		if err := json.Unmarshal([]byte(envNames), &s.Template.EnvNames); err != nil {
+			return Service{}, fmt.Errorf("decode the environment names: %w", err)
 		}
 	}
 

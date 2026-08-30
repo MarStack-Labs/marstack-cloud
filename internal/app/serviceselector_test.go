@@ -138,3 +138,71 @@ func TestABadSelectorOnAServiceIsRefused(t *testing.T) {
 			rec.Code, http.StatusBadRequest)
 	}
 }
+
+func TestAServiceEnvReachesEveryReplicaAndNotTheOperator(t *testing.T) {
+	a, nodeID := newSealingApp(t)
+
+	body := `{"name":"pool","isolation":"container","image":"alpine:3.20","replicas":2,` +
+		`"env":{"DB_PASSWORD":"hunter2-service"}}`
+	rec := do(t, a, http.MethodPost, "/v1/services", strings.NewReader(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "hunter2-service") {
+		t.Fatal("the create response echoed the value back")
+	}
+
+	var created struct {
+		ID       string   `json:"id"`
+		EnvNames []string `json:"env_names"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if strings.Join(created.EnvNames, ",") != "DB_PASSWORD" {
+		t.Fatalf("env_names = %v, want the name and nothing else", created.EnvNames)
+	}
+
+	if nodes := replicaNodes(t, a, created.ID, 2); len(nodes) < 2 {
+		t.Fatalf("the service never reached two replicas: %v", nodes)
+	}
+
+	list := do(t, a, http.MethodGet, "/v1/nodes/"+nodeID+"/instances", nil)
+	if !strings.Contains(list.Body.String(), "hunter2-service") {
+		t.Fatalf("no replica carries the value, so the template dropped it: %s",
+			list.Body.String())
+	}
+}
+
+func TestAServiceEnvIsRefusedWithNoKeyToSealItWith(t *testing.T) {
+	a, _ := newBalancingApp(t)
+
+	body := `{"name":"pool","isolation":"container","image":"alpine:3.20","replicas":1,` +
+		`"env":{"TOKEN":"hunter2"}}`
+	rec := do(t, a, http.MethodPost, "/v1/services", strings.NewReader(body))
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: every replica would carry it", rec.Code,
+			http.StatusConflict)
+	}
+}
+
+func TestAServiceValueIsNotOnDiskInTheClear(t *testing.T) {
+	a, dir := sealingAppIn(t, t.TempDir())
+	registerNode(t, a, "bm-1", "rack-a")
+
+	body := `{"name":"pool","isolation":"container","image":"alpine:3.20","replicas":1,` +
+		`"env":{"TOKEN":"zz4-service-marker"}}`
+	if rec := do(t, a, http.MethodPost, "/v1/services", strings.NewReader(body)); rec.Code !=
+		http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+
+	onDisk := everythingUnder(t, dir)
+	if strings.Contains(onDisk, "zz4-service-marker") {
+		t.Fatal("the value is in the control plane's data directory in the clear")
+	}
+	if !strings.Contains(onDisk, "TOKEN") {
+		t.Fatal("the name is not stored either")
+	}
+}

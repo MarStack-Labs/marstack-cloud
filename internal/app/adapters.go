@@ -167,7 +167,12 @@ func (s forwardAddresses) Endpoint(ctx context.Context, instanceID string) (forw
 	if err != nil {
 		return forward.Endpoint{ProjectID: in.ProjectID}, nil
 	}
-	return forward.Endpoint{ProjectID: in.ProjectID, NodeID: nic.NodeID, Address: nic.IP}, nil
+	return forward.Endpoint{
+		ProjectID: in.ProjectID,
+		NodeID:    nic.NodeID,
+		Address:   nic.IP,
+		Address6:  nic.IP6,
+	}, nil
 }
 
 type balancerMembers struct {
@@ -189,6 +194,7 @@ func (s balancerMembers) Member(ctx context.Context, instanceID string) (balance
 		ProjectID: in.ProjectID,
 		NodeID:    in.NodeID,
 		Address:   nic.IP,
+		Address6:  nic.IP6,
 		Running:   in.Observed == instance.ObservedRunning,
 	}, nil
 }
@@ -265,6 +271,8 @@ func (w serviceWorkloads) Create(ctx context.Context, workload service.Workload)
 		VCPU:          workload.Template.VCPU,
 		MemoryMiB:     workload.Template.MemoryMiB,
 		NodeSelector:  workload.Template.NodeSelector,
+		ExtraNetworks: workload.Template.ExtraNetworks,
+		Env:           workload.Env,
 	})
 	if err != nil {
 		return "", err

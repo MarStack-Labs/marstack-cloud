@@ -49,6 +49,7 @@ func newForwardCreateCmd(g *globals) *cobra.Command {
 		Protocol   string `json:"protocol,omitempty"`
 		NodePort   int    `json:"node_port,omitempty"`
 		TargetPort int    `json:"target_port"`
+		Family     string `json:"family,omitempty"`
 	}
 
 	cmd := &cobra.Command{
@@ -73,6 +74,8 @@ func newForwardCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&req.InstanceID, "instance", "", "instance id whose port is published")
 	cmd.Flags().IntVar(&req.TargetPort, "target-port", 0, "port inside the instance")
 	cmd.Flags().IntVar(&req.NodePort, "node-port", 0, "port on the node, defaults to the target port")
+	cmd.Flags().StringVar(&req.Family, "family", "",
+		"which of a dual stack instance's addresses to publish: ipv4 or ipv6")
 	cmd.Flags().StringVar(&req.Protocol, "protocol", "tcp", "tcp or udp")
 	must(cmd.MarkFlagRequired("instance"))
 	must(cmd.MarkFlagRequired("target-port"))
