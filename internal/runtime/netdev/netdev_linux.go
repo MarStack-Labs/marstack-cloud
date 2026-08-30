@@ -469,7 +469,7 @@ func renderFilters(filters []workload.Filter) string {
 		}
 		port := hostName(filter.InstanceID, filter.Device)
 		if filter.Isolation != "" && filter.Isolation != "container" {
-			port = prefixed(tapPrefix, filter.InstanceID)
+			port = TapName(filter.InstanceID, filter.Device)
 		}
 		ruleset.WriteString(fmt.Sprintf(
 			"    iifname \"%s\" ether saddr != %s drop\n", port, filter.MAC))
@@ -500,8 +500,8 @@ func (Datapath) Prune(_ context.Context, keep workload.Keep) error {
 	for _, instanceID := range keep.Instances {
 		for device := range MaxDevices {
 			wanted[hostName(instanceID, device)] = true
+			wanted[TapName(instanceID, device)] = true
 		}
-		wanted[prefixed(tapPrefix, instanceID)] = true
 	}
 
 	for _, link := range present {
@@ -588,8 +588,8 @@ func Attach(pid int, cfg Interface) error {
 	return nil
 }
 
-func TapName(instanceID string) string {
-	return prefixed(tapPrefix, instanceID)
+func TapName(instanceID string, device int) string {
+	return withDevice(prefixed(tapPrefix, instanceID), device)
 }
 
 func EnsureTap(name, bridge string) error {

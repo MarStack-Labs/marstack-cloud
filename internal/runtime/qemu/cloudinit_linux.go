@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/console"
@@ -148,31 +149,46 @@ func secret() (string, error) {
 }
 
 func networkConfig(spec workload.Spec) string {
-	if spec.Network == nil {
+	nics := interfaces(spec)
+	if len(nics) == 0 {
 		return "version: 2\nethernets: {}\n"
 	}
 
-	lines := []string{
-		"version: 2",
-		"ethernets:",
-		"  primary:",
-		"    match:",
-		"      macaddress: " + spec.Network.MAC,
-		"    set-name: eth0",
-		fmt.Sprintf("    addresses: [%s/%d]", spec.Network.IP, spec.Network.Prefix),
-		"    routes:",
-		"      - to: default",
-		"        via: " + spec.Network.Gateway,
-		"        on-link: true",
-	}
+	lines := []string{"version: 2", "ethernets:"}
+	for device, cfg := range nics {
+		name := "eth" + strconv.Itoa(device)
 
-	if spec.Network.Nameserver != "" {
+		lines = append(lines,
+			"  "+name+":",
+			"    match:",
+			"      macaddress: "+cfg.MAC,
+			"    set-name: "+name,
+			fmt.Sprintf("    addresses: [%s/%d]", cfg.IP, cfg.Prefix),
+		)
+
+		lines = append(lines, "    routes:")
+		if device != 0 {
+			lines = append(lines,
+				"      - to: "+cfg.Gateway+"/32",
+				"        scope: link",
+			)
+			continue
+		}
+
+		lines = append(lines,
+			"      - to: default",
+			"        via: "+cfg.Gateway,
+			"        on-link: true",
+		)
+		if cfg.Nameserver == "" {
+			continue
+		}
 		lines = append(lines,
 			"    nameservers:",
-			"      addresses: ["+spec.Network.Nameserver+"]",
+			"      addresses: ["+cfg.Nameserver+"]",
 		)
-		if spec.Network.SearchDomain != "" {
-			lines = append(lines, "      search: ["+spec.Network.SearchDomain+"]")
+		if cfg.SearchDomain != "" {
+			lines = append(lines, "      search: ["+cfg.SearchDomain+"]")
 		}
 	}
 

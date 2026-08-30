@@ -267,7 +267,7 @@ func (r *Runtime) prepareNetwork(spec workload.Spec) (string, string, error) {
 		return "", "", err
 	}
 
-	tap := netdev.TapName(spec.InstanceID)
+	tap := netdev.TapName(spec.InstanceID, 0)
 	if err := netdev.EnsureTap(tap, spec.Network.Bridge); err != nil {
 		return "", "", err
 	}
@@ -391,7 +391,7 @@ func (r *Runtime) Remove(ctx context.Context, instanceID string) error {
 	delete(r.running, instanceID)
 	r.mu.Unlock()
 
-	if err := netdev.DeleteLink(netdev.TapName(instanceID)); err != nil {
+	if err := netdev.DeleteLink(netdev.TapName(instanceID, 0)); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(r.instanceDir(instanceID)); err != nil {

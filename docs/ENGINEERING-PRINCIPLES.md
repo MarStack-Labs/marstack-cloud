@@ -488,9 +488,22 @@ make check      # vet + test + security scans
   one constant that only these two use.
 - `interfacesByInstance` returns a slice per instance. It used to be `map[string]*NetworkConfig`,
   where a second NIC silently overwrote the first - the map key is the instance, not the interface.
-- Extra NICs are attached by the container runtime only. qemu, cloud hypervisor and firecracker
-  each need a second netdev plus guest configuration, and `Spec.Extra` is there for them; nothing
-  reads it yet, so a vm asking for two networks gets addresses allocated and one interface.
+- Extra NICs are attached by the container and qemu runtimes. Cloud Hypervisor and Firecracker each
+  still need a second netdev plus guest configuration, so a microvm or sandbox asking for two
+  networks gets both addresses allocated and one interface.
+- A vm gets one tap and one `-netdev`/`-device` pair per interface, with device 0 keeping the tap
+  name it always had. Reusing one mac across two `virtio-net-pci` devices is a bridge loop, so
+  `macOf` reads the mac of that device rather than of the primary.
+- In `network-config`, only device 0 carries the default route, the nameserver and the search
+  domain. Two default routes leave egress to kernel tie-breaking and two resolvers leave name
+  lookups to the guest.
+- An extra interface needs a **link-scope route to its own gateway**, because the gateway sits
+  outside the /26 slice the guest is given. Without it the guest answers arp on that interface and
+  nothing else, which looks exactly like an interface that was never configured. This is the same
+  route `netdev.Attach` adds for containers with `ip route add <gateway> dev ethN scope link`.
+- Do not write that route as `to: <address>/<prefix>`. The guest address has host bits set, netplan
+  refuses the file, and **every** interface including eth0 is then left unconfigured - a wrong
+  route on eth1 takes the whole guest off the network. Found live; both forms are now tested.
 - A network is IPv4 **or** IPv6, never both. Dual stack means every address question in the platform
   gets two answers, and dns, forwards, balancers and firewalls all ask it; one family per network
   keeps that question single-valued, and an instance can still sit on one of each through multi-NIC.

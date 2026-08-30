@@ -857,10 +857,33 @@ iifname "msv-nywswecfe.1" ip saddr != 10.90.0.65 drop
 Device 0 keeps its old interface name so an upgrade does not recreate the veth of
 every running container.
 
-**Extra interfaces are attached for containers only.** A vm, microvm or sandbox
-asking for two networks gets both addresses allocated and one interface: each VMM
-needs a second netdev plus guest-side configuration, and that is not built.
-`Spec.Extra` is where it will go.
+VMs work too — one tap and one `virtio-net-pci` per interface, each with its own
+mac, and cloud-init configuring both:
+
+```
+# on the node
+mst-bj9xtv3vkg2      master msbr-w076ym7q
+mst-bj9xtv3vk.1      master msbr-bfep6a55
+
+$ ping 10.20.0.75   # eth0
+0% packet loss
+$ ping 10.95.0.66   # eth1
+0% packet loss
+```
+
+The extra interface needs a **link-scope route to its own gateway**, because the
+gateway sits outside the /26 slice the guest gets. Without it the guest answers
+ARP on that interface and nothing else — which looks exactly like an interface
+that was never configured, and cost an hour to tell apart.
+
+Writing that route as `to: <address>/<prefix>` instead is worse: the guest address
+has host bits set, netplan refuses the file, and *every* interface including eth0
+is left unconfigured. A wrong route on eth1 takes the whole guest off the network.
+Both forms are tested now.
+
+**Microvms and sandboxes still get one interface.** Cloud Hypervisor and
+Firecracker each need a second netdev plus guest-side configuration; the addresses
+are allocated either way.
 
 ## Terminating TLS at the balancer
 
@@ -1884,7 +1907,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 43  per caller api rate limiting                      done
 44  resize an instance's cpu and memory               done
 45  tls termination on a balancer                     done
-46  more than one network per instance                done (containers)
+46  more than one network per instance                done (containers, vms)
 47  ipv6 networks                                     done
 ```
 

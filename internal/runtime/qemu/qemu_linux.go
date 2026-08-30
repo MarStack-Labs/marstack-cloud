@@ -25,6 +25,8 @@ import (
 const (
 	stopGrace = 30 * time.Second
 	pollEvery = 250 * time.Millisecond
+
+	defaultMAC = "52:54:00:12:34:56"
 )
 
 type Images interface {
@@ -152,7 +154,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
-	tap, err := r.prepareNetwork(spec)
+	taps, err := r.prepareNetwork(spec)
 	if err != nil {
 		return err
 	}
@@ -169,7 +171,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
-	args := r.arguments(spec, firmware, vars, seed, media, tap, volumes)
+	args := r.arguments(spec, firmware, vars, seed, media, taps, volumes)
 	cmd := exec.Command(qemuBinary(), args...)
 	cmd.Stdout = launch
 	cmd.Stderr = launch
@@ -189,7 +191,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		"instance", spec.InstanceID,
 		"vcpu", spec.VCPU,
 		"memory_mib", spec.MemoryMiB,
-		"tap", tap,
+		"taps", len(taps),
 	)
 	return nil
 }
@@ -247,13 +249,8 @@ func (r *Runtime) ensureVolume(disk workload.Disk) (string, error) {
 }
 
 func (r *Runtime) arguments(
-	spec workload.Spec, firmware, vars, seed, media, tap string, volumes []string,
+	spec workload.Spec, firmware, vars, seed, media string, taps []string, volumes []string,
 ) []string {
-	mac := "52:54:00:12:34:56"
-	if spec.Network != nil && spec.Network.MAC != "" {
-		mac = spec.Network.MAC
-	}
-
 	args := []string{
 		"-name", spec.Name,
 		"-machine", "virt,accel=kvm",
@@ -308,10 +305,11 @@ func (r *Runtime) arguments(
 		"-device", "virtio-blk-pci,drive=seed",
 	)
 
-	if tap != "" {
+	for device, tap := range taps {
+		id := "net" + strconv.Itoa(device)
 		args = append(args,
-			"-netdev", "tap,id=net0,ifname="+tap+",script=no,downscript=no",
-			"-device", "virtio-net-pci,netdev=net0,mac="+mac+",romfile=",
+			"-netdev", "tap,id="+id+",ifname="+tap+",script=no,downscript=no",
+			"-device", "virtio-net-pci,netdev="+id+",mac="+macOf(spec, device)+",romfile=",
 		)
 	}
 	return args
@@ -389,23 +387,43 @@ func (r *Runtime) prepareFirmware(instanceID string) (string, string, error) {
 	return code, vars, nil
 }
 
-func (r *Runtime) prepareNetwork(spec workload.Spec) (string, error) {
+func interfaces(spec workload.Spec) []workload.NetworkConfig {
 	if spec.Network == nil {
-		return "", nil
+		return nil
+	}
+	return append([]workload.NetworkConfig{*spec.Network}, spec.Extra...)
+}
+
+func macOf(spec workload.Spec, device int) string {
+	nics := interfaces(spec)
+	if device >= len(nics) || nics[device].MAC == "" {
+		return defaultMAC
+	}
+	return nics[device].MAC
+}
+
+func (r *Runtime) prepareNetwork(spec workload.Spec) ([]string, error) {
+	nics := interfaces(spec)
+	if len(nics) == 0 {
+		return nil, nil
 	}
 
-	if err := netdev.EnsureBridge(spec.Network.Bridge, spec.Network.BridgeAddr); err != nil {
-		return "", err
-	}
-	if err := netdev.EnsureEgress(spec.Network.Bridge, spec.Network.BridgeAddr); err != nil {
-		return "", err
-	}
+	taps := make([]string, 0, len(nics))
+	for device, cfg := range nics {
+		if err := netdev.EnsureBridge(cfg.Bridge, cfg.BridgeAddr); err != nil {
+			return nil, err
+		}
+		if err := netdev.EnsureEgress(cfg.Bridge, cfg.BridgeAddr); err != nil {
+			return nil, err
+		}
 
-	tap := netdev.TapName(spec.InstanceID)
-	if err := netdev.EnsureTap(tap, spec.Network.Bridge); err != nil {
-		return "", err
+		tap := netdev.TapName(spec.InstanceID, device)
+		if err := netdev.EnsureTap(tap, cfg.Bridge); err != nil {
+			return nil, err
+		}
+		taps = append(taps, tap)
 	}
-	return tap, nil
+	return taps, nil
 }
 
 func (r *Runtime) waitForPID(instanceID string) error {
@@ -497,8 +515,10 @@ func (r *Runtime) Remove(ctx context.Context, instanceID string) error {
 	if err := r.Stop(ctx, instanceID); err != nil {
 		return err
 	}
-	if err := netdev.DeleteLink(netdev.TapName(instanceID)); err != nil {
-		return err
+	for device := range netdev.MaxDevices {
+		if err := netdev.DeleteLink(netdev.TapName(instanceID, device)); err != nil {
+			return err
+		}
 	}
 	if err := os.RemoveAll(r.instanceDir(instanceID)); err != nil {
 		return fmt.Errorf("remove instance directory: %w", err)
