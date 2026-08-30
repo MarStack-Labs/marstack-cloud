@@ -9,22 +9,23 @@ import (
 )
 
 type createRequest struct {
-	Name          string   `json:"name"`
-	Replicas      int      `json:"replicas"`
-	Isolation     string   `json:"isolation,omitempty"`
-	Image         string   `json:"image,omitempty"`
-	ISO           string   `json:"iso,omitempty"`
-	Kernel        string   `json:"kernel,omitempty"`
-	DiskGiB       int      `json:"disk_gib,omitempty"`
-	FirewallID    string   `json:"firewall_id,omitempty"`
-	Command       []string `json:"command,omitempty"`
-	NetworkID     string   `json:"network_id,omitempty"`
-	RestartPolicy string   `json:"restart_policy,omitempty"`
-	VCPU          int      `json:"vcpu,omitempty"`
-	MemoryMiB     int      `json:"memory_mib,omitempty"`
-	Group         string   `json:"placement_group,omitempty"`
-	Strict        bool     `json:"placement_strict,omitempty"`
-	Keys          []string `json:"keys,omitempty"`
+	Name          string            `json:"name"`
+	Replicas      int               `json:"replicas"`
+	Isolation     string            `json:"isolation,omitempty"`
+	Image         string            `json:"image,omitempty"`
+	ISO           string            `json:"iso,omitempty"`
+	Kernel        string            `json:"kernel,omitempty"`
+	DiskGiB       int               `json:"disk_gib,omitempty"`
+	FirewallID    string            `json:"firewall_id,omitempty"`
+	Command       []string          `json:"command,omitempty"`
+	NetworkID     string            `json:"network_id,omitempty"`
+	RestartPolicy string            `json:"restart_policy,omitempty"`
+	VCPU          int               `json:"vcpu,omitempty"`
+	MemoryMiB     int               `json:"memory_mib,omitempty"`
+	Group         string            `json:"placement_group,omitempty"`
+	Strict        bool              `json:"placement_strict,omitempty"`
+	NodeSelector  map[string]string `json:"node_selector,omitempty"`
+	Keys          []string          `json:"keys,omitempty"`
 }
 
 type scaleRequest struct {
@@ -37,27 +38,28 @@ type memberResponse struct {
 }
 
 type response struct {
-	ID            string           `json:"id"`
-	Name          string           `json:"name"`
-	Replicas      int              `json:"replicas"`
-	Isolation     string           `json:"isolation"`
-	Image         string           `json:"image,omitempty"`
-	ISO           string           `json:"iso,omitempty"`
-	Kernel        string           `json:"kernel,omitempty"`
-	DiskGiB       int              `json:"disk_gib,omitempty"`
-	FirewallID    string           `json:"firewall_id,omitempty"`
-	Command       []string         `json:"command,omitempty"`
-	NetworkID     string           `json:"network_id,omitempty"`
-	RestartPolicy string           `json:"restart_policy,omitempty"`
-	VCPU          int              `json:"vcpu,omitempty"`
-	MemoryMiB     int              `json:"memory_mib,omitempty"`
-	Group         string           `json:"placement_group,omitempty"`
-	Strict        bool             `json:"placement_strict,omitempty"`
-	Keys          []string         `json:"keys,omitempty"`
-	Blocked       string           `json:"blocked,omitempty"`
-	Members       []memberResponse `json:"members"`
-	CreatedAt     string           `json:"created_at"`
-	UpdatedAt     string           `json:"updated_at"`
+	ID            string            `json:"id"`
+	Name          string            `json:"name"`
+	Replicas      int               `json:"replicas"`
+	Isolation     string            `json:"isolation"`
+	Image         string            `json:"image,omitempty"`
+	ISO           string            `json:"iso,omitempty"`
+	Kernel        string            `json:"kernel,omitempty"`
+	DiskGiB       int               `json:"disk_gib,omitempty"`
+	FirewallID    string            `json:"firewall_id,omitempty"`
+	Command       []string          `json:"command,omitempty"`
+	NetworkID     string            `json:"network_id,omitempty"`
+	RestartPolicy string            `json:"restart_policy,omitempty"`
+	VCPU          int               `json:"vcpu,omitempty"`
+	MemoryMiB     int               `json:"memory_mib,omitempty"`
+	Group         string            `json:"placement_group,omitempty"`
+	Strict        bool              `json:"placement_strict,omitempty"`
+	NodeSelector  map[string]string `json:"node_selector,omitempty"`
+	Keys          []string          `json:"keys,omitempty"`
+	Blocked       string            `json:"blocked,omitempty"`
+	Members       []memberResponse  `json:"members"`
+	CreatedAt     string            `json:"created_at"`
+	UpdatedAt     string            `json:"updated_at"`
 }
 
 type listResponse struct {
@@ -90,6 +92,7 @@ func toResponse(s Service) response {
 		MemoryMiB:     s.Template.MemoryMiB,
 		Group:         s.Template.Group,
 		Strict:        s.Template.Strict,
+		NodeSelector:  s.Template.NodeSelector,
 		Keys:          s.Template.Keys,
 		Blocked:       s.Blocked,
 		Members:       members,
@@ -125,6 +128,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 			VCPU:          req.VCPU,
 			MemoryMiB:     req.MemoryMiB,
 			Group:         req.Group,
+			NodeSelector:  req.NodeSelector,
 			Strict:        req.Strict,
 			Keys:          req.Keys,
 		},

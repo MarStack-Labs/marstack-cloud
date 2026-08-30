@@ -1113,6 +1113,25 @@ state, so labelling a node later places it on the next pass — no retry, no
 resubmit. That was checked live: labelling `bm-1` with `disk=tape` picked the
 held instance up within one interval.
 
+A service takes the same selector, so a replica set can be pinned too:
+
+```sh
+marstack service create --name prodpin --replicas 3 \
+  --image alpine:3.20 --node-selector tier=prod
+```
+
+```
+prodpin-awh5jc   n-tcvkwmvckcq62
+prodpin-7at164   n-tcvkwmvckcq62
+prodpin-aqsn7t   n-tcvkwmvckcq62
+# bm-1, tier=prod, 9 instances — the busier of the two
+```
+
+The service module validates the selector when the service is created rather than
+letting each replica be refused later. A service that accepts a selector it can
+never use records `blocked` every pass forever, and says nothing at the moment
+somebody typed it.
+
 ## Reading a list without reading all of it
 
 Every list endpoint returned the whole table. That is fine at twenty instances
@@ -1913,7 +1932,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 37  paged instance listing                            done
 38  paged volume, backup and snapshot listings        done
 39  operator labels on nodes                          done
-40  placing a workload by node selector               done
+40  placing a workload by node selector               done (instances, services)
 41  sealed environment injection                      done
 42  sealed config file injection                      done
 43  per caller api rate limiting                      done

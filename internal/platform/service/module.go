@@ -80,6 +80,11 @@ func (m *Module) Migrations() []store.Migration {
 			SQL: `CREATE INDEX service_members_instance_id
 				ON service_members (instance_id)`,
 		},
+		{
+			Module: "service",
+			Index:  5,
+			SQL:    `ALTER TABLE services ADD COLUMN node_selector TEXT NOT NULL DEFAULT '{}'`,
+		},
 	}
 }
 

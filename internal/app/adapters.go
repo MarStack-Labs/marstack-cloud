@@ -264,6 +264,7 @@ func (w serviceWorkloads) Create(ctx context.Context, workload service.Workload)
 		RestartPolicy: workload.Template.RestartPolicy,
 		VCPU:          workload.Template.VCPU,
 		MemoryMiB:     workload.Template.MemoryMiB,
+		NodeSelector:  workload.Template.NodeSelector,
 	})
 	if err != nil {
 		return "", err

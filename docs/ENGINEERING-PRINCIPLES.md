@@ -547,6 +547,13 @@ make check      # vet + test + security scans
 - `EnsureEgress` holds `egressMu` and rewrites the whole chain rather than appending. Check-then-act
   from several workload starts in one pass is what let duplicates in; the rewrite is also what heals
   a chain that already has them.
+- A service template carries a node selector and passes it to every replica. Without it a service
+  is the one workload kind that cannot be pinned, which is backwards: a replica set is exactly what
+  you want on the nodes with the fast disks.
+- The service module validates the selector itself rather than letting the instance module refuse
+  it at replica-create time. A service that accepts a selector it can never use records `blocked`
+  every pass forever and nothing tells the operator at the moment they typed it. This is the
+  `validate.Name` case docs/ENGINEERING-PRINCIPLES.md allows - shared mechanism, not a shared rule.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

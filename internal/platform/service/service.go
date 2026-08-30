@@ -37,6 +37,23 @@ func newService(repo *repository, log *slog.Logger, now clock) *service {
 	return &service{repo: repo, log: log, now: now}
 }
 
+func checkSelector(selector map[string]string) error {
+	if len(selector) > MaxNodeSelector {
+		return fault.Invalid("invalid_node_selector", fmt.Sprintf(
+			"a node selector names at most %d labels, and %d were given",
+			MaxNodeSelector, len(selector)))
+	}
+	for key, value := range selector {
+		if err := validate.Name("node_selector_key", key); err != nil {
+			return err
+		}
+		if err := validate.Name("node_selector_value", value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *service) create(ctx context.Context, params CreateParams) (Service, error) {
 	if err := validate.Name("name", params.Name); err != nil {
 		return Service{}, err
@@ -47,6 +64,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Service, err
 				"built from it", MaxNameLength))
 	}
 	if err := checkReplicas(params.Replicas); err != nil {
+		return Service{}, err
+	}
+	if err := checkSelector(params.Template.NodeSelector); err != nil {
 		return Service{}, err
 	}
 	if params.Template.Image == "" && params.Template.ISO == "" {

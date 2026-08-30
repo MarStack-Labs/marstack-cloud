@@ -10,6 +10,8 @@ const (
 	MaxCreatePerPass = 4
 )
 
+const MaxNodeSelector = 8
+
 type Template struct {
 	Isolation     string
 	Image         string
@@ -24,6 +26,7 @@ type Template struct {
 	MemoryMiB     int
 	Group         string
 	Strict        bool
+	NodeSelector  map[string]string
 	Keys          []string
 }
 

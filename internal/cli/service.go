@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -62,23 +64,25 @@ func newServiceCmd(g *globals) *cobra.Command {
 
 func newServiceCreateCmd(g *globals) *cobra.Command {
 	var req struct {
-		Name          string   `json:"name"`
-		Replicas      int      `json:"replicas"`
-		Isolation     string   `json:"isolation,omitempty"`
-		Image         string   `json:"image,omitempty"`
-		ISO           string   `json:"iso,omitempty"`
-		Kernel        string   `json:"kernel,omitempty"`
-		DiskGiB       int      `json:"disk_gib,omitempty"`
-		FirewallID    string   `json:"firewall_id,omitempty"`
-		Command       []string `json:"command,omitempty"`
-		NetworkID     string   `json:"network_id,omitempty"`
-		RestartPolicy string   `json:"restart_policy,omitempty"`
-		VCPU          int      `json:"vcpu,omitempty"`
-		MemoryMiB     int      `json:"memory_mib,omitempty"`
-		Group         string   `json:"placement_group,omitempty"`
-		Strict        bool     `json:"placement_strict,omitempty"`
-		Keys          []string `json:"keys,omitempty"`
+		Name          string            `json:"name"`
+		Replicas      int               `json:"replicas"`
+		Isolation     string            `json:"isolation,omitempty"`
+		Image         string            `json:"image,omitempty"`
+		ISO           string            `json:"iso,omitempty"`
+		Kernel        string            `json:"kernel,omitempty"`
+		DiskGiB       int               `json:"disk_gib,omitempty"`
+		FirewallID    string            `json:"firewall_id,omitempty"`
+		Command       []string          `json:"command,omitempty"`
+		NetworkID     string            `json:"network_id,omitempty"`
+		RestartPolicy string            `json:"restart_policy,omitempty"`
+		VCPU          int               `json:"vcpu,omitempty"`
+		MemoryMiB     int               `json:"memory_mib,omitempty"`
+		Group         string            `json:"placement_group,omitempty"`
+		Strict        bool              `json:"placement_strict,omitempty"`
+		NodeSelector  map[string]string `json:"node_selector,omitempty"`
+		Keys          []string          `json:"keys,omitempty"`
 	}
+	var selectors []string
 
 	cmd := &cobra.Command{
 		Use:   "create [-- command args...]",
@@ -92,6 +96,18 @@ func newServiceCreateCmd(g *globals) *cobra.Command {
 		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			req.Command = args
+
+			for _, pair := range selectors {
+				key, value, found := strings.Cut(pair, "=")
+				if !found {
+					return errors.New(
+						"a node selector is key=value, and " + pair + " has no value")
+				}
+				if req.NodeSelector == nil {
+					req.NodeSelector = map[string]string{}
+				}
+				req.NodeSelector[key] = value
+			}
 
 			var created serviceView
 			if err := g.client().do(
@@ -119,6 +135,8 @@ func newServiceCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&req.RestartPolicy, "restart", "", "never, on-failure, or always")
 	cmd.Flags().IntVar(&req.VCPU, "vcpu", 0, "virtual CPUs per replica")
 	cmd.Flags().IntVar(&req.MemoryMiB, "memory-mib", 0, "memory per replica in MiB")
+	cmd.Flags().StringArrayVar(&selectors, "node-selector", nil,
+		"only place replicas on nodes carrying key=value, repeatable and combined with and")
 	cmd.Flags().StringVar(&req.Group, "placement-group", "",
 		"spread replicas across zones and nodes")
 	cmd.Flags().BoolVar(&req.Strict, "placement-strict", false,
