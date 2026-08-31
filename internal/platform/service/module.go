@@ -106,6 +106,16 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  9,
 			SQL:    `ALTER TABLE services ADD COLUMN extra_networks TEXT NOT NULL DEFAULT '[]'`,
 		},
+		{
+			Module: "service",
+			Index:  10,
+			SQL:    `ALTER TABLE services ADD COLUMN files TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "service",
+			Index:  11,
+			SQL:    `ALTER TABLE services ADD COLUMN file_paths TEXT NOT NULL DEFAULT '[]'`,
+		},
 	}
 }
 

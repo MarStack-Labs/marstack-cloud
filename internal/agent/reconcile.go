@@ -411,10 +411,13 @@ func (a *Agent) applyGuards(
 		rules[f.ID] = set
 	}
 
-	addresses := map[string]string{}
+	addresses := map[string][]string{}
 	for _, network := range networks {
 		for _, nic := range network.NICs {
-			addresses[nic.InstanceID] = nic.IP
+			addresses[nic.InstanceID] = append(addresses[nic.InstanceID], nic.IP)
+			if nic.IP6 != "" {
+				addresses[nic.InstanceID] = append(addresses[nic.InstanceID], nic.IP6)
+			}
 		}
 	}
 
@@ -431,12 +434,14 @@ func (a *Agent) applyGuards(
 			continue
 		}
 
-		guards = append(guards, workload.Guard{
-			InstanceID: in.ID,
-			Isolation:  in.Isolation,
-			IP:         addresses[in.ID],
-			Rules:      set,
-		})
+		for _, address := range addresses[in.ID] {
+			guards = append(guards, workload.Guard{
+				InstanceID: in.ID,
+				Isolation:  in.Isolation,
+				IP:         address,
+				Rules:      set,
+			})
+		}
 	}
 
 	if err := a.datapath.ApplyGuards(ctx, guards); err != nil {

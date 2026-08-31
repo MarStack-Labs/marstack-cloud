@@ -248,6 +248,14 @@ func (w usageWorkloads) IDsIn(ctx context.Context, projectID string) ([]string, 
 	return ids, nil
 }
 
+func instanceFiles(files []service.File) []instance.File {
+	out := make([]instance.File, 0, len(files))
+	for _, f := range files {
+		out = append(out, instance.File{Path: f.Path, Content: f.Content, Mode: f.Mode})
+	}
+	return out
+}
+
 type serviceWorkloads struct {
 	instances *instance.Module
 }
@@ -273,6 +281,7 @@ func (w serviceWorkloads) Create(ctx context.Context, workload service.Workload)
 		NodeSelector:  workload.Template.NodeSelector,
 		ExtraNetworks: workload.Template.ExtraNetworks,
 		Env:           workload.Env,
+		Files:         instanceFiles(workload.Files),
 	})
 	if err != nil {
 		return "", err

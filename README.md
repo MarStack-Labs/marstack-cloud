@@ -1188,6 +1188,32 @@ port that answers nothing and says nothing. And a balancer resolves *every*
 backend in its own family, because one nftables map holds one address type and a
 mixed set renders as no rule at all.
 
+### The firewall now covers every address
+
+Guards were built from `map[string]string` keyed on the instance. With more than
+one interface the last one **overwrote** the others, so a guarded instance had
+rules on one address and nothing on the rest:
+
+```
+device 0 v4  10.101.0.65        port 80: allowed   port 81: dropped
+device 0 v6  fd00:f00d:0:1::1   port 80: allowed   port 81: dropped
+device 1 v4  10.102.0.65        port 80: allowed   port 81: dropped
+unguarded    10.101.0.66                           port 81: allowed
+```
+
+Before the fix only the first row existed. The second and third were open to
+anything that could reach the bridge.
+
+Two things cost time confirming this, both worth knowing:
+
+`nc -z` returns the same exit code for *connection refused* and *timed out*, so
+it cannot tell an allowed port from a dropped one. `curl --connect-timeout` can:
+7 is refused, 28 is dropped.
+
+And the first connection to a freshly guarded IPv6 address times out while
+neighbour discovery completes, then works. That is IPv6, not the firewall — probe
+three times, and keep an unguarded instance on the same network as a control.
+
 ## Reading a list without reading all of it
 
 Every list endpoint returned the whole table. That is fine at twenty instances
@@ -1998,6 +2024,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 47  ipv6 networks                                     done
 48  dual stack networks                               done
 49  publishing either side of a dual stack instance   done
+50  firewalls covering every address of an instance   done
 ```
 
 ## License

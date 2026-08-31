@@ -14,6 +14,7 @@ const (
 	MaxNodeSelector  = 8
 	MaxEnv           = 64
 	MaxExtraNetworks = 3
+	MaxFiles         = 16
 )
 
 type Template struct {
@@ -36,7 +37,16 @@ type Template struct {
 	EnvSealed     string
 	EnvKeyID      string
 	EnvNames      []string
+	Files         []File
+	FilesSealed   string
+	FilePaths     []string
 	Keys          []string
+}
+
+type File struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Mode    string `json:"mode,omitempty"`
 }
 
 type Service struct {
@@ -68,4 +78,5 @@ type Workload struct {
 	Name      string
 	Template  Template
 	Env       map[string]string
+	Files     []File
 }

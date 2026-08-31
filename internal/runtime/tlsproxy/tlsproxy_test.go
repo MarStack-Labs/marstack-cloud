@@ -279,3 +279,31 @@ func TestABackendlessBalancerRefusesRatherThanHangs(t *testing.T) {
 		return
 	}
 }
+
+func TestAnIPv6BackendIsReached(t *testing.T) {
+	certPEM, keyPEM := selfSigned(t)
+	host, targetPort := backendOn(t, "::1", 0, "over v6 behind tls")
+
+	m := New(slog.New(slog.DiscardHandler))
+	t.Cleanup(m.Close)
+
+	port := freePort(t)
+	err := m.Apply(context.Background(), []Endpoint{{
+		ID: "lb-1", ListenPort: port, TargetPort: targetPort,
+		Certificate: certPEM, PrivateKey: keyPEM, Targets: []string{host},
+	}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if got := speak(t, port); got != "over v6 behind tls" {
+		t.Fatalf("got %q, want the v6 backend's reply: JoinHostPort must bracket the "+
+			"address or the dial parses the colons as a port", got)
+	}
+}
+
+func TestAV6AddressIsBracketedWhenDialled(t *testing.T) {
+	if got := net.JoinHostPort("fd00:a::5", "80"); got != "[fd00:a::5]:80" {
+		t.Fatalf("dial target = %q, want it bracketed", got)
+	}
+}

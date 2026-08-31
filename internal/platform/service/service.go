@@ -79,14 +79,32 @@ func (s *service) create(ctx context.Context, params CreateParams) (Service, err
 			"a replica takes at most %d networks beyond its first", MaxExtraNetworks))
 	}
 
+	if len(params.Template.Files) > MaxFiles {
+		return Service{}, fault.Invalid("invalid_files", fmt.Sprintf(
+			"a service carries at most %d files, and %d were given",
+			MaxFiles, len(params.Template.Files)))
+	}
+
 	envSealed, envKeyID, err := sealEnv(params.Template.Env, s.sealing)
 	if err != nil {
 		return Service{}, err
 	}
+
+	filesSealed, err := sealFiles(params.Template.Files, s.sealing)
+	if err != nil {
+		return Service{}, err
+	}
+	if filesSealed != "" && envKeyID == "" {
+		envKeyID = s.sealing.ActiveID()
+	}
+
 	params.Template.EnvSealed = envSealed
 	params.Template.EnvKeyID = envKeyID
 	params.Template.EnvNames = namesOf(params.Template.Env)
 	params.Template.Env = nil
+	params.Template.FilesSealed = filesSealed
+	params.Template.FilePaths = pathsOf(params.Template.Files)
+	params.Template.Files = nil
 	if params.Template.Image == "" && params.Template.ISO == "" {
 		return Service{}, fault.Invalid("invalid_template",
 			"a service needs an image or an iso to make replicas from")
@@ -273,6 +291,12 @@ func (s *service) growTo(ctx context.Context, svc Service, present []Member) (in
 		return 0, 0, nil
 	}
 
+	files, err := openFiles(svc.Template.FilesSealed, svc.Template.EnvKeyID, s.sealing)
+	if err != nil {
+		s.block(ctx, svc, err.Error())
+		return 0, 0, nil
+	}
+
 	created := 0
 	for range wanted {
 		id, err := s.workloads.Create(ctx, Workload{
@@ -280,6 +304,7 @@ func (s *service) growTo(ctx context.Context, svc Service, present []Member) (in
 			Name:      replicaName(svc.Name),
 			Template:  svc.Template,
 			Env:       env,
+			Files:     files,
 		})
 		if err != nil {
 			s.block(ctx, svc, err.Error())

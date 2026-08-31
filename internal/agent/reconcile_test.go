@@ -1272,3 +1272,38 @@ func TestEgressIsAppliedEveryPassNotOnlyWhenAWorkloadStarts(t *testing.T) {
 		t.Fatalf("egress = %+v, want the gateway carried with its prefix length", got)
 	}
 }
+
+func TestEveryAddressOfAGuardedInstanceGetsRules(t *testing.T) {
+	dp := &fakeDatapath{}
+	a := &Agent{log: logging.New("error", io.Discard), datapath: dp}
+
+	a.applyGuards(context.Background(),
+		[]instanceView{{ID: "i-1", Isolation: "container", FirewallID: "fw-1"}},
+		[]networkView{
+			{Bridge: "msbr-a", NICs: []nicView{
+				{InstanceID: "i-1", Device: 0, IP: "10.20.0.5", IP6: "fd00:a::5"},
+			}},
+			{Bridge: "msbr-b", NICs: []nicView{
+				{InstanceID: "i-1", Device: 1, IP: "10.90.0.5"},
+			}},
+		},
+		[]firewallView{{ID: "fw-1", Rules: []firewallRuleView{
+			{Protocol: "tcp", FromPort: 80, ToPort: 80},
+		}}})
+
+	dp.mu.Lock()
+	guards := append([]workload.Guard(nil), dp.guards...)
+	dp.mu.Unlock()
+
+	held := map[string]bool{}
+	for _, g := range guards {
+		held[g.IP] = true
+	}
+
+	for _, address := range []string{"10.20.0.5", "fd00:a::5", "10.90.0.5"} {
+		if !held[address] {
+			t.Fatalf("no rules for %s, guards = %+v: an address a firewall does not cover "+
+				"is an address anything can reach", address, guards)
+		}
+	}
+}

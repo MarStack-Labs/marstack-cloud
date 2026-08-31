@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -204,5 +205,44 @@ func TestAServiceValueIsNotOnDiskInTheClear(t *testing.T) {
 	}
 	if !strings.Contains(onDisk, "TOKEN") {
 		t.Fatal("the name is not stored either")
+	}
+}
+
+func TestAServiceFileReachesEveryReplica(t *testing.T) {
+	a, nodeID := newSealingApp(t)
+
+	content := base64.StdEncoding.EncodeToString([]byte("secret=service-file\n"))
+	body := `{"name":"pool","isolation":"container","image":"alpine:3.20","replicas":2,` +
+		`"files":[{"path":"/etc/app.conf","content":"` + content + `","mode":"0640"}]}`
+
+	rec := do(t, a, http.MethodPost, "/v1/services", strings.NewReader(body))
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), content) {
+		t.Fatal("the create response echoed the content back")
+	}
+
+	var created struct {
+		ID        string   `json:"id"`
+		FilePaths []string `json:"file_paths"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if strings.Join(created.FilePaths, ",") != "/etc/app.conf" {
+		t.Fatalf("file_paths = %v, want the path an operator can read back", created.FilePaths)
+	}
+
+	if nodes := replicaNodes(t, a, created.ID, 2); len(nodes) < 2 {
+		t.Fatalf("the service never reached two replicas: %v", nodes)
+	}
+
+	list := do(t, a, http.MethodGet, "/v1/nodes/"+nodeID+"/instances", nil)
+	if !strings.Contains(list.Body.String(), content) {
+		t.Fatalf("no replica carries the file, so the template dropped it")
+	}
+	if strings.Count(list.Body.String(), content) < 2 {
+		t.Fatal("only one replica got the file")
 	}
 }

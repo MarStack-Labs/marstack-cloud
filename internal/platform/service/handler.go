@@ -27,6 +27,7 @@ type createRequest struct {
 	NodeSelector  map[string]string `json:"node_selector,omitempty"`
 	ExtraNetworks []string          `json:"extra_networks,omitempty"`
 	Env           map[string]string `json:"env,omitempty"`
+	Files         []File            `json:"files,omitempty"`
 	Keys          []string          `json:"keys,omitempty"`
 }
 
@@ -59,6 +60,7 @@ type response struct {
 	NodeSelector  map[string]string `json:"node_selector,omitempty"`
 	ExtraNetworks []string          `json:"extra_networks,omitempty"`
 	EnvNames      []string          `json:"env_names,omitempty"`
+	FilePaths     []string          `json:"file_paths,omitempty"`
 	Keys          []string          `json:"keys,omitempty"`
 	Blocked       string            `json:"blocked,omitempty"`
 	Members       []memberResponse  `json:"members"`
@@ -99,6 +101,7 @@ func toResponse(s Service) response {
 		NodeSelector:  s.Template.NodeSelector,
 		ExtraNetworks: s.Template.ExtraNetworks,
 		EnvNames:      s.Template.EnvNames,
+		FilePaths:     s.Template.FilePaths,
 		Keys:          s.Template.Keys,
 		Blocked:       s.Blocked,
 		Members:       members,
@@ -137,6 +140,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 			NodeSelector:  req.NodeSelector,
 			ExtraNetworks: req.ExtraNetworks,
 			Env:           req.Env,
+			Files:         req.Files,
 			Strict:        req.Strict,
 			Keys:          req.Keys,
 		},

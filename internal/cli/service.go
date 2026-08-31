@@ -82,12 +82,14 @@ func newServiceCreateCmd(g *globals) *cobra.Command {
 		NodeSelector  map[string]string `json:"node_selector,omitempty"`
 		ExtraNetworks []string          `json:"extra_networks,omitempty"`
 		Env           map[string]string `json:"env,omitempty"`
+		Files         []fileSpec        `json:"files,omitempty"`
 		Keys          []string          `json:"keys,omitempty"`
 	}
 	var (
 		selectors []string
 		envPairs  []string
 		networks  []string
+		filePairs []string
 	)
 
 	cmd := &cobra.Command{
@@ -119,6 +121,12 @@ func newServiceCreateCmd(g *globals) *cobra.Command {
 				}
 				req.Env[name] = value
 			}
+
+			files, err := readFiles(filePairs)
+			if err != nil {
+				return err
+			}
+			req.Files = files
 
 			for _, pair := range selectors {
 				key, value, found := strings.Cut(pair, "=")
@@ -157,6 +165,8 @@ func newServiceCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&req.RestartPolicy, "restart", "", "never, on-failure, or always")
 	cmd.Flags().IntVar(&req.VCPU, "vcpu", 0, "virtual CPUs per replica")
 	cmd.Flags().IntVar(&req.MemoryMiB, "memory-mib", 0, "memory per replica in MiB")
+	cmd.Flags().StringArrayVar(&filePairs, "file", nil,
+		"/path/in/the/workload=local-file[:mode] every replica gets, repeatable; sealed at rest")
 	cmd.Flags().StringArrayVar(&envPairs, "env", nil,
 		"NAME=value every replica runs with, repeatable; sealed at rest and never served back")
 	cmd.Flags().StringArrayVar(&networks, "network", nil,

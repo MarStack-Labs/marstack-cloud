@@ -576,6 +576,23 @@ make check      # vet + test + security scans
 - A service seals its environment once and unseals it once per pass in `growTo`, not once per
   replica. The replicas of one service share one template, so the alternative is the same AEAD open
   repeated for every replica the pass creates.
+- `applyGuards` builds `map[string][]string` and emits one guard per address. It used to be
+  `map[string]string` keyed on the instance, so with multi-NIC the last interface **overwrote** the
+  others and only one address of a guarded instance had any firewall rules at all - the rest were
+  open to anything. Same shape as the `interfacesByInstance` bug fixed in the multi-NIC commit; a
+  map keyed on the instance holding per-interface data is worth grepping for.
+- The first connection to a freshly guarded IPv6 address can time out while neighbour discovery
+  completes, then succeed. That is IPv6, not the firewall: probe three times before concluding a
+  rule is wrong, and compare against an unguarded instance on the same network.
+- `nc -z` returns the same exit code for "connection refused" and "timed out", so it cannot tell an
+  allowed port from a dropped one. Use `curl --connect-timeout`, where 7 is refused and 28 is
+  dropped. Half an hour was spent on a firewall that was working.
+- A service seals its files with the same key id as its environment, in `EnvKeyID`. One key per
+  service template; a second column would let the two drift into a state no rotation path handles,
+  which is the same reasoning as `SealKeyID` on an instance.
+- `tlsproxy` needed nothing for IPv6 backends: `net.JoinHostPort` brackets the address and
+  `net.Listen(":port")` binds both families. There is a test for it anyway, because the next person
+  to read `relay` will wonder.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

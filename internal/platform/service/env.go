@@ -36,6 +36,47 @@ func namesOf(env map[string]string) []string {
 	return names
 }
 
+func pathsOf(files []File) []string {
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func sealFiles(files []File, keys *sealed.Keyring) (string, error) {
+	if len(files) == 0 {
+		return "", nil
+	}
+
+	blob, _, err := sealed.SealJSON(files, keys)
+	if errors.Is(err, sealed.ErrNoKey) {
+		return "", fault.Conflict("no_sealing_key",
+			"this control plane has no key to seal a config file with, and every replica "+
+				"would carry it: start it with --backup-key-file, or leave files off")
+	}
+	if err != nil {
+		return "", fault.Internal(fmt.Errorf("seal the files: %w", err))
+	}
+	return blob, nil
+}
+
+func openFiles(blob, keyID string, keys *sealed.Keyring) ([]File, error) {
+	var files []File
+
+	err := sealed.OpenJSON(blob, keyID, keys, &files)
+	if errors.Is(err, sealed.ErrKeyMissing) {
+		return nil, fault.Conflict("seal_key_missing",
+			"this service's files were sealed with key "+keyID+
+				", which this control plane does not hold")
+	}
+	if err != nil {
+		return nil, fault.Internal(fmt.Errorf("unseal the files: %w", err))
+	}
+	return files, nil
+}
+
 func sealEnv(env map[string]string, keys *sealed.Keyring) (string, string, error) {
 	if len(env) == 0 {
 		return "", "", nil
