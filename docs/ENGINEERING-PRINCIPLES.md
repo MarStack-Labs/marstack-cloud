@@ -605,6 +605,11 @@ make check      # vet + test + security scans
 - A microvm's files go into the staging directory before `mkfs.ext4`, so they are part of the image
   rather than written into a running guest. `debugfs -R "stat /etc/x"` reads them back out of the
   image without mounting it, which is how the mode was checked.
+- Volume work - attach, backup, snapshot, restore - does not touch what an instance is reachable on,
+  and `TestVolumeWorkLeavesEveryAddressAlone` records that as a property rather than a hope. It holds
+  structurally: `volume` and `backup` cannot import `network`, so there is no path from a snapshot to
+  a nic row. The test is a boundary marker, and the half that asserts "the same addresses before and
+  after" cannot be mutation-tested for that reason - only the half that counts them can.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.
