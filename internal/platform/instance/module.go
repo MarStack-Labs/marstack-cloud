@@ -23,6 +23,7 @@ func (m *Module) UseSealing(ring *sealed.Keyring) {
 
 type Networks interface {
 	DefaultNetworkID(ctx context.Context, projectID string) (string, error)
+	ExistsIn(ctx context.Context, id, projectID string) (bool, error)
 	ReleaseAddress(ctx context.Context, instanceID string) error
 }
 

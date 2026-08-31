@@ -1242,6 +1242,60 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## Naming something that is not there
+
+An unknown firewall was refused at instance create. An unknown network was not:
+
+```
+$ marstack instance create --name lost --image alpine:3.20 --network net-nothing
+error: unknown_network: no network with id net-nothing exists, and a typo here
+would silently mean an instance that never gets an address
+```
+
+Every network is checked now, including the extras — a second interface was the
+same gap as the first:
+
+```
+$ marstack instance create --name half --network nw-w076ym7q --network net-nothing
+error: unknown_network: no network with id net-nothing exists, ...
+
+$ marstack instance create --name double --network nw-w076ym7q \
+    --network nw-f7qp5ysv --network nw-f7qp5ysv
+error: invalid_networks: a network is named twice, and a second interface onto
+the same network would carry two addresses out of one slice
+```
+
+That last one had a guard already, but it only compared each extra against the
+first network, so a repeat *among the extras* went through.
+
+A network in another project answers exactly the way one that does not exist
+answers — anything else would confirm the id:
+
+```
+$ curl -H "Authorization: Bearer $OTHER_PROJECT" .../v1/networks
+{ "networks": [] }
+
+$ curl ... -d '{"name":"borrowed","network_id":"nw-w076ym7qtppm0"}' .../v1/instances
+HTTP 400
+"no network with id nw-w076ym7qtppm0 exists, and a typo here would silently
+ mean an instance that never gets an address"
+```
+
+A service template is checked the same way, at create and at publish, so a bad
+revision never costs a replica:
+
+```
+$ marstack service update web --image alpine:3.21 --firewall fw-nothing
+error: unknown_reference: nothing with id fw-nothing exists in this project, and
+a template that names it would retire a working replica to make one that cannot
+start
+```
+
+Which raises the question of what is left for the rollout bound to catch. Plenty:
+a revision asking for more vCPU than the **project** may hold cannot be refused
+up front, because a quota is about the project rather than the template. That is
+what the broken-revision test uses now.
+
 ## Deploying a new revision
 
 A service template used to be immutable: the only way to change an image was to
@@ -2184,6 +2238,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 53  scheduled snapshots                               done
 54  a rate limit per project                          done
 55  rolling update of a service's template            done
+56  refusing a workload that names nothing            done
 ```
 
 ## License

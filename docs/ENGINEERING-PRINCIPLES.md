@@ -654,6 +654,30 @@ make check      # vet + test + security scans
 - Every new route is invisible to non-admin tokens until it is added to `memberPaths` in
   `internal/app/auth.go`. The allow-list is deny-by-default, so a member gets a 403 on a route that
   exists and works - the tenancy test caught it, which is the point of having one per feature.
+- An unknown `network_id` used to be accepted at instance create while an unknown `firewall_id` was
+  refused, so a typo produced an instance that was never going to get an address. Both are checked
+  now, and so is every entry in `extra_networks` - the second interface was the same gap as the
+  first, twice over.
+- A network in another project answers exactly the way one that does not exist answers. A distinct
+  code or status there would confirm the id exists, which is the whole reason `existsIn` compares
+  the project rather than letting a not-found bubble up.
+- The duplicate-network guard compared each extra against `NetworkID` only, so `["net-a","net-a"]`
+  with a different primary went through. It keeps a set now.
+- A service template's ids are checked at create **and** at publish, so a bad revision is refused at
+  the door instead of retiring a working replica to learn the same thing. `Registry` is one
+  consumer-declared interface (`ExistsIn`) that both the network and firewall modules already
+  satisfy - the service package cannot import either.
+- Do not key a map on an interface value to pair a registry with its ids: iteration order is random,
+  so a template with two bad ids names a different one each run. A slice of pairs keeps the message
+  deterministic.
+- Not everything can be checked up front, and the rollout test now leans on one that cannot: a
+  revision asking for more vCPU than the **project** may hold. A quota is about the project rather
+  than the template, so it can only fail at create - which is what still makes the retire-one-and-
+  stop bound worth having.
+- **`127.0.0.1:8088` is the UI proxy, and it injects its own admin token.** An `Authorization`
+  header sent there is ignored, so every request lands as admin in `prj-default`. Any test about
+  tenancy or roles has to go to the control plane on `:7443` with the token in hand; on the proxy it
+  measures nothing. This cost me a wrong conclusion about a tenancy leak that did not exist.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

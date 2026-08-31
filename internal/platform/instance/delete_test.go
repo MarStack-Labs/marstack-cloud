@@ -14,8 +14,13 @@ import (
 
 type fakeNetworks struct {
 	defaultID  string
+	unknown    map[string]bool
 	released   []string
 	releaseErr error
+}
+
+func (f *fakeNetworks) ExistsIn(_ context.Context, id, _ string) (bool, error) {
+	return !f.unknown[id], nil
 }
 
 func (f *fakeNetworks) DefaultNetworkID(context.Context, string) (string, error) {

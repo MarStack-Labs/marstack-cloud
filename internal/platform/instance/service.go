@@ -73,6 +73,11 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		networkID = resolved
 	}
 
+	if err := s.checkNetworks(ctx, params.ProjectID, networkID,
+		normalized.ExtraNetworks); err != nil {
+		return Instance{}, err
+	}
+
 	if normalized.FirewallID != "" && s.firewalls != nil {
 		known, err := s.firewalls.ExistsIn(ctx, normalized.FirewallID, params.ProjectID)
 		if err != nil {
@@ -133,6 +138,29 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		return Instance{}, translate(err)
 	}
 	return in, nil
+}
+
+func (s *service) checkNetworks(ctx context.Context, projectID, networkID string,
+	extra []string) error {
+	if s.networks == nil {
+		return nil
+	}
+
+	for _, id := range append([]string{networkID}, extra...) {
+		if id == "" {
+			continue
+		}
+		known, err := s.networks.ExistsIn(ctx, id, projectID)
+		if err != nil {
+			return err
+		}
+		if !known {
+			return fault.Invalid("unknown_network", "no network with id "+id+
+				" exists, and a typo here would silently mean an instance that never "+
+				"gets an address")
+		}
+	}
+	return nil
 }
 
 func (s *service) get(ctx context.Context, id string) (Instance, error) {
@@ -420,12 +448,14 @@ func normalize(params CreateParams) (CreateParams, error) {
 		return params, fault.Invalid("invalid_networks", fmt.Sprintf(
 			"an instance takes at most %d networks beyond its first", MaxExtraNetworks))
 	}
+	seen := map[string]bool{params.NetworkID: params.NetworkID != ""}
 	for _, id := range params.ExtraNetworks {
-		if id == params.NetworkID {
+		if seen[id] {
 			return params, fault.Invalid("invalid_networks",
 				"a network is named twice, and a second interface onto the same network "+
 					"would carry two addresses out of one slice")
 		}
+		seen[id] = true
 	}
 	if params.Group != "" {
 		if err := validate.Name("placement_group", params.Group); err != nil {

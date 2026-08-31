@@ -206,6 +206,10 @@ func (m *Module) DefaultNetworkID(ctx context.Context, projectID string) (string
 	return n.ID, nil
 }
 
+func (m *Module) ExistsIn(ctx context.Context, id, projectID string) (bool, error) {
+	return m.svc.existsIn(ctx, id, projectID)
+}
+
 func (m *Module) Allocate(ctx context.Context, instanceID, networkID, nodeID string) error {
 	nic, err := m.svc.allocate(ctx, instanceID, networkID, nodeID)
 	if err != nil {

@@ -112,6 +112,17 @@ func (s *service) create(ctx context.Context, params CreateParams) (Network, err
 	return n, nil
 }
 
+func (s *service) existsIn(ctx context.Context, id, projectID string) (bool, error) {
+	n, err := s.repo.network(ctx, id)
+	if errors.Is(err, errNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return n.ProjectID == projectID, nil
+}
+
 func (s *service) nicOf(ctx context.Context, instanceID string) (NIC, error) {
 	nic, err := s.repo.nic(ctx, instanceID)
 	if err != nil {

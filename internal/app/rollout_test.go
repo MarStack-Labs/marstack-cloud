@@ -174,13 +174,15 @@ func TestABrokenRevisionStopsAfterOneReplica(t *testing.T) {
 	a, _ := newBalancingApp(t)
 
 	created := createService(t, a, a.secret,
-		`{"name":"web","replicas":3,"isolation":"container","image":"alpine:3.20"}`)
+		`{"name":"web","replicas":3,"isolation":"container","image":"alpine:3.20","vcpu":1}`)
 	settle(t, a, 1)
+	setQuota(t, a, "prj-default", `{"vcpu":3}`)
 
 	if code, _ := retemplate(t, a, created.ID,
-		`{"isolation":"container","image":"alpine:3.21","firewall_id":"fw-nothing"}`,
+		`{"isolation":"container","image":"alpine:3.21","vcpu":3}`,
 	); code != http.StatusOK {
-		t.Fatalf("publish: %d", code)
+		t.Fatalf("publish: %d: a revision the project cannot afford is still a revision, "+
+			"because a quota is about the whole project rather than this template", code)
 	}
 
 	settle(t, a, 8)

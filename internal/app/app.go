@@ -222,6 +222,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	instances.UseEvents(events)
 	balancers.UseEvents(events)
 	services.UseWorkloads(serviceWorkloads{instances: instances})
+	services.UseNetworks(networks)
+	services.UseFirewalls(firewalls)
 	services.UseEvents(events)
 	balancers.UseServices(services)
 	webhooks.UseEvents(webhookEvents{events: events})

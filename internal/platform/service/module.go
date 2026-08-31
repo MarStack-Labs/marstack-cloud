@@ -142,6 +142,14 @@ func (m *Module) UseSealing(ring *sealed.Keyring) {
 	m.svc.sealing = ring
 }
 
+func (m *Module) UseNetworks(networks Registry) {
+	m.svc.networks = networks
+}
+
+func (m *Module) UseFirewalls(firewalls Registry) {
+	m.svc.firewalls = firewalls
+}
+
 func (m *Module) UseWorkloads(workloads Workloads) {
 	m.svc.workloads = workloads
 }

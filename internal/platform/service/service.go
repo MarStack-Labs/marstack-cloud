@@ -15,6 +15,10 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
+type Registry interface {
+	ExistsIn(ctx context.Context, id, projectID string) (bool, error)
+}
+
 type Workloads interface {
 	Create(ctx context.Context, workload Workload) (string, error)
 	Delete(ctx context.Context, projectID, instanceID string) error
@@ -26,6 +30,8 @@ type clock func() time.Time
 type service struct {
 	repo      *repository
 	workloads Workloads
+	networks  Registry
+	firewalls Registry
 	events    events.Recorder
 	sealing   *sealed.Keyring
 	log       *slog.Logger
@@ -51,6 +57,37 @@ func checkSelector(selector map[string]string) error {
 		}
 		if err := validate.Name("node_selector_value", value); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (s *service) checkReferences(ctx context.Context, projectID string, t Template) error {
+	named := []struct {
+		registry Registry
+		ids      []string
+	}{
+		{s.networks, append([]string{t.NetworkID}, t.ExtraNetworks...)},
+		{s.firewalls, []string{t.FirewallID}},
+	}
+
+	for _, group := range named {
+		if group.registry == nil {
+			continue
+		}
+		for _, id := range group.ids {
+			if id == "" {
+				continue
+			}
+			known, err := group.registry.ExistsIn(ctx, id, projectID)
+			if err != nil {
+				return err
+			}
+			if !known {
+				return fault.Invalid("unknown_reference", "nothing with id "+id+
+					" exists in this project, and a template that names it would retire a "+
+					"working replica to make one that cannot start")
+			}
 		}
 	}
 	return nil
@@ -117,6 +154,9 @@ func (s *service) create(ctx context.Context, params CreateParams) (Service, err
 	if err := checkTemplate(params.Template); err != nil {
 		return Service{}, err
 	}
+	if err := s.checkReferences(ctx, params.ProjectID, params.Template); err != nil {
+		return Service{}, err
+	}
 
 	template, err := s.sealTemplate(params.Template)
 	if err != nil {
@@ -148,6 +188,9 @@ func (s *service) update(ctx context.Context, params UpdateParams) (Service, err
 
 	svc, err := s.find(ctx, params.ProjectID, params.ID)
 	if err != nil {
+		return Service{}, err
+	}
+	if err := s.checkReferences(ctx, params.ProjectID, params.Template); err != nil {
 		return Service{}, err
 	}
 
