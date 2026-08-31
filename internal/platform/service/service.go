@@ -56,6 +56,52 @@ func checkSelector(selector map[string]string) error {
 	return nil
 }
 
+func checkTemplate(t Template) error {
+	if err := checkSelector(t.NodeSelector); err != nil {
+		return err
+	}
+	if err := checkEnv(t.Env); err != nil {
+		return err
+	}
+	if len(t.ExtraNetworks) > MaxExtraNetworks {
+		return fault.Invalid("invalid_networks", fmt.Sprintf(
+			"a replica takes at most %d networks beyond its first", MaxExtraNetworks))
+	}
+	if len(t.Files) > MaxFiles {
+		return fault.Invalid("invalid_files", fmt.Sprintf(
+			"a service carries at most %d files, and %d were given", MaxFiles, len(t.Files)))
+	}
+	if t.Image == "" && t.ISO == "" {
+		return fault.Invalid("invalid_template",
+			"a service needs an image or an iso to make replicas from")
+	}
+	return nil
+}
+
+func (s *service) sealTemplate(t Template) (Template, error) {
+	envSealed, envKeyID, err := sealEnv(t.Env, s.sealing)
+	if err != nil {
+		return Template{}, err
+	}
+
+	filesSealed, err := sealFiles(t.Files, s.sealing)
+	if err != nil {
+		return Template{}, err
+	}
+	if filesSealed != "" && envKeyID == "" {
+		envKeyID = s.sealing.ActiveID()
+	}
+
+	t.EnvSealed = envSealed
+	t.EnvKeyID = envKeyID
+	t.EnvNames = namesOf(t.Env)
+	t.Env = nil
+	t.FilesSealed = filesSealed
+	t.FilePaths = pathsOf(t.Files)
+	t.Files = nil
+	return t, nil
+}
+
 func (s *service) create(ctx context.Context, params CreateParams) (Service, error) {
 	if err := validate.Name("name", params.Name); err != nil {
 		return Service{}, err
@@ -68,46 +114,13 @@ func (s *service) create(ctx context.Context, params CreateParams) (Service, err
 	if err := checkReplicas(params.Replicas); err != nil {
 		return Service{}, err
 	}
-	if err := checkSelector(params.Template.NodeSelector); err != nil {
+	if err := checkTemplate(params.Template); err != nil {
 		return Service{}, err
 	}
-	if err := checkEnv(params.Template.Env); err != nil {
-		return Service{}, err
-	}
-	if len(params.Template.ExtraNetworks) > MaxExtraNetworks {
-		return Service{}, fault.Invalid("invalid_networks", fmt.Sprintf(
-			"a replica takes at most %d networks beyond its first", MaxExtraNetworks))
-	}
 
-	if len(params.Template.Files) > MaxFiles {
-		return Service{}, fault.Invalid("invalid_files", fmt.Sprintf(
-			"a service carries at most %d files, and %d were given",
-			MaxFiles, len(params.Template.Files)))
-	}
-
-	envSealed, envKeyID, err := sealEnv(params.Template.Env, s.sealing)
+	template, err := s.sealTemplate(params.Template)
 	if err != nil {
 		return Service{}, err
-	}
-
-	filesSealed, err := sealFiles(params.Template.Files, s.sealing)
-	if err != nil {
-		return Service{}, err
-	}
-	if filesSealed != "" && envKeyID == "" {
-		envKeyID = s.sealing.ActiveID()
-	}
-
-	params.Template.EnvSealed = envSealed
-	params.Template.EnvKeyID = envKeyID
-	params.Template.EnvNames = namesOf(params.Template.Env)
-	params.Template.Env = nil
-	params.Template.FilesSealed = filesSealed
-	params.Template.FilePaths = pathsOf(params.Template.Files)
-	params.Template.Files = nil
-	if params.Template.Image == "" && params.Template.ISO == "" {
-		return Service{}, fault.Invalid("invalid_template",
-			"a service needs an image or an iso to make replicas from")
 	}
 
 	at := s.now()
@@ -116,7 +129,8 @@ func (s *service) create(ctx context.Context, params CreateParams) (Service, err
 		ProjectID: params.ProjectID,
 		Name:      params.Name,
 		Replicas:  params.Replicas,
-		Template:  params.Template,
+		Revision:  1,
+		Template:  template,
 		CreatedAt: at,
 		UpdatedAt: at,
 	}
@@ -125,6 +139,35 @@ func (s *service) create(ctx context.Context, params CreateParams) (Service, err
 		return Service{}, translate(err)
 	}
 	return svc, nil
+}
+
+func (s *service) update(ctx context.Context, params UpdateParams) (Service, error) {
+	if err := checkTemplate(params.Template); err != nil {
+		return Service{}, err
+	}
+
+	svc, err := s.find(ctx, params.ProjectID, params.ID)
+	if err != nil {
+		return Service{}, err
+	}
+
+	template, err := s.sealTemplate(params.Template)
+	if err != nil {
+		return Service{}, err
+	}
+
+	if err := s.repo.setTemplate(ctx, svc.ID, template, svc.Revision+1, s.now()); err != nil {
+		return Service{}, translate(err)
+	}
+
+	s.note(ctx, svc, events.Entry{
+		Kind:    "service.revision_published",
+		Subject: svc.ID,
+		Message: svc.Name + " is now on revision " + strconv.Itoa(svc.Revision+1) +
+			", and replicas will be replaced one at a time",
+		Severity: events.Info,
+	})
+	return s.find(ctx, params.ProjectID, svc.ID)
 }
 
 func checkReplicas(replicas int) error {
@@ -234,15 +277,81 @@ func (s *service) reconcileOne(ctx context.Context, svc Service) (int, int, erro
 		return 0, 0, err
 	}
 
-	switch {
-	case len(present) < svc.Replicas:
-		return s.growTo(ctx, svc, present)
-	case len(present) > svc.Replicas:
+	if len(present) > svc.Replicas {
 		return 0, s.shrinkTo(ctx, svc, present), nil
 	}
 
+	var retired int
+	if len(present) == svc.Replicas {
+		present, retired = s.retireStale(ctx, svc, present)
+	}
+
+	if len(present) < svc.Replicas {
+		created, _, err := s.growTo(ctx, svc, present)
+		return created, retired, err
+	}
+
 	s.clearBlocked(ctx, svc)
-	return 0, 0, nil
+	return 0, retired, nil
+}
+
+func partition(present []Member, revision int, staleFirst bool) []Member {
+	stale := make([]Member, 0, len(present))
+	fresh := make([]Member, 0, len(present))
+	for _, member := range present {
+		if member.Revision == revision {
+			fresh = append(fresh, member)
+			continue
+		}
+		stale = append(stale, member)
+	}
+	if len(stale) == 0 {
+		return present
+	}
+	if staleFirst {
+		return append(stale, fresh...)
+	}
+	return append(fresh, stale...)
+}
+
+func (s *service) retireStale(ctx context.Context, svc Service, present []Member) ([]Member, int) {
+	ordered := partition(present, svc.Revision, true)
+
+	retired := 0
+	for _, member := range ordered {
+		if retired == MaxReplacePerPass {
+			break
+		}
+		if member.Revision == svc.Revision {
+			break
+		}
+
+		if err := s.workloads.Delete(ctx, svc.ProjectID, member.InstanceID); err != nil {
+			s.log.Warn("could not retire a replica of an older revision",
+				"service", svc.Name, "instance", member.InstanceID, "error", err)
+			break
+		}
+		if err := s.repo.removeMember(ctx, svc.ID, member.InstanceID); err != nil {
+			s.log.Warn("retired a replica but kept it in the service",
+				"service", svc.Name, "instance", member.InstanceID, "error", err)
+			break
+		}
+		retired++
+
+		s.note(ctx, svc, events.Entry{
+			Kind:    "service.replica_retired",
+			Subject: member.InstanceID,
+			Message: svc.Name + " retired a replica on revision " +
+				strconv.Itoa(member.Revision) + " to make room for revision " +
+				strconv.Itoa(svc.Revision),
+			Severity: events.Info,
+		})
+	}
+
+	if retired == 0 {
+		return present, 0
+	}
+	return ordered[retired:], retired
 }
 
 func (s *service) livingMembers(ctx context.Context, svc Service) ([]Member, error) {
@@ -311,7 +420,7 @@ func (s *service) growTo(ctx context.Context, svc Service, present []Member) (in
 			return created, 0, nil
 		}
 
-		if err := s.repo.addMember(ctx, svc.ID, id, s.now()); err != nil {
+		if err := s.repo.addMember(ctx, svc.ID, id, svc.Revision, s.now()); err != nil {
 			return created, 0, err
 		}
 		created++
@@ -330,9 +439,11 @@ func (s *service) growTo(ctx context.Context, svc Service, present []Member) (in
 }
 
 func (s *service) shrinkTo(ctx context.Context, svc Service, present []Member) int {
+	ordered := partition(present, svc.Revision, false)
+
 	removed := 0
-	for i := len(present) - 1; i >= svc.Replicas; i-- {
-		member := present[i]
+	for i := len(ordered) - 1; i >= svc.Replicas; i-- {
+		member := ordered[i]
 
 		if err := s.workloads.Delete(ctx, svc.ProjectID, member.InstanceID); err != nil {
 			s.log.Warn("could not remove a replica",

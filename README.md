@@ -1242,6 +1242,67 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## Deploying a new revision
+
+A service template used to be immutable: the only way to change an image was to
+delete the service, which killed every replica at once.
+
+```sh
+marstack service update web --image alpine:3.21 -- sleep 3600
+```
+
+```
+NAME      REPLICAS   REV   IMAGE         STATE
+rollweb   3          2     alpine:3.21   rolling out, 0/3 on rev 2
+rollweb   3          2     alpine:3.21   rolling out, 1/3 on rev 2
+rollweb   3          2     alpine:3.21   rolling out, 2/3 on rev 2
+rollweb   3          2     alpine:3.21   3/3 up
+```
+
+The template is versioned by a counter and a replica remembers which revision it
+came from. A rollout is then a third case in the loop that was already there:
+retire one stale replica when the count is met, and let the grow path make the
+replacement. No surge, no second notion of capacity.
+
+**The bound falls out of that shape rather than being enforced.** Retiring only
+happens while the count is met, so once a replacement cannot be made the count
+drops, the retire branch is never reached again, and the rollout stops:
+
+```
+$ marstack service update rollweb --image alpine:3.21 --firewall fw-nothing
+members 2 rollout {'current': 0, 'stale': 2} blocked: unknown_firewall: ...
+members 2 rollout {'current': 0, 'stale': 2} blocked: unknown_firewall: ...
+members 2 rollout {'current': 0, 'stale': 2} blocked: unknown_firewall: ...
+```
+
+Six passes, one replica lost, two still serving. Publishing a working template
+picks it straight back up — rolling back is just another revision forward,
+because two replicas labelled "revision 1" from either side of a rollback are
+not the same thing.
+
+A revision is the whole template, not a patch. Env and files are sealed and
+never served back, so the CLI cannot carry them forward for you:
+
+```
+$ marstack service update envsvc --image alpine:3.21
+error: revision 1 of envsvc carries 2 environment variables (DATABASE_URL,
+TOKEN), and a revision is the whole template rather than a patch. These are
+sealed and never served back, so they cannot be carried over for you: pass
+them again, or --drop to publish without them
+```
+
+Passed again, they reach the replica the rollout made:
+
+```
+$ tr '\0' '\n' < /proc/32758/environ | grep -E 'TOKEN|DATABASE_URL'
+DATABASE_URL=postgres://x
+TOKEN=abc
+```
+
+A single-replica service has an outage while its one replica turns over. That is
+not new: the loop already replaces a lost replica by making another, so a service
+with no redundancy never had any.
+
 ## Three more
 
 ### TLS on a published port
@@ -2122,6 +2183,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 52  tls on a published port                           done
 53  scheduled snapshots                               done
 54  a rate limit per project                          done
+55  rolling update of a service's template            done
 ```
 
 ## License

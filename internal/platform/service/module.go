@@ -116,6 +116,16 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  11,
 			SQL:    `ALTER TABLE services ADD COLUMN file_paths TEXT NOT NULL DEFAULT '[]'`,
 		},
+		{
+			Module: "service",
+			Index:  12,
+			SQL:    `ALTER TABLE services ADD COLUMN revision INTEGER NOT NULL DEFAULT 1`,
+		},
+		{
+			Module: "service",
+			Index:  13,
+			SQL:    `ALTER TABLE service_members ADD COLUMN revision INTEGER NOT NULL DEFAULT 1`,
+		},
 	}
 }
 
@@ -124,6 +134,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/services", httpx.Wrap(m.log, m.handler.list))
 	mux.Handle("GET /v1/services/{id}", httpx.Wrap(m.log, m.handler.get))
 	mux.Handle("POST /v1/services/{id}/scale", httpx.Wrap(m.log, m.handler.scale))
+	mux.Handle("PUT /v1/services/{id}/template", httpx.Wrap(m.log, m.handler.update))
 	mux.Handle("DELETE /v1/services/{id}", httpx.Wrap(m.log, m.handler.delete))
 }
 

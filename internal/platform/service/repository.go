@@ -17,7 +17,7 @@ var (
 	errNameUsed = errors.New("service name already used")
 )
 
-const columns = `id, project_id, name, replicas, isolation, image, iso, kernel, disk_gib,
+const columns = `id, project_id, name, replicas, revision, isolation, image, iso, kernel, disk_gib,
 	firewall_id, command, network_id, restart_policy, vcpu, memory_mib,
 	placement_group, placement_strict, node_selector, extra_networks,
 	env, env_key_id, env_names, files, file_paths, ssh_keys, blocked, created_at, updated_at`
@@ -62,8 +62,8 @@ func (r *repository) insert(ctx context.Context, s Service) error {
 
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO services (`+columns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		s.ID, s.ProjectID, s.Name, s.Replicas, s.Template.Isolation, s.Template.Image,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		s.ID, s.ProjectID, s.Name, s.Replicas, s.Revision, s.Template.Isolation, s.Template.Image,
 		s.Template.ISO, s.Template.Kernel, s.Template.DiskGiB, s.Template.FirewallID,
 		string(command), s.Template.NetworkID, s.Template.RestartPolicy, s.Template.VCPU,
 		s.Template.MemoryMiB, s.Template.Group, s.Template.Strict, string(selector),
@@ -91,6 +91,58 @@ func (r *repository) setReplicas(ctx context.Context, id string, replicas int, a
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("set replicas: %w", err)
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func (r *repository) setTemplate(ctx context.Context, id string, t Template,
+	revision int, at time.Time) error {
+	command, err := json.Marshal(t.Command)
+	if err != nil {
+		return fmt.Errorf("encode the command: %w", err)
+	}
+	keys, err := json.Marshal(t.Keys)
+	if err != nil {
+		return fmt.Errorf("encode the keys: %w", err)
+	}
+	selector, err := json.Marshal(t.NodeSelector)
+	if err != nil {
+		return fmt.Errorf("encode the node selector: %w", err)
+	}
+	extra, err := json.Marshal(t.ExtraNetworks)
+	if err != nil {
+		return fmt.Errorf("encode the extra networks: %w", err)
+	}
+	envNames, err := json.Marshal(t.EnvNames)
+	if err != nil {
+		return fmt.Errorf("encode the environment names: %w", err)
+	}
+	filePaths, err := json.Marshal(t.FilePaths)
+	if err != nil {
+		return fmt.Errorf("encode the file paths: %w", err)
+	}
+
+	result, err := r.db.ExecContext(ctx,
+		`UPDATE services SET revision = ?, isolation = ?, image = ?, iso = ?, kernel = ?,
+			disk_gib = ?, firewall_id = ?, command = ?, network_id = ?, restart_policy = ?,
+			vcpu = ?, memory_mib = ?, placement_group = ?, placement_strict = ?,
+			node_selector = ?, extra_networks = ?, env = ?, env_key_id = ?, env_names = ?,
+			files = ?, file_paths = ?, ssh_keys = ?, updated_at = ?
+			WHERE id = ?`,
+		revision, t.Isolation, t.Image, t.ISO, t.Kernel, t.DiskGiB, t.FirewallID,
+		string(command), t.NetworkID, t.RestartPolicy, t.VCPU, t.MemoryMiB, t.Group, t.Strict,
+		string(selector), string(extra), t.EnvSealed, t.EnvKeyID, string(envNames),
+		t.FilesSealed, string(filePaths), string(keys), at.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("set the template: %w", err)
+	}
+
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set the template: %w", err)
 	}
 	if affected == 0 {
 		return errNotFound
@@ -172,7 +224,7 @@ func (r *repository) load(ctx context.Context, query string, args ...any) ([]Ser
 
 func (r *repository) membersOf(ctx context.Context, serviceID string) ([]Member, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT instance_id, created_at FROM service_members
+		`SELECT instance_id, revision, created_at FROM service_members
 			WHERE service_id = ? ORDER BY created_at, instance_id`, serviceID)
 	if err != nil {
 		return nil, fmt.Errorf("list members: %w", err)
@@ -185,7 +237,7 @@ func (r *repository) membersOf(ctx context.Context, serviceID string) ([]Member,
 			member  Member
 			created string
 		)
-		if err := rows.Scan(&member.InstanceID, &created); err != nil {
+		if err := rows.Scan(&member.InstanceID, &member.Revision, &created); err != nil {
 			return nil, fmt.Errorf("scan a member: %w", err)
 		}
 
@@ -199,10 +251,12 @@ func (r *repository) membersOf(ctx context.Context, serviceID string) ([]Member,
 	return members, rows.Err()
 }
 
-func (r *repository) addMember(ctx context.Context, serviceID, instanceID string, at time.Time) error {
+func (r *repository) addMember(ctx context.Context, serviceID, instanceID string,
+	revision int, at time.Time) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO service_members (service_id, instance_id, created_at) VALUES (?, ?, ?)`,
-		serviceID, instanceID, at.Format(time.RFC3339Nano))
+		`INSERT INTO service_members (service_id, instance_id, revision, created_at)
+			VALUES (?, ?, ?, ?)`,
+		serviceID, instanceID, revision, at.Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("add a member: %w", err)
 	}
@@ -259,7 +313,7 @@ func scan(row scanner) (Service, error) {
 		filePaths        string
 		created, updated string
 	)
-	if err := row.Scan(&s.ID, &s.ProjectID, &s.Name, &s.Replicas, &s.Template.Isolation,
+	if err := row.Scan(&s.ID, &s.ProjectID, &s.Name, &s.Replicas, &s.Revision, &s.Template.Isolation,
 		&s.Template.Image, &s.Template.ISO, &s.Template.Kernel, &s.Template.DiskGiB,
 		&s.Template.FirewallID, &command, &s.Template.NetworkID, &s.Template.RestartPolicy,
 		&s.Template.VCPU, &s.Template.MemoryMiB, &s.Template.Group, &s.Template.Strict,

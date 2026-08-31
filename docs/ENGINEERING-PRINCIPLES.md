@@ -631,6 +631,29 @@ make check      # vet + test + security scans
 - Adding a column to `snapshotColumns` is not enough: `snapshotsPageIn` writes its own
   `s.id, s.volume_id, ...` list because it joins volumes, and a mismatch there is a 500 on
   `/v1/snapshots` rather than a compile error. It caught me.
+- A service template is versioned by a plain counter, and a replica remembers the revision it was
+  made from. A rollout is then just a third case in the loop that already existed: retire one stale
+  replica when the count is met, and let `growTo` make the replacement. No surge, no second
+  capacity concept, and the `len(present)` vs `Replicas` invariant is untouched.
+- The bound falls out of that shape rather than being enforced: retiring only happens when
+  `len(present) == Replicas`, so once a replacement cannot be made the count drops below the target,
+  the retire branch is never reached again, and **a broken revision costs one replica instead of the
+  whole service**. Removing the `==` guard is a mutation test; so is ignoring `MaxReplacePerPass`.
+- Scaling down orders stale replicas **last**, because `shrinkTo` removes from the end. Passing
+  `staleFirst: true` there cuts the fresh replicas and leaves the rollout to redo the work - the two
+  call sites want opposite orderings from the same partition.
+- A single-replica service has an outage during a rollout, and that is not a new failure mode: the
+  loop already replaces a lost replica by making a new one, so a service with no redundancy never
+  had any.
+- A revision is the whole template, not a patch. Env and files are sealed and never served back, so
+  the CLI **cannot** carry them forward - `checkCarried` refuses rather than publishing a revision
+  that silently drops them, and `--drop` is how you say you meant it.
+- Rolling back is publishing the old template again, which is a new revision number. Two replicas
+  labelled "revision 1" that were made before and after a rollback are not the same thing, so the
+  counter never goes backwards.
+- Every new route is invisible to non-admin tokens until it is added to `memberPaths` in
+  `internal/app/auth.go`. The allow-list is deny-by-default, so a member gets a 403 on a route that
+  exists and works - the tenancy test caught it, which is the point of having one per feature.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

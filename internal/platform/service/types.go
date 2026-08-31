@@ -3,11 +3,12 @@ package service
 import "time"
 
 const (
-	MaxReplicas      = 32
-	ReconcileEvery   = 10 * time.Second
-	MaxNameLength    = 40
-	SuffixLength     = 6
-	MaxCreatePerPass = 4
+	MaxReplicas       = 32
+	ReconcileEvery    = 10 * time.Second
+	MaxNameLength     = 40
+	SuffixLength      = 6
+	MaxCreatePerPass  = 4
+	MaxReplacePerPass = 1
 )
 
 const (
@@ -54,6 +55,7 @@ type Service struct {
 	ProjectID string
 	Name      string
 	Replicas  int
+	Revision  int
 	Template  Template
 	Members   []Member
 	Blocked   string
@@ -63,6 +65,7 @@ type Service struct {
 
 type Member struct {
 	InstanceID string
+	Revision   int
 	CreatedAt  time.Time
 }
 
@@ -70,6 +73,12 @@ type CreateParams struct {
 	ProjectID string
 	Name      string
 	Replicas  int
+	Template  Template
+}
+
+type UpdateParams struct {
+	ProjectID string
+	ID        string
 	Template  Template
 }
 
