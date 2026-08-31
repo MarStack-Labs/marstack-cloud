@@ -1242,6 +1242,76 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## A replica that is dead but still counted
+
+The service loop asked one question about each replica: does it still exist? So a
+replica the node had given up on stayed a member, and the service reported the
+full count while one replica served nothing.
+
+```
+$ marstack service get healthsvc
+REPLICA           REV   STATE     SINCE
+i-z3f1hwfcnbzgm   1     running   2026-08-31T08:49:57
+i-wmbshk66jseqw   1     running   2026-08-31T08:49:57
+```
+
+State is read live on every path rather than stored on the row — a stored copy is
+up to one interval stale, and `service get` right after a crash is the worst
+possible moment to answer `running`.
+
+Killing a replica's process is not enough to see the new behaviour, and that is
+the first thing worth checking:
+
+```
+NAME               ID                OBSERVED   RESTARTS
+healthsvc-qft7tw   i-z3f1hwfcnbzgm   running    1
+```
+
+The node restarted it and the service correctly did nothing. **A service must not
+reap what the node is already fixing.**
+
+A workload that cannot start is different:
+
+```
+$ marstack service create --name crash2 --replicas 2 --restart never \
+    --image alpine:3.20 -- sh -c "exit 1"
+
+rollout {'failed': 2} | members 2 | blocked:
+rollout {'failed': 1} | members 2 | blocked:
+rollout {}            | members 2 | blocked:
+rollout {'failed': 1} | members 2 | blocked: replaced 3 replicas and they keep failing…
+rollout {'failed': 2} | members 2 | blocked: replaced 3 replicas and they keep failing…
+```
+
+Replacing without a bound is a crashloop the platform runs on your behalf. After
+three replacements it gives up, says why, and leaves the survivors alone —
+verified live by watching the member ids stop changing.
+
+Only `failed` is reaped. `stopped` is a decision a person made and gets reported
+rather than deleted; `pending` has not had its chance yet.
+
+Two things this got wrong first, both found live:
+
+> **The tally may only be cleared when every replica is actually running.**
+> Clearing it whenever nothing is failed *right now* passes a unit test and fails
+> live: the pass after a replacement sees the new replica `pending`, which is not
+> a recovery, so the tally reset every other pass and the limit was never
+> reached. Reproducing it needs two replicas — one healthy, one whose
+> replacements keep failing — because with one replica the loop always exits
+> through the grow branch and never reaches the settle at all.
+
+> **Publishing a revision has to clear the tally**, because that is the operator
+> saying the template is fixed. Without it the block worked exactly as designed
+> and then would not let go: the reap gate returns before the rollout can retire
+> anything, so a correct new revision changed nothing.
+
+```
+$ marstack service update crash2 --image alpine:3.20 -- sleep 3600
+crash2   2   3   rolling out, 0/2 on rev 3
+crash2   2   3   rolling out, 1/2 on rev 3
+crash2   2   3   2/2 up
+```
+
 ## Naming something that is not there
 
 An unknown firewall was refused at instance create. An unknown network was not:
@@ -2239,6 +2309,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 54  a rate limit per project                          done
 55  rolling update of a service's template            done
 56  refusing a workload that names nothing            done
+57  replacing a replica the node gave up on            done
 ```
 
 ## License

@@ -110,6 +110,20 @@ func pump(t *testing.T, a *testApp, times int) {
 	}
 }
 
+const pumpAttempts = 40
+
+func pumpFor(t *testing.T, a *testApp, box *sink, want int) []received {
+	t.Helper()
+
+	for range pumpAttempts {
+		a.webhooks.Pump(context.Background())
+		if seen := box.seen(); len(seen) >= want {
+			return seen
+		}
+	}
+	return box.seen()
+}
+
 func reachingLoopback(t *testing.T, a *testApp) {
 	t.Helper()
 	a.webhooks.AllowLoopbackBecauseThisIsATest()
@@ -195,9 +209,8 @@ func TestOnlyTheSubscribedKindsAreDelivered(t *testing.T) {
 	id := newInstance(t, a, a.secret, "web-2")
 	waitForPlacement(t, a, id)
 	reportState(t, a, nodeID, id, `{"observed_state":"failed","message":"died"}`)
-	pump(t, a, 2)
 
-	seen := box.seen()
+	seen := pumpFor(t, a, box, 1)
 	if len(seen) != 1 || seen[0].Kind != "instance.failed" {
 		t.Fatalf("delivered %+v, want exactly the failure", seen)
 	}
@@ -216,9 +229,8 @@ func TestAWildcardKindMatchesAFamily(t *testing.T) {
 
 	pump(t, a, 1)
 	makeAnEvent(t, a, nodeID, "web-1", "running")
-	pump(t, a, 2)
 
-	if seen := box.seen(); len(seen) == 0 {
+	if seen := pumpFor(t, a, box, 1); len(seen) == 0 {
 		t.Fatal("instance.* did not match instance.running")
 	}
 }

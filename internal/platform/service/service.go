@@ -22,7 +22,7 @@ type Registry interface {
 type Workloads interface {
 	Create(ctx context.Context, workload Workload) (string, error)
 	Delete(ctx context.Context, projectID, instanceID string) error
-	Alive(ctx context.Context, instanceIDs []string) (map[string]bool, error)
+	StatesOf(ctx context.Context, instanceIDs []string) (map[string]string, error)
 }
 
 type clock func() time.Time
@@ -202,6 +202,9 @@ func (s *service) update(ctx context.Context, params UpdateParams) (Service, err
 	if err := s.repo.setTemplate(ctx, svc.ID, template, svc.Revision+1, s.now()); err != nil {
 		return Service{}, translate(err)
 	}
+	if err := s.repo.setReaped(ctx, svc.ID, 0); err != nil {
+		return Service{}, translate(err)
+	}
 
 	s.note(ctx, svc, events.Entry{
 		Kind:    "service.revision_published",
@@ -244,7 +247,12 @@ func (s *service) find(ctx context.Context, projectID, id string) (Service, erro
 	if err != nil {
 		return Service{}, translate(err)
 	}
-	return svc, nil
+
+	found := []Service{svc}
+	if err := s.withStates(ctx, found); err != nil {
+		return Service{}, err
+	}
+	return found[0], nil
 }
 
 func (s *service) membersOf(ctx context.Context, projectID, serviceID string) ([]string, error) {
@@ -264,6 +272,9 @@ func (s *service) listIn(ctx context.Context, projectID string) ([]Service, erro
 	services, err := s.repo.listIn(ctx, projectID)
 	if err != nil {
 		return nil, translate(err)
+	}
+	if err := s.withStates(ctx, services); err != nil {
+		return nil, err
 	}
 	return services, nil
 }
@@ -300,6 +311,9 @@ func (s *service) reconcile(ctx context.Context) (int, int, error) {
 	if err != nil {
 		return 0, 0, translate(err)
 	}
+	if err := s.withStates(ctx, services); err != nil {
+		return 0, 0, err
+	}
 
 	var created, removed int
 	for _, svc := range services {
@@ -324,6 +338,11 @@ func (s *service) reconcileOne(ctx context.Context, svc Service) (int, int, erro
 		return 0, s.shrinkTo(ctx, svc, present), nil
 	}
 
+	present, reaped, gaveUp := s.reapFailed(ctx, svc, present)
+	if gaveUp {
+		return 0, reaped, nil
+	}
+
 	var retired int
 	if len(present) == svc.Replicas {
 		present, retired = s.retireStale(ctx, svc, present)
@@ -331,11 +350,89 @@ func (s *service) reconcileOne(ctx context.Context, svc Service) (int, int, erro
 
 	if len(present) < svc.Replicas {
 		created, _, err := s.growTo(ctx, svc, present)
-		return created, retired, err
+		return created, retired + reaped, err
 	}
 
+	s.settle(ctx, svc, present)
+	return 0, retired + reaped, nil
+}
+
+func (s *service) settle(ctx context.Context, svc Service, present []Member) {
 	s.clearBlocked(ctx, svc)
-	return 0, retired, nil
+	if svc.Reaped == 0 || !allRunning(present) {
+		return
+	}
+	if err := s.repo.setReaped(ctx, svc.ID, 0); err != nil {
+		s.log.Warn("could not clear the replacement count",
+			"service", svc.Name, "error", err)
+	}
+}
+
+func allRunning(present []Member) bool {
+	for _, member := range present {
+		if member.State != StateRunning {
+			return false
+		}
+	}
+	return len(present) > 0
+}
+
+func (s *service) reapFailed(ctx context.Context, svc Service,
+	present []Member) ([]Member, int, bool) {
+	failed := make([]Member, 0, len(present))
+	kept := make([]Member, 0, len(present))
+	for _, member := range present {
+		if member.State == StateFailed {
+			failed = append(failed, member)
+			continue
+		}
+		kept = append(kept, member)
+	}
+	if len(failed) == 0 {
+		return present, 0, false
+	}
+
+	if svc.Reaped >= MaxReapAttempts {
+		s.block(ctx, svc, "replaced "+strconv.Itoa(svc.Reaped)+
+			" replicas and they keep failing, so the rest are left alone until the "+
+			"template or the image is fixed")
+		return present, 0, true
+	}
+
+	reaped := 0
+	for _, member := range failed {
+		if reaped == MaxReplacePerPass {
+			break
+		}
+
+		if err := s.workloads.Delete(ctx, svc.ProjectID, member.InstanceID); err != nil {
+			s.log.Warn("could not remove a failed replica",
+				"service", svc.Name, "instance", member.InstanceID, "error", err)
+			break
+		}
+		if err := s.repo.removeMember(ctx, svc.ID, member.InstanceID); err != nil {
+			s.log.Warn("removed a failed replica but kept it in the service",
+				"service", svc.Name, "instance", member.InstanceID, "error", err)
+			break
+		}
+		reaped++
+
+		s.note(ctx, svc, events.Entry{
+			Kind:    "service.replica_failed",
+			Subject: member.InstanceID,
+			Message: svc.Name + " replaced a replica that had failed, attempt " +
+				strconv.Itoa(svc.Reaped+reaped) + " of " + strconv.Itoa(MaxReapAttempts),
+			Severity: events.Warn,
+		})
+	}
+
+	if reaped == 0 {
+		return present, 0, false
+	}
+	if err := s.repo.setReaped(ctx, svc.ID, svc.Reaped+reaped); err != nil {
+		s.log.Warn("could not record a replacement", "service", svc.Name, "error", err)
+	}
+	return append(kept, failed[reaped:]...), reaped, false
 }
 
 func partition(present []Member, revision int, staleFirst bool) []Member {
@@ -397,24 +494,40 @@ func (s *service) retireStale(ctx context.Context, svc Service, present []Member
 	return ordered[retired:], retired
 }
 
+func (s *service) withStates(ctx context.Context, services []Service) error {
+	if s.workloads == nil {
+		return nil
+	}
+
+	for i := range services {
+		if len(services[i].Members) == 0 {
+			continue
+		}
+
+		ids := make([]string, 0, len(services[i].Members))
+		for _, member := range services[i].Members {
+			ids = append(ids, member.InstanceID)
+		}
+
+		states, err := s.workloads.StatesOf(ctx, ids)
+		if err != nil {
+			return err
+		}
+		for j := range services[i].Members {
+			services[i].Members[j].State = states[services[i].Members[j].InstanceID]
+		}
+	}
+	return nil
+}
+
 func (s *service) livingMembers(ctx context.Context, svc Service) ([]Member, error) {
 	if len(svc.Members) == 0 {
 		return nil, nil
 	}
 
-	ids := make([]string, 0, len(svc.Members))
-	for _, member := range svc.Members {
-		ids = append(ids, member.InstanceID)
-	}
-
-	alive, err := s.workloads.Alive(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-
 	present := make([]Member, 0, len(svc.Members))
 	for _, member := range svc.Members {
-		if alive[member.InstanceID] {
+		if member.State != "" {
 			present = append(present, member)
 			continue
 		}

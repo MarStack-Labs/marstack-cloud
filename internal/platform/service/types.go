@@ -9,6 +9,12 @@ const (
 	SuffixLength      = 6
 	MaxCreatePerPass  = 4
 	MaxReplacePerPass = 1
+	MaxReapAttempts   = 3
+)
+
+const (
+	StateRunning = "running"
+	StateFailed  = "failed"
 )
 
 const (
@@ -58,6 +64,7 @@ type Service struct {
 	Revision  int
 	Template  Template
 	Members   []Member
+	Reaped    int
 	Blocked   string
 	CreatedAt time.Time
 	UpdatedAt time.Time
@@ -66,6 +73,7 @@ type Service struct {
 type Member struct {
 	InstanceID string
 	Revision   int
+	State      string
 	CreatedAt  time.Time
 }
 

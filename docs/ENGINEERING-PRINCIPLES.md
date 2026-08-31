@@ -678,6 +678,33 @@ make check      # vet + test + security scans
   header sent there is ignored, so every request lands as admin in `prj-default`. Any test about
   tenancy or roles has to go to the control plane on `:7443` with the token in hand; on the proxy it
   measures nothing. This cost me a wrong conclusion about a tenancy leak that did not exist.
+- `Alive` asked whether an instance **exists**, so a replica the node had given up on stayed a
+  member forever and the service reported the full count while one replica served nothing. The
+  interface is `StatesOf` now and returns the observed state; a member missing from the map is gone,
+  and one that is `failed` is replaced.
+- Only `failed` is reaped. `stopped` is a decision a person made and gets reported rather than
+  deleted; `pending` has not had its chance yet. Widening the rule to "anything not running" reaps
+  replicas that are merely waiting to be placed, which breaks the rollout tests too.
+- Replacing without a bound is a crashloop the platform runs on your behalf. `Reaped` counts
+  replacements and the service gives up at `MaxReapAttempts` with the reason on it, leaving the
+  survivors alone.
+- **The tally may only be cleared when every replica is actually `running`.** Clearing it whenever
+  nothing is `failed` right now looks identical in a unit test and is wrong live: the pass after a
+  replacement sees the new replica `pending`, which is not a recovery, so the tally reset every
+  other pass and the limit was never reached. A test only catches this with two replicas - one
+  healthy, one whose replacements keep failing - because with one replica the loop always exits
+  through the grow branch and never reaches the settle.
+- **Publishing a revision clears the tally**, because that is the operator saying the template is
+  fixed. Without it a service that gave up can never be recovered: the reap gate returns before the
+  rollout can retire anything, so a correct new revision changes nothing and the only way out is
+  deleting the service. Found live, after the block worked exactly as designed and then would not
+  let go.
+- Member state is read live on every path rather than stored on the row. A stored copy is up to one
+  reconcile interval stale, which means `service get` right after a crash shows `running` - the
+  worst possible moment to be wrong. The instance module stays the only source of truth.
+- The webhook tests assumed two pumps were enough to deliver. Under a full `./...` run they are not
+  always, and the app package got heavier, so `pumpFor` pumps until the sink has what is expected
+  and fails if it never arrives. An absence still uses a fixed count - you cannot wait for nothing.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

@@ -126,6 +126,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  13,
 			SQL:    `ALTER TABLE service_members ADD COLUMN revision INTEGER NOT NULL DEFAULT 1`,
 		},
+		{
+			Module: "service",
+			Index:  14,
+			SQL:    `ALTER TABLE services ADD COLUMN reaped INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 }
 

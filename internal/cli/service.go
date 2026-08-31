@@ -11,12 +11,14 @@ import (
 type serviceMemberView struct {
 	InstanceID string `json:"instance_id"`
 	Revision   int    `json:"revision"`
+	State      string `json:"state"`
 	CreatedAt  string `json:"created_at"`
 }
 
 type serviceRolloutView struct {
 	Current int `json:"current"`
 	Stale   int `json:"stale"`
+	Failed  int `json:"failed"`
 }
 
 type serviceView struct {
@@ -42,6 +44,10 @@ var serviceHeaders = []string{"NAME", "ID", "REPLICAS", "REV", "ISOLATION", "IMA
 
 func serviceRow(s serviceView) []string {
 	state := strconv.Itoa(len(s.Members)) + "/" + strconv.Itoa(s.Replicas) + " up"
+	if s.Rollout.Failed > 0 {
+		state = strconv.Itoa(len(s.Members)-s.Rollout.Failed) + "/" +
+			strconv.Itoa(s.Replicas) + " up, " + strconv.Itoa(s.Rollout.Failed) + " failed"
+	}
 	if s.Rollout.Stale > 0 {
 		state = "rolling out, " + strconv.Itoa(s.Rollout.Current) + "/" +
 			strconv.Itoa(s.Replicas) + " on rev " + strconv.Itoa(s.Revision)
@@ -222,7 +228,7 @@ func newServiceListCmd(g *globals) *cobra.Command {
 	}
 }
 
-var serviceMemberHeaders = []string{"REPLICA", "REV", "SINCE"}
+var serviceMemberHeaders = []string{"REPLICA", "REV", "STATE", "SINCE"}
 
 func newServiceGetCmd(g *globals) *cobra.Command {
 	return &cobra.Command{
@@ -240,7 +246,7 @@ func newServiceGetCmd(g *globals) *cobra.Command {
 			rows := make([][]string, 0, len(s.Members))
 			for _, member := range s.Members {
 				rows = append(rows, []string{member.InstanceID,
-					strconv.Itoa(member.Revision),
+					strconv.Itoa(member.Revision), member.State,
 					member.CreatedAt[:min(len(member.CreatedAt), 19)]})
 			}
 			return render(cmd.OutOrStdout(), g.output, s,

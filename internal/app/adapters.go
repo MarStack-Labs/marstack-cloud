@@ -293,16 +293,18 @@ func (w serviceWorkloads) Delete(ctx context.Context, projectID, instanceID stri
 	return w.instances.Delete(ctx, instanceID, projectID)
 }
 
-func (w serviceWorkloads) Alive(
+func (w serviceWorkloads) StatesOf(
 	ctx context.Context, instanceIDs []string,
-) (map[string]bool, error) {
-	alive := make(map[string]bool, len(instanceIDs))
+) (map[string]string, error) {
+	states := make(map[string]string, len(instanceIDs))
 	for _, id := range instanceIDs {
-		if _, err := w.instances.Get(ctx, id); err == nil {
-			alive[id] = true
+		found, err := w.instances.Get(ctx, id)
+		if err != nil {
+			continue
 		}
+		states[id] = string(found.Observed)
 	}
-	return alive, nil
+	return states, nil
 }
 
 const staleLoad = 30 * time.Second

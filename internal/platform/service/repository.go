@@ -20,7 +20,8 @@ var (
 const columns = `id, project_id, name, replicas, revision, isolation, image, iso, kernel, disk_gib,
 	firewall_id, command, network_id, restart_policy, vcpu, memory_mib,
 	placement_group, placement_strict, node_selector, extra_networks,
-	env, env_key_id, env_names, files, file_paths, ssh_keys, blocked, created_at, updated_at`
+	env, env_key_id, env_names, files, file_paths, ssh_keys, reaped, blocked,
+	created_at, updated_at`
 
 type repository struct {
 	db *sql.DB
@@ -62,13 +63,14 @@ func (r *repository) insert(ctx context.Context, s Service) error {
 
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO services (`+columns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?)`,
 		s.ID, s.ProjectID, s.Name, s.Replicas, s.Revision, s.Template.Isolation, s.Template.Image,
 		s.Template.ISO, s.Template.Kernel, s.Template.DiskGiB, s.Template.FirewallID,
 		string(command), s.Template.NetworkID, s.Template.RestartPolicy, s.Template.VCPU,
 		s.Template.MemoryMiB, s.Template.Group, s.Template.Strict, string(selector),
 		string(extra), s.Template.EnvSealed, s.Template.EnvKeyID, string(envNames),
-		s.Template.FilesSealed, string(filePaths), string(keys), s.Blocked,
+		s.Template.FilesSealed, string(filePaths), string(keys), s.Reaped, s.Blocked,
 		s.CreatedAt.Format(time.RFC3339Nano), s.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -146,6 +148,15 @@ func (r *repository) setTemplate(ctx context.Context, id string, t Template,
 	}
 	if affected == 0 {
 		return errNotFound
+	}
+	return nil
+}
+
+func (r *repository) setReaped(ctx context.Context, id string, reaped int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE services SET reaped = ? WHERE id = ?`, reaped, id)
+	if err != nil {
+		return fmt.Errorf("set the replacement count: %w", err)
 	}
 	return nil
 }
@@ -319,7 +330,7 @@ func scan(row scanner) (Service, error) {
 		&s.Template.VCPU, &s.Template.MemoryMiB, &s.Template.Group, &s.Template.Strict,
 		&selector, &extra, &s.Template.EnvSealed, &s.Template.EnvKeyID, &envNames,
 		&s.Template.FilesSealed, &filePaths,
-		&keys, &s.Blocked, &created, &updated); err != nil {
+		&keys, &s.Reaped, &s.Blocked, &created, &updated); err != nil {
 		return Service{}, fmt.Errorf("scan service: %w", err)
 	}
 

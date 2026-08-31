@@ -59,12 +59,14 @@ type updateRequest struct {
 type memberResponse struct {
 	InstanceID string `json:"instance_id"`
 	Revision   int    `json:"revision"`
+	State      string `json:"state,omitempty"`
 	CreatedAt  string `json:"created_at"`
 }
 
 type rolloutResponse struct {
 	Current int `json:"current"`
 	Stale   int `json:"stale"`
+	Failed  int `json:"failed,omitempty"`
 }
 
 type response struct {
@@ -108,8 +110,12 @@ func toResponse(s Service) response {
 		members = append(members, memberResponse{
 			InstanceID: member.InstanceID,
 			Revision:   member.Revision,
+			State:      member.State,
 			CreatedAt:  member.CreatedAt.Format(time.RFC3339Nano),
 		})
+		if member.State == StateFailed {
+			rollout.Failed++
+		}
 		if member.Revision == s.Revision {
 			rollout.Current++
 			continue
