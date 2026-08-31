@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+	"os"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -14,14 +16,18 @@ type forwardView struct {
 	TargetPort int    `json:"target_port"`
 	NodeID     string `json:"node_id"`
 	Address    string `json:"address"`
-	CreatedAt  string `json:"created_at"`
+	TLS        *struct {
+		Subject   string `json:"subject"`
+		ExpiresAt string `json:"expires_at"`
+	} `json:"tls,omitempty"`
+	CreatedAt string `json:"created_at"`
 }
 
 type forwardListView struct {
 	Forwards []forwardView `json:"forwards"`
 }
 
-var forwardHeaders = []string{"ID", "NODE PORT", "TARGET", "INSTANCE", "NODE"}
+var forwardHeaders = []string{"ID", "NODE PORT", "TARGET", "INSTANCE", "NODE", "TLS"}
 
 func forwardRow(f forwardView) []string {
 	return []string{
@@ -30,6 +36,95 @@ func forwardRow(f forwardView) []string {
 		f.Address + ":" + strconv.Itoa(f.TargetPort),
 		f.InstanceID,
 		f.NodeID,
+		forwardTLS(f),
+	}
+}
+
+func forwardTLS(f forwardView) string {
+	if f.TLS == nil {
+		return "-"
+	}
+	if f.TLS.Subject == "" {
+		return "terminated"
+	}
+	return f.TLS.Subject
+}
+
+func renderForward(cmd *cobra.Command, g *globals, f forwardView) error {
+	return render(cmd.OutOrStdout(), g.output, f, table{
+		headers: forwardHeaders,
+		rows:    [][]string{forwardRow(f)},
+	})
+}
+
+func newForwardCertificateCmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "certificate",
+		Short: "Terminate TLS on a published port",
+		Long: "Terminate TLS on a published port.\n\n" +
+			"A published port without a certificate is an nftables rule and the kernel never\n" +
+			"looks at the bytes. With one it cannot be, because nothing in nftables terminates\n" +
+			"TLS, so the node accepts the connection and opens a plain one to the instance.\n\n" +
+			"The private key is sealed with the operator key and served only to nodes.",
+	}
+	cmd.AddCommand(newForwardSetCertificateCmd(g), newForwardClearCertificateCmd(g))
+	return cmd
+}
+
+func newForwardSetCertificateCmd(g *globals) *cobra.Command {
+	var certFile, keyFile string
+
+	cmd := &cobra.Command{
+		Use:   "set <forward id>",
+		Short: "Give a published port a certificate to terminate with",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			certPEM, err := os.ReadFile(certFile)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", certFile, err)
+			}
+			keyPEM, err := os.ReadFile(keyFile)
+			if err != nil {
+				return fmt.Errorf("read %s: %w", keyFile, err)
+			}
+
+			body := struct {
+				Certificate string `json:"certificate"`
+				PrivateKey  string `json:"private_key"`
+			}{Certificate: string(certPEM), PrivateKey: string(keyPEM)}
+
+			var updated forwardView
+			if err := g.client().do(
+				cmd.Context(), "PUT", "/v1/forwards/"+args[0]+"/certificate", body, &updated,
+			); err != nil {
+				return err
+			}
+			cmd.PrintErrln("the node picks the certificate up on its next pass")
+			return renderForward(cmd, g, updated)
+		},
+	}
+
+	cmd.Flags().StringVar(&certFile, "cert-file", "", "PEM certificate chain, leaf first")
+	cmd.Flags().StringVar(&keyFile, "key-file", "", "PEM private key for the leaf certificate")
+	must(cmd.MarkFlagRequired("cert-file"))
+	must(cmd.MarkFlagRequired("key-file"))
+	return cmd
+}
+
+func newForwardClearCertificateCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "remove <forward id>",
+		Short: "Stop terminating TLS and go back to an nftables rule",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var updated forwardView
+			if err := g.client().do(
+				cmd.Context(), "DELETE", "/v1/forwards/"+args[0]+"/certificate", nil, &updated,
+			); err != nil {
+				return err
+			}
+			return renderForward(cmd, g, updated)
+		},
 	}
 }
 
@@ -39,7 +134,8 @@ func newForwardCmd(g *globals) *cobra.Command {
 		Short:   "Publish an instance port on the node that runs it",
 		Aliases: []string{"forwards"},
 	}
-	cmd.AddCommand(newForwardCreateCmd(g), newForwardListCmd(g), newForwardDeleteCmd(g))
+	cmd.AddCommand(newForwardCreateCmd(g), newForwardListCmd(g), newForwardDeleteCmd(g),
+		newForwardCertificateCmd(g))
 	return cmd
 }
 

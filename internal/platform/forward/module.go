@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
 )
 
@@ -65,15 +66,42 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  5,
 			SQL:    `ALTER TABLE forwards ADD COLUMN family TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "forward",
+			Index:  6,
+			SQL:    `ALTER TABLE forwards ADD COLUMN tls_material TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "forward",
+			Index:  7,
+			SQL:    `ALTER TABLE forwards ADD COLUMN tls_key_id TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "forward",
+			Index:  8,
+			SQL:    `ALTER TABLE forwards ADD COLUMN tls_subject TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "forward",
+			Index:  9,
+			SQL:    `ALTER TABLE forwards ADD COLUMN tls_expires_at TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
 func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/forwards", httpx.Wrap(m.log, m.handler.create))
 	mux.Handle("GET /v1/forwards", httpx.Wrap(m.log, m.handler.list))
+	mux.Handle("PUT /v1/forwards/{id}/certificate", httpx.Wrap(m.log, m.handler.setCertificate))
+	mux.Handle("DELETE /v1/forwards/{id}/certificate",
+		httpx.Wrap(m.log, m.handler.removeCertificate))
 	mux.Handle("DELETE /v1/forwards/{id}", httpx.Wrap(m.log, m.handler.delete))
 
 	mux.Handle("GET /v1/nodes/{nodeID}/forwards", httpx.Wrap(m.log, m.handler.listForNode))
+}
+
+func (m *Module) UseSealing(ring *sealed.Keyring) {
+	m.svc.sealing = ring
 }
 
 func (m *Module) UseBalancers(b Balancers) {

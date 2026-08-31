@@ -9,6 +9,7 @@ import (
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -25,6 +26,7 @@ type clock func() time.Time
 type service struct {
 	repo      *repository
 	addresses Addresses
+	sealing   *sealed.Keyring
 	balancers Balancers
 	now       clock
 }
@@ -143,6 +145,18 @@ func (s *service) listIn(ctx context.Context, projectID string) ([]Forward, erro
 		return nil, translate(err)
 	}
 	return forwards, nil
+}
+
+func (s *service) getIn(ctx context.Context, id, projectID string) (Forward, error) {
+	f, err := s.repo.byID(ctx, id)
+	if err != nil {
+		return Forward{}, translate(err)
+	}
+	if f.ProjectID != projectID {
+		return Forward{}, fault.NotFound("forward_not_found",
+			"no published port with that id exists")
+	}
+	return f, nil
 }
 
 func (s *service) remove(ctx context.Context, id, projectID string) error {

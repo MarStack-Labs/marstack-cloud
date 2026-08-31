@@ -55,6 +55,22 @@ type Config struct {
 	ObjectStore       s3.Config
 	RatePerSecond     *int
 	RateBurst         int
+	ProjectPerSecond  *int
+	ProjectBurst      int
+}
+
+func (c Config) projectPerSecond() int {
+	if c.ProjectPerSecond == nil {
+		return ratelimit.DefaultProjectPerSecond
+	}
+	return *c.ProjectPerSecond
+}
+
+func (c Config) projectBurst() int {
+	if c.ProjectBurst <= 0 {
+		return ratelimit.DefaultProjectBurst
+	}
+	return c.ProjectBurst
 }
 
 func (c Config) ratePerSecond() int {
@@ -99,12 +115,14 @@ type App struct {
 	networks  *network.Module
 	projects  *project.Module
 	backups   *backup.Module
+	volumes   *volume.Module
 	services  *service.Module
 	webhooks  *webhook.Module
 	tokens    *token.Module
 	trail     *audit.Module
 	scheduler *scheduler.Scheduler
 	limiter   *ratelimit.Limiter
+	tenants   *ratelimit.Limiter
 	router    http.Handler
 	http      *http.Server
 }
@@ -143,10 +161,14 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	backups.UseVolumes(backupVolumes{volumes: volumes})
 	backups.UseEvents(events)
 	volumes.UseBackups(volumeBackups{backups: backups})
+	if cfg.Now != nil {
+		volumes.UseClock(cfg.Now)
+	}
 	volumes.UseKeys(sealed.NewKeyring(cfg.BackupKeys))
 	instances.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
 	balancers.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
 	services.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
+	forwards.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
 	tokens.UseProjects(projects)
 	quotas.UseProjects(projects)
 	quotas.UseUsage(projectUsage{instances: instances, volumes: volumes})
@@ -168,6 +190,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.tokens = tokens
 	a.projects = projects
 	a.backups = backups
+	a.volumes = volumes
 	a.services = services
 	a.webhooks = webhooks
 
@@ -235,6 +258,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	}
 
 	a.limiter = ratelimit.New(cfg.ratePerSecond(), cfg.rateBurst(), cfg.Now)
+	a.tenants = ratelimit.New(cfg.projectPerSecond(), cfg.projectBurst(), cfg.Now)
 	a.router = a.buildRouter()
 
 	var tlsConfig *tls.Config
@@ -302,6 +326,7 @@ func (a *App) buildRouter() http.Handler {
 		httpx.Timeout(a.cfg.RequestTimeout, allowList(streamingPaths)),
 		auditTrail(a.trail),
 		authenticate(a.tokens, a.log),
+		httpx.RateLimit(a.tenants, projectKey, openToEveryone),
 	)
 }
 
@@ -341,6 +366,7 @@ func (a *App) Handler() http.Handler {
 func (a *App) Run(ctx context.Context) error {
 	go a.scheduler.Run(ctx)
 	go a.backups.Run(ctx)
+	go a.volumes.Run(ctx)
 	go a.services.Run(ctx)
 	go a.webhooks.Run(ctx)
 

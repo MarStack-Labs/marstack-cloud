@@ -9,6 +9,9 @@ const (
 	DefaultPerSecond = 50
 	DefaultBurst     = 100
 
+	DefaultProjectPerSecond = 200
+	DefaultProjectBurst     = 400
+
 	MaxTracked = 4096
 
 	idle = 5 * time.Minute

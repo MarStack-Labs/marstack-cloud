@@ -20,7 +20,19 @@ type Forward struct {
 	NodeID     string
 	Address    string
 	Family     string
+	TLS        TLS
 	CreatedAt  time.Time
+}
+
+type TLS struct {
+	Material  string
+	KeyID     string
+	Subject   string
+	ExpiresAt string
+}
+
+func (t TLS) Present() bool {
+	return t.Material != ""
 }
 
 type CreateParams struct {

@@ -31,13 +31,14 @@ type Volume struct {
 }
 
 type Snapshot struct {
-	ID        string
-	VolumeID  string
-	Name      string
-	State     string
-	Message   string
-	SizeBytes int64
-	CreatedAt time.Time
+	ID         string
+	VolumeID   string
+	Name       string
+	State      string
+	Message    string
+	SizeBytes  int64
+	ScheduleID string
+	CreatedAt  time.Time
 }
 
 type ReportedSnapshot struct {

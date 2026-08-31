@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 func callerKey(r *http.Request) string {
@@ -21,6 +23,10 @@ func callerKey(r *http.Request) string {
 		host = r.RemoteAddr
 	}
 	return "a:" + host
+}
+
+func projectKey(r *http.Request) string {
+	return "p:" + scope.From(r.Context()).ProjectID
 }
 
 func openToEveryone(r *http.Request) bool {

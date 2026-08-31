@@ -214,12 +214,18 @@ type volumesBody struct {
 }
 
 type forwardView struct {
-	ID         string `json:"id"`
-	InstanceID string `json:"instance_id"`
-	Protocol   string `json:"protocol"`
-	NodePort   int    `json:"node_port"`
-	TargetPort int    `json:"target_port"`
-	Address    string `json:"address"`
+	ID          string `json:"id"`
+	InstanceID  string `json:"instance_id"`
+	Protocol    string `json:"protocol"`
+	NodePort    int    `json:"node_port"`
+	TargetPort  int    `json:"target_port"`
+	Address     string `json:"address"`
+	Certificate string `json:"certificate,omitempty"`
+	PrivateKey  string `json:"private_key,omitempty"`
+}
+
+func (f forwardView) terminatesTLS() bool {
+	return f.Certificate != "" && f.PrivateKey != ""
 }
 
 type firewallRuleView struct {

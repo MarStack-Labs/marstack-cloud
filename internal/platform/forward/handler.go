@@ -17,15 +17,36 @@ type createRequest struct {
 }
 
 type response struct {
-	ID         string `json:"id"`
-	InstanceID string `json:"instance_id"`
-	Protocol   string `json:"protocol"`
-	NodePort   int    `json:"node_port"`
-	TargetPort int    `json:"target_port"`
-	NodeID     string `json:"node_id"`
-	Address    string `json:"address"`
-	Family     string `json:"family,omitempty"`
-	CreatedAt  string `json:"created_at"`
+	ID         string       `json:"id"`
+	InstanceID string       `json:"instance_id"`
+	Protocol   string       `json:"protocol"`
+	NodePort   int          `json:"node_port"`
+	TargetPort int          `json:"target_port"`
+	NodeID     string       `json:"node_id"`
+	Address    string       `json:"address"`
+	Family     string       `json:"family,omitempty"`
+	TLS        *tlsResponse `json:"tls,omitempty"`
+	CreatedAt  string       `json:"created_at"`
+}
+
+type tlsResponse struct {
+	Subject   string `json:"subject,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+}
+
+type certificateRequest struct {
+	Certificate string `json:"certificate"`
+	PrivateKey  string `json:"private_key"`
+}
+
+type nodeResponse struct {
+	response
+	Certificate string `json:"certificate,omitempty"`
+	PrivateKey  string `json:"private_key,omitempty"`
+}
+
+type nodeListResponse struct {
+	Forwards []nodeResponse `json:"forwards"`
 }
 
 type listResponse struct {
@@ -42,6 +63,7 @@ func toResponse(f Forward) response {
 		NodeID:     f.NodeID,
 		Address:    f.Address,
 		Family:     f.Family,
+		TLS:        summarise(f.TLS),
 		CreatedAt:  f.CreatedAt.Format(time.RFC3339Nano),
 	}
 }
@@ -86,8 +108,56 @@ func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	writeList(w, forwards)
+
+	body := nodeListResponse{Forwards: make([]nodeResponse, 0, len(forwards))}
+	for _, f := range forwards {
+		certPEM, keyPEM, err := h.svc.certificateOf(f)
+		if err != nil {
+			return err
+		}
+		body.Forwards = append(body.Forwards, nodeResponse{
+			response:    toResponse(f),
+			Certificate: certPEM,
+			PrivateKey:  keyPEM,
+		})
+	}
+
+	httpx.Write(w, http.StatusOK, body)
 	return nil
+}
+
+func (h *handler) setCertificate(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[certificateRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	f, err := h.svc.setCertificate(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, req.Certificate, req.PrivateKey)
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(f))
+	return nil
+}
+
+func (h *handler) removeCertificate(w http.ResponseWriter, r *http.Request) error {
+	f, err := h.svc.setCertificate(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, "", "")
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(f))
+	return nil
+}
+
+func summarise(t TLS) *tlsResponse {
+	if !t.Present() {
+		return nil
+	}
+	return &tlsResponse{Subject: t.Subject, ExpiresAt: t.ExpiresAt}
 }
 
 func writeList(w http.ResponseWriter, forwards []Forward) {

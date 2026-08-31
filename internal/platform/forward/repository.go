@@ -16,7 +16,8 @@ var (
 	errPortUsed = errors.New("node port already published")
 )
 
-const columns = `id, project_id, instance_id, protocol, node_port, target_port, node_id, address, family, created_at`
+const columns = `id, project_id, instance_id, protocol, node_port, target_port, node_id, address, family,
+	tls_material, tls_key_id, tls_subject, tls_expires_at, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -28,9 +29,10 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, f Forward) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO forwards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO forwards (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		f.ID, f.ProjectID, f.InstanceID, f.Protocol, f.NodePort, f.TargetPort, f.NodeID,
 		f.Address, f.Family,
+		f.TLS.Material, f.TLS.KeyID, f.TLS.Subject, f.TLS.ExpiresAt,
 		f.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -125,7 +127,9 @@ func scan(row scanner) (Forward, error) {
 	var created string
 
 	if err := row.Scan(&f.ID, &f.ProjectID, &f.InstanceID, &f.Protocol, &f.NodePort, &f.TargetPort,
-		&f.NodeID, &f.Address, &f.Family, &created); err != nil {
+		&f.NodeID, &f.Address, &f.Family,
+		&f.TLS.Material, &f.TLS.KeyID, &f.TLS.Subject, &f.TLS.ExpiresAt,
+		&created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Forward{}, err
 		}
@@ -142,4 +146,23 @@ func scan(row scanner) (Forward, error) {
 
 func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "unique")
+}
+
+func (r *repository) setTLS(ctx context.Context, id string, t TLS) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE forwards SET tls_material = ?, tls_key_id = ?, tls_subject = ?,
+			tls_expires_at = ? WHERE id = ?`,
+		t.Material, t.KeyID, t.Subject, t.ExpiresAt, id)
+	if err != nil {
+		return fmt.Errorf("set the forward certificate: %w", err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set the forward certificate: %w", err)
+	}
+	if affected == 0 {
+		return errNotFound
+	}
+	return nil
 }

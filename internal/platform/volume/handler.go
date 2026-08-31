@@ -360,3 +360,82 @@ func (h *handler) resize(w http.ResponseWriter, r *http.Request) error {
 	httpx.Write(w, http.StatusOK, toResponse(v))
 	return nil
 }
+
+type scheduleRequest struct {
+	Every string `json:"every"`
+	Keep  int    `json:"keep"`
+}
+
+type scheduleResponse struct {
+	ID        string `json:"id"`
+	VolumeID  string `json:"volume_id"`
+	Every     string `json:"every"`
+	Keep      int    `json:"keep"`
+	NextAt    string `json:"next_at"`
+	LastAt    string `json:"last_at,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+type scheduleListResponse struct {
+	Schedules []scheduleResponse `json:"schedules"`
+}
+
+func toScheduleResponse(sc Schedule) scheduleResponse {
+	out := scheduleResponse{
+		ID:        sc.ID,
+		VolumeID:  sc.VolumeID,
+		Every:     sc.Every.String(),
+		Keep:      sc.Keep,
+		NextAt:    sc.NextAt.Format(time.RFC3339Nano),
+		CreatedAt: sc.CreatedAt.Format(time.RFC3339Nano),
+	}
+	if !sc.LastAt.IsZero() {
+		out.LastAt = sc.LastAt.Format(time.RFC3339Nano)
+	}
+	return out
+}
+
+func (h *handler) setSchedule(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[scheduleRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	sc, err := h.svc.setSchedule(r.Context(), ScheduleParams{
+		ProjectID: scope.From(r.Context()).ProjectID,
+		VolumeID:  r.PathValue("id"),
+		Every:     req.Every,
+		Keep:      req.Keep,
+	})
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toScheduleResponse(sc))
+	return nil
+}
+
+func (h *handler) clearSchedule(w http.ResponseWriter, r *http.Request) error {
+	if err := h.svc.clearSchedule(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID); err != nil {
+		return err
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (h *handler) listSchedules(w http.ResponseWriter, r *http.Request) error {
+	schedules, err := h.svc.schedulesIn(r.Context(), scope.From(r.Context()).ProjectID)
+	if err != nil {
+		return err
+	}
+
+	body := scheduleListResponse{Schedules: make([]scheduleResponse, 0, len(schedules))}
+	for _, sc := range schedules {
+		body.Schedules = append(body.Schedules, toScheduleResponse(sc))
+	}
+
+	httpx.Write(w, http.StatusOK, body)
+	return nil
+}

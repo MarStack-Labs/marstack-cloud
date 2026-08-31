@@ -29,6 +29,9 @@ func newServerCmd() *cobra.Command {
 		ratePerSecond int
 		rateBurst     int
 
+		projectPerSecond int
+		projectBurst     int
+
 		objectEndpoint  string
 		objectBucket    string
 		objectRegion    string
@@ -72,14 +75,16 @@ func newServerCmd() *cobra.Command {
 			}
 
 			a, err := app.New(ctx, app.Config{
-				Listen:        listen,
-				DataDir:       dataDir,
-				TLSCert:       tlsCert,
-				TLSKey:        tlsKey,
-				BackupKeys:    keys,
-				ObjectStore:   objects,
-				RatePerSecond: &ratePerSecond,
-				RateBurst:     rateBurst,
+				Listen:           listen,
+				DataDir:          dataDir,
+				TLSCert:          tlsCert,
+				TLSKey:           tlsKey,
+				BackupKeys:       keys,
+				ObjectStore:      objects,
+				RatePerSecond:    &ratePerSecond,
+				RateBurst:        rateBurst,
+				ProjectPerSecond: &projectPerSecond,
+				ProjectBurst:     projectBurst,
 			}, log)
 			if err != nil {
 				return err
@@ -97,6 +102,12 @@ func newServerCmd() *cobra.Command {
 		"requests per second one caller may sustain, 0 to accept everything")
 	cmd.Flags().IntVar(&rateBurst, "rate-burst", ratelimit.DefaultBurst,
 		"requests one caller may send at once before the rate applies")
+	cmd.Flags().IntVar(&projectPerSecond, "project-rate-limit",
+		ratelimit.DefaultProjectPerSecond,
+		"requests per second one project may sustain across all its tokens, 0 to accept "+
+			"everything")
+	cmd.Flags().IntVar(&projectBurst, "project-rate-burst", ratelimit.DefaultProjectBurst,
+		"requests one project may send at once before its rate applies")
 	cmd.Flags().StringVar(&tlsCert, "tls-cert", "", "PEM certificate chain to serve HTTPS with")
 	cmd.Flags().StringVar(&tlsKey, "tls-key", "", "PEM private key for --tls-cert")
 	cmd.Flags().StringArrayVar(&keyFiles, "backup-key-file", nil,

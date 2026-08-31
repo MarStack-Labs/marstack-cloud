@@ -1242,6 +1242,71 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## Three more
+
+### TLS on a published port
+
+A published port terminates TLS exactly the way a balancer does:
+
+```sh
+marstack forward certificate set fwd-g2ec0ax9ncvvm \
+  --cert-file cert.pem --key-file key.pem
+```
+
+```
+# with a certificate
+LISTEN *:9600 users:(("marstack",pid=25344))
+nft: no rule for dport 9600
+$ curl -k https://192.168.107.2:9600/     ->  behind-tls
+
+# after certificate remove
+LISTEN: nothing on 9600
+nft: tcp dport 9600 dnat to 10.20.0.65:80
+$ curl http://192.168.107.2:9600/         ->  behind-tls
+```
+
+`certs.Inspect`, `Bundle` and `Split` moved into the kernel once forwards and
+balancers both needed them, since neither may import the other.
+
+### Scheduled snapshots
+
+```sh
+curl -X PUT .../v1/volumes/vol-.../snapshot-schedule -d '{"every":"1m","keep":2}'
+```
+
+```
+# left alone for five intervals
+count: 3 ['062606', '062804', '063002']
+count: 3 ['062804', '063002', '063200']
+count: 3 ['063002', '063200', '063358']
+```
+
+**`keep` is how many survive a retention pass, not how many files exist.**
+Retention only counts snapshots the node has finished, and a sweep both prunes
+and fires, so the set settles at `keep + 1` — the copy made after retention ran
+is still there. Bounded and steady, which is the property that matters. Backup
+schedules behave the same way.
+
+Retention only prunes what the schedule made, matched on `schedule_id`. One you
+took by hand is never counted and never cut.
+
+### A rate limit per project
+
+There are now **two** limiters, and they answer different questions.
+
+| | keys on | placed | exists so that |
+|---|---|---|---|
+| caller | `sha256(secret)[:8]` | before auth | a flood of bogus tokens never reaches the database |
+| project | project id | after auth | one tenant cannot crowd out another |
+
+Moving the second one in front of authentication gives every request an empty
+project key and merges all tenants into one bucket — which is a mutation test.
+
+The per-caller default is tighter, so one client hits that limit and never sees
+the project one. That is intended, and it means a live run with default config
+cannot tell the two apart; the project limiter is exercised in tests with
+explicit settings instead.
+
 ## Reading a list without reading all of it
 
 Every list endpoint returned the whole table. That is fine at twenty instances
@@ -2054,6 +2119,9 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 49  publishing either side of a dual stack instance   done
 50  firewalls covering every address of an instance   done
 51  env and config files on every isolation           done
+52  tls on a published port                           done
+53  scheduled snapshots                               done
+54  a rate limit per project                          done
 ```
 
 ## License

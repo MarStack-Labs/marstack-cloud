@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
@@ -132,6 +133,37 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  13,
 			SQL:    `ALTER TABLE volumes ADD COLUMN key_id TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "volume",
+			Index:  14,
+			SQL: `CREATE TABLE snapshot_schedules (
+				id            TEXT    PRIMARY KEY,
+				project_id    TEXT    NOT NULL,
+				volume_id     TEXT    NOT NULL,
+				every_seconds INTEGER NOT NULL,
+				keep          INTEGER NOT NULL,
+				next_at       TEXT    NOT NULL,
+				last_at       TEXT    NOT NULL DEFAULT '',
+				created_at    TEXT    NOT NULL,
+				updated_at    TEXT    NOT NULL
+			)`,
+		},
+		{
+			Module: "volume",
+			Index:  15,
+			SQL: `CREATE UNIQUE INDEX snapshot_schedules_volume
+				ON snapshot_schedules (volume_id)`,
+		},
+		{
+			Module: "volume",
+			Index:  16,
+			SQL:    `CREATE INDEX snapshot_schedules_next ON snapshot_schedules (next_at)`,
+		},
+		{
+			Module: "volume",
+			Index:  17,
+			SQL:    `ALTER TABLE snapshots ADD COLUMN schedule_id TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -143,6 +175,12 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/volumes/{id}/attach", httpx.Wrap(m.log, m.handler.attach))
 	mux.Handle("POST /v1/volumes/{id}/detach", httpx.Wrap(m.log, m.handler.detach))
 	mux.Handle("POST /v1/volumes/{id}/resize", httpx.Wrap(m.log, m.handler.resize))
+
+	mux.Handle("PUT /v1/volumes/{id}/snapshot-schedule",
+		httpx.Wrap(m.log, m.handler.setSchedule))
+	mux.Handle("DELETE /v1/volumes/{id}/snapshot-schedule",
+		httpx.Wrap(m.log, m.handler.clearSchedule))
+	mux.Handle("GET /v1/snapshot-schedules", httpx.Wrap(m.log, m.handler.listSchedules))
 
 	mux.Handle("POST /v1/volumes/{id}/snapshots", httpx.Wrap(m.log, m.handler.snapshot))
 	mux.Handle("GET /v1/volumes/{id}/snapshots", httpx.Wrap(m.log, m.handler.listSnapshots))
@@ -157,4 +195,36 @@ func (m *Module) Routes(mux *http.ServeMux) {
 
 func (m *Module) ReleaseInstance(ctx context.Context, instanceID string) error {
 	return m.svc.releaseInstance(ctx, instanceID)
+}
+
+func (m *Module) Run(ctx context.Context) {
+	ticker := time.NewTicker(SweepInterval)
+	defer ticker.Stop()
+
+	m.log.Info("snapshot schedules running", "every", SweepInterval.String())
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.Sweep(ctx)
+		}
+	}
+}
+
+func (m *Module) Sweep(ctx context.Context) {
+	taken, pruned, err := m.svc.sweep(ctx)
+	if err != nil {
+		m.log.Warn("could not run the snapshot schedules", "error", err)
+		return
+	}
+	if taken == 0 && pruned == 0 {
+		return
+	}
+	m.log.Info("snapshot schedules swept", "queued", taken, "pruned", pruned)
+}
+
+func (m *Module) UseClock(now func() time.Time) {
+	m.svc.now = now
 }

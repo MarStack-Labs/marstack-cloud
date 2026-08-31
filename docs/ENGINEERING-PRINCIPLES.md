@@ -610,6 +610,27 @@ make check      # vet + test + security scans
   structurally: `volume` and `backup` cannot import `network`, so there is no path from a snapshot to
   a nic row. The test is a boundary marker, and the half that asserts "the same addresses before and
   after" cannot be mutation-tested for that reason - only the half that counts them can.
+- A published port terminates TLS the same way a balancer does, and by the same rule: with a
+  certificate it is a userspace listener and is left out of the nftables set, because a listener and
+  a dnat rule on one port is undefined. `certs.Inspect`, `Bundle` and `Split` moved into the kernel
+  once `forward` and `balancer` both needed them - neither may import the other.
+- There are **two** rate limiters and they answer different questions. The one in front of
+  `authenticate` keys on the bearer hash and exists so a flood of bogus tokens never reaches the one
+  SQLite connection. The one behind it keys on the project and exists so one tenant cannot crowd out
+  another. Moving the second in front of `authenticate` gives every request an empty project key and
+  merges all tenants into one bucket, which is a mutation test.
+- The per-caller default is tighter than the per-project one, so a single client hits the first limit
+  and never sees the second. That is intended, and it means a default-config live run cannot tell
+  the two apart - the project limiter is exercised in `projectrate_test.go` with explicit config.
+- `keep` on a schedule is how many survive a **retention pass**, not how many files exist. Retention
+  only counts snapshots that are `ready`, and a sweep both prunes and fires, so the set settles at
+  `keep + 1`: the copy created after retention ran is still there. Verified live at 3 for `keep: 2`
+  across five intervals. Backup schedules have the same shape.
+- Retention only prunes what the schedule made, matched on `schedule_id`. A snapshot somebody took
+  by hand is never counted and never cut, which is why `snapshots` carries that column at all.
+- Adding a column to `snapshotColumns` is not enough: `snapshotsPageIn` writes its own
+  `s.id, s.volume_id, ...` list because it joins volumes, and a mismatch there is a 500 on
+  `/v1/snapshots` rather than a compile error. It caught me.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

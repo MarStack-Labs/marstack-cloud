@@ -21,7 +21,8 @@ var (
 const columns = `id, project_id, name, size_gib, node_id, instance_id, restore_from, ` +
 	`backup_id, encrypted, key_sealed, key_id, created_at, updated_at`
 
-const snapshotColumns = `id, volume_id, name, state, message, size_bytes, created_at`
+const snapshotColumns = `id, volume_id, name, state, message, size_bytes,
+	schedule_id, created_at`
 
 type repository struct {
 	db *sql.DB
@@ -145,8 +146,9 @@ func (r *repository) detachInstance(ctx context.Context, instanceID string, at t
 
 func (r *repository) insertSnapshot(ctx context.Context, snap Snapshot) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO snapshots (`+snapshotColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO snapshots (`+snapshotColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		snap.ID, snap.VolumeID, snap.Name, snap.State, snap.Message, snap.SizeBytes,
+		snap.ScheduleID,
 		snap.CreatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -199,7 +201,8 @@ func (r *repository) snapshotsPageIn(
 ) ([]Snapshot, error) {
 	after := window.After
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT s.id, s.volume_id, s.name, s.state, s.message, s.size_bytes, s.created_at
+		`SELECT s.id, s.volume_id, s.name, s.state, s.message, s.size_bytes,
+			s.schedule_id, s.created_at
 		 FROM snapshots s JOIN volumes v ON v.id = s.volume_id
 		 WHERE v.project_id = ?
 			AND (? = '' OR s.created_at > ? OR (s.created_at = ? AND s.id > ?))
@@ -262,7 +265,7 @@ func scanSnapshot(row scanner) (Snapshot, error) {
 	var created string
 
 	if err := row.Scan(&snap.ID, &snap.VolumeID, &snap.Name, &snap.State, &snap.Message,
-		&snap.SizeBytes, &created); err != nil {
+		&snap.SizeBytes, &snap.ScheduleID, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Snapshot{}, err
 		}

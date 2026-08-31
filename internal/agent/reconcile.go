@@ -455,7 +455,21 @@ func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView, balan
 	}
 
 	published := make([]workload.Publish, 0, len(forwards)+len(balancers))
+	terminating := make([]tlsproxy.Endpoint, 0, len(forwards)+len(balancers))
+
 	for _, f := range forwards {
+		if f.terminatesTLS() {
+			terminating = append(terminating, tlsproxy.Endpoint{
+				ID:          f.ID,
+				ListenPort:  f.NodePort,
+				TargetPort:  f.TargetPort,
+				Certificate: f.Certificate,
+				PrivateKey:  f.PrivateKey,
+				Targets:     []string{f.Address},
+			})
+			continue
+		}
+
 		published = append(published, workload.Publish{
 			Protocol:   f.Protocol,
 			NodePort:   f.NodePort,
@@ -463,8 +477,6 @@ func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView, balan
 			Address:    f.Address,
 		})
 	}
-
-	terminating := make([]tlsproxy.Endpoint, 0, len(balancers))
 
 	for _, b := range balancers {
 		targets := make([]string, 0, len(b.Backends))

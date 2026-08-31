@@ -120,6 +120,9 @@ var memberPaths = []string{
 	"PUT /v1/volumes/{id}/schedule",
 	"DELETE /v1/volumes/{id}/schedule",
 	"GET /v1/backup-schedules",
+	"GET /v1/snapshot-schedules",
+	"PUT /v1/volumes/{id}/snapshot-schedule",
+	"DELETE /v1/volumes/{id}/snapshot-schedule",
 
 	"GET /v1/backups",
 	"GET /v1/backups/{id}",
@@ -142,6 +145,8 @@ var memberPaths = []string{
 
 	"GET /v1/forwards",
 	"POST /v1/forwards",
+	"PUT /v1/forwards/{id}/certificate",
+	"DELETE /v1/forwards/{id}/certificate",
 	"DELETE /v1/forwards/{id}",
 
 	"GET /v1/balancers",

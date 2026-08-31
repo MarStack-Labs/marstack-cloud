@@ -233,6 +233,12 @@ func (s *service) idle(ctx context.Context, v Volume, action string) error {
 func (s *service) snapshot(
 	ctx context.Context, nameOrID, projectID, name string,
 ) (Snapshot, error) {
+	return s.snapshotWithSchedule(ctx, nameOrID, projectID, name, "")
+}
+
+func (s *service) snapshotWithSchedule(
+	ctx context.Context, nameOrID, projectID, name, scheduleID string,
+) (Snapshot, error) {
 	v, err := s.resolveIn(ctx, nameOrID, projectID)
 	if err != nil {
 		return Snapshot{}, err
@@ -245,11 +251,12 @@ func (s *service) snapshot(
 	}
 
 	snap := Snapshot{
-		ID:        ids.New("snap"),
-		VolumeID:  v.ID,
-		Name:      name,
-		State:     SnapshotPending,
-		CreatedAt: s.now(),
+		ID:         ids.New("snap"),
+		VolumeID:   v.ID,
+		Name:       name,
+		State:      SnapshotPending,
+		ScheduleID: scheduleID,
+		CreatedAt:  s.now(),
 	}
 
 	if err := s.repo.insertSnapshot(ctx, snap); err != nil {
