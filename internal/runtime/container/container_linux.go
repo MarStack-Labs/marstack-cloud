@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/guest"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/image"
 	"github.com/marstack-labs/marstack-cloud/internal/runtime/netdev"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
@@ -104,7 +105,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
-	if err := dropFiles(r.layout.rootfs(spec.InstanceID), spec.Files); err != nil {
+	if err := guest.Drop(r.layout.rootfs(spec.InstanceID), spec.Files); err != nil {
 		return err
 	}
 
@@ -123,7 +124,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		Hostname:   spec.Name,
 		Rootfs:     r.layout.rootfs(spec.InstanceID),
 		Command:    command,
-		Env:        mergeEnv(imageConfig.Env, spec.Env),
+		Env:        guest.MergeEnv(imageConfig.Env, spec.Env),
 		WorkingDir: imageConfig.WorkingDir,
 	})
 	if err != nil {

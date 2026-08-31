@@ -1,6 +1,4 @@
-//go:build linux
-
-package container
+package guest
 
 import (
 	"os"
@@ -13,7 +11,7 @@ import (
 func TestAFileLandsInsideTheRootfsWithItsMode(t *testing.T) {
 	rootfs := t.TempDir()
 
-	err := dropFiles(rootfs, []workload.FileDrop{
+	err := Drop(rootfs, []workload.FileDrop{
 		{Path: "/etc/app/app.conf", Content: []byte("secret=1\n"), Mode: 0o640},
 	})
 	if err != nil {
@@ -46,7 +44,7 @@ func TestASymlinkInTheImageCannotPullAFileOutOfTheRootfs(t *testing.T) {
 		t.Fatalf("build the trap: %v", err)
 	}
 
-	err := dropFiles(rootfs, []workload.FileDrop{
+	err := Drop(rootfs, []workload.FileDrop{
 		{Path: "/etc/passwd", Content: []byte("root::0:0::/:/bin/sh\n"), Mode: 0o644},
 	})
 	if err == nil {
@@ -62,7 +60,7 @@ func TestASymlinkInTheImageCannotPullAFileOutOfTheRootfs(t *testing.T) {
 func TestDroppingNothingDoesNothing(t *testing.T) {
 	rootfs := t.TempDir()
 
-	if err := dropFiles(rootfs, nil); err != nil {
+	if err := Drop(rootfs, nil); err != nil {
 		t.Fatalf("drop: %v", err)
 	}
 

@@ -593,6 +593,18 @@ make check      # vet + test + security scans
 - `tlsproxy` needed nothing for IPv6 backends: `net.JoinHostPort` brackets the address and
   `net.Listen(":port")` binds both families. There is a test for it anyway, because the next person
   to read `relay` will wonder.
+- `internal/runtime/guest` holds what every runtime prepares **inside** a guest: writing config
+  files confined to a rootfs, and merging a requested environment over the image's own. Three
+  runtimes needed both and none may import another, which is the same reason the keyring moved to
+  `kernel/sealed`. It is not build-tagged: `os.OpenRoot` and symlinks work everywhere, so the
+  confinement test now runs on macOS too rather than only in Lima.
+- `--env` was a silent no-op for microvm and sandbox. Their guest command script exported
+  `config.Env` - the **image's** environment - and never merged in what the operator asked for. A
+  flag that is accepted, validated, stored, sealed, and then ignored by the runtime is worse than
+  one that is refused. Both runtimes call `guest.MergeEnv` now, and there is a test naming that.
+- A microvm's files go into the staging directory before `mkfs.ext4`, so they are part of the image
+  rather than written into a running guest. `debugfs -R "stat /etc/x"` reads them back out of the
+  image without mounting it, which is how the mode was checked.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

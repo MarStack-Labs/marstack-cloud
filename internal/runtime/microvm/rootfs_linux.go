@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/marstack-labs/marstack-cloud/internal/runtime/guest"
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
 
@@ -103,7 +104,11 @@ func (r *Runtime) prepareRootfs(ctx context.Context, spec workload.Spec) error {
 		return fmt.Errorf("the image declares no command and none was given")
 	}
 
-	if err := writeGuestFiles(staging, spec, command, config.Env); err != nil {
+	if err := writeGuestFiles(staging, spec, command, guest.MergeEnv(config.Env, spec.Env)); err != nil {
+		return err
+	}
+
+	if err := guest.Drop(staging, spec.Files); err != nil {
 		return err
 	}
 

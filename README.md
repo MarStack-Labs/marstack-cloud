@@ -1214,6 +1214,34 @@ And the first connection to a freshly guarded IPv6 address times out while
 neighbour discovery completes, then works. That is IPv6, not the firewall — probe
 three times, and keep an unguarded instance on the same network as a control.
 
+### Every isolation now honours `--env` and `--file`
+
+`--env` was accepted, validated, sealed, stored, and then **ignored** by microvms
+and sandboxes: their guest command script exported the image's environment and
+never merged in what was asked for. A flag that goes through all of that and then
+does nothing is worse than one that is refused.
+
+```
+# inside a microvm's rootfs image, read with debugfs
+$ cat /etc/marstack/command
+export PATH='/usr/local/sbin:...'
+export ROLE='worker'
+export TIER='prod'
+exec 'sh' '-c' 'sleep 3600'
+
+$ stat /etc/mv.conf
+Mode: 0640
+```
+
+Config files for a microvm go into the staging directory before `mkfs.ext4`, so
+they are part of the image rather than written into a running guest.
+
+Both helpers now live in `internal/runtime/guest` — writing files confined to a
+rootfs, and merging an environment over the image's own. Three runtimes needed
+both and none may import another, the same reason the keyring moved into the
+kernel. The confinement test came along and no longer needs Linux, so the symlink
+escape case runs on every `make check` rather than only in a VM.
+
 ## Reading a list without reading all of it
 
 Every list endpoint returned the whole table. That is fine at twenty instances
@@ -2025,6 +2053,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 48  dual stack networks                               done
 49  publishing either side of a dual stack instance   done
 50  firewalls covering every address of an instance   done
+51  env and config files on every isolation           done
 ```
 
 ## License

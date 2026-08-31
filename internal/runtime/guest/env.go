@@ -1,11 +1,11 @@
-package container
+package guest
 
 import (
 	"sort"
 	"strings"
 )
 
-func mergeEnv(image []string, wanted map[string]string) []string {
+func MergeEnv(image []string, wanted map[string]string) []string {
 	if len(wanted) == 0 {
 		return image
 	}
