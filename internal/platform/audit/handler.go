@@ -2,14 +2,16 @@ package audit
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
 type response struct {
+	ID        int64  `json:"id"`
 	At        string `json:"at"`
 	Actor     string `json:"actor"`
 	UserID    string `json:"user_id,omitempty"`
@@ -23,6 +25,7 @@ type response struct {
 
 type listResponse struct {
 	Entries []response `json:"entries"`
+	Next    string     `json:"next,omitempty"`
 }
 
 type handler struct {
@@ -30,15 +33,18 @@ type handler struct {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	limit := 0
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err == nil {
-			limit = parsed
-		}
+	window, err := page.From(r, DefaultLimit, MaxLimit)
+	if err != nil {
+		return fault.Invalid("invalid_page", err.Error())
 	}
 
-	entries, err := h.svc.list(r.Context(), limit, scope.From(r.Context()).ProjectID)
+	before, err := page.Back(window.After)
+	if err != nil {
+		return fault.Invalid("invalid_page", err.Error())
+	}
+
+	entries, err := h.svc.list(r.Context(), window.Limit,
+		scope.From(r.Context()).ProjectID, before)
 	if err != nil {
 		return err
 	}
@@ -46,6 +52,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	body := listResponse{Entries: make([]response, 0, len(entries))}
 	for _, entry := range entries {
 		body.Entries = append(body.Entries, response{
+			ID:        entry.ID,
 			At:        entry.At.Format(time.RFC3339Nano),
 			Actor:     entry.Actor,
 			UserID:    entry.UserID,
@@ -56,6 +63,10 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 			Status:    entry.Status,
 			RequestID: entry.RequestID,
 		})
+	}
+
+	if len(entries) == window.Limit {
+		body.Next = page.Backward(entries[len(entries)-1].ID)
 	}
 
 	httpx.Write(w, http.StatusOK, body)

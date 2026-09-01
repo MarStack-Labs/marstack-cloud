@@ -32,11 +32,14 @@ func (r *repository) insert(ctx context.Context, entry Entry) error {
 	return nil
 }
 
-func (r *repository) list(ctx context.Context, limit int, projectID string) ([]Entry, error) {
+func (r *repository) list(ctx context.Context, limit int, projectID string,
+	before int64) ([]Entry, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT id, at, actor, user_id, role, project_id, method, path, status, request_id
-		 FROM audit WHERE project_id = ? OR project_id = '' ORDER BY id DESC LIMIT ?`,
-		projectID, limit)
+		 FROM audit
+		 WHERE (project_id = ? OR project_id = '') AND (? = 0 OR id < ?)
+		 ORDER BY id DESC LIMIT ?`,
+		projectID, before, before, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list audit entries: %w", err)
 	}

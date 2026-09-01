@@ -47,14 +47,15 @@ func (s *service) record(ctx context.Context, record Record) error {
 	return s.repo.prune(ctx, Retain)
 }
 
-func (s *service) list(ctx context.Context, limit int, projectID string) ([]Entry, error) {
+func (s *service) list(ctx context.Context, limit int, projectID string,
+	before int64) ([]Entry, error) {
 	if limit <= 0 {
 		limit = DefaultLimit
 	}
 	if limit > MaxLimit {
 		limit = MaxLimit
 	}
-	return s.repo.list(ctx, limit, projectID)
+	return s.repo.list(ctx, limit, projectID, before)
 }
 
 func (s *service) count(ctx context.Context) (int, error) {

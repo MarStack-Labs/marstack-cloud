@@ -2,10 +2,11 @@ package event
 
 import (
 	"net/http"
-	"strconv"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/page"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 )
 
@@ -21,6 +22,7 @@ type response struct {
 
 type listResponse struct {
 	Events []response `json:"events"`
+	Next   string     `json:"next,omitempty"`
 }
 
 type handler struct {
@@ -28,9 +30,14 @@ type handler struct {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
-	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+	window, err := page.From(r, DefaultLimit, MaxLimit)
 	if err != nil {
-		limit = 0
+		return fault.Invalid("invalid_page", err.Error())
+	}
+
+	before, err := page.Back(window.After)
+	if err != nil {
+		return fault.Invalid("invalid_page", err.Error())
 	}
 
 	entries, err := h.svc.list(r.Context(), Filter{
@@ -38,7 +45,8 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 		Subject:   r.URL.Query().Get("subject"),
 		Kind:      r.URL.Query().Get("kind"),
 		Severity:  r.URL.Query().Get("severity"),
-		Limit:     limit,
+		Limit:     window.Limit,
+		Before:    before,
 	})
 	if err != nil {
 		return err
@@ -55,6 +63,10 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 			Message:  entry.Message,
 			Severity: entry.Severity,
 		})
+	}
+
+	if len(entries) == window.Limit {
+		body.Next = page.Backward(entries[len(entries)-1].ID)
 	}
 
 	httpx.Write(w, http.StatusOK, body)

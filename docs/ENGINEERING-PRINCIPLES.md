@@ -873,6 +873,22 @@ make check      # vet + test + security scans
 - `logs` resolves through the instance module rather than repeating the lookup, so
   `marstack logs <name>` works and the response carries the id it resolved to rather than what was
   asked for.
+- `/v1/audit` and `/v1/events` page with the same opaque `after` cursor as everything else, but
+  **backwards**: a trail is read from the end, so the predicate is `id < ?` and the order is
+  `DESC`. Reusing the ascending predicate returns the same first page forever - no error, no
+  symptom. That is a mutation test.
+- Their `id` is `INTEGER PRIMARY KEY AUTOINCREMENT`, so the cursor is one column rather than the
+  `(created_at, id)` tuple the other resources need: there are no ties to break.
+- The cursor id is **parsed** rather than passed as a string. `id < '42'` happens to work through
+  SQLite's affinity coercion, which is not a thing to depend on.
+- `page.Decode` only checks the envelope, so a well-formed cursor carrying a non-numeric or
+  negative id gets past it. `page.Back` refuses that, and the test needs cursors like `AGFiYw`
+  (base64 of `\x00abc`) to reach it - three obviously-broken strings all failed at the envelope and
+  proved nothing.
+- Both handlers used to swallow a bad `limit` and hand back the default. `page.From` refuses it, so
+  `?limit=abc` is a 400 rather than a different page than the one asked for.
+- A filter is not part of the cursor. The caller resends `kind`, `subject` or `severity` with the
+  cursor and the query still applies it - verified live across four filtered pages.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

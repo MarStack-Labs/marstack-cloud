@@ -39,11 +39,13 @@ func (r *repository) list(ctx context.Context, filter Filter) ([]Entry, error) {
 				AND (? = '' OR subject = ?)
 				AND (? = '' OR kind = ?)
 				AND (? = '' OR severity = ?)
+				AND (? = 0 OR id < ?)
 			ORDER BY id DESC LIMIT ?`,
 		filter.ProjectID,
 		filter.Subject, filter.Subject,
 		filter.Kind, filter.Kind,
 		filter.Severity, filter.Severity,
+		filter.Before, filter.Before,
 		filter.Limit)
 	if err != nil {
 		return nil, fmt.Errorf("list events: %w", err)

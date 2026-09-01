@@ -29,4 +29,5 @@ type Filter struct {
 	Kind      string
 	Severity  string
 	Limit     int
+	Before    int64
 }

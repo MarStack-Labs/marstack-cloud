@@ -1307,6 +1307,48 @@ the server, so they are separate maps now, and only `/healthz` is in both.
 > hold exactly one session: the second login returned 409, the test ignored both
 > status codes, and an empty token was duly refused. One live command found it.
 
+## Reading a trail from the end
+
+`/v1/audit` and `/v1/events` took a `limit` and nothing else, so history beyond
+the first page was unreachable — on the two things that grow without bound.
+
+```
+$ # limit=3, following next each time
+page 1: ids [20634, 20633, 20632] duplicates []
+page 2: ids [20631, 20630, 20629] duplicates []
+page 3: ids [20628, 20627, 20626] duplicates []
+page 4: ids [20625, 20624, 20623] duplicates []
+page 5: ids [20622, 20621, 20620] duplicates []
+```
+
+Same opaque `after` cursor as everything else, but **backwards**: a trail is read
+from the end, so the predicate is `id < ?` and the order is `DESC`. Reusing the
+ascending predicate returns the same first page forever — no error, no symptom.
+
+Their `id` is `INTEGER PRIMARY KEY AUTOINCREMENT`, so the cursor is one column
+rather than the `(created_at, id)` tuple the other resources need: no ties to
+break. The id is parsed rather than passed as a string, because `id < '42'` only
+works through SQLite's affinity coercion.
+
+A filter is not part of the cursor — the caller resends it and the query still
+applies it:
+
+```
+$ # limit=3&kind=job.run_started, four pages
+page 1: 3 events, kinds {'job.run_started'}
+page 2: 3 events, kinds {'job.run_started'}
+page 3: 3 events, kinds {'job.run_started'}
+page 4: 3 events, kinds {'job.run_started'}
+```
+
+Both handlers also used to swallow a bad `limit` and hand back the default;
+`?limit=abc` is a 400 now rather than a different page than the one asked for.
+
+> **Three obviously-broken cursors proved nothing.** `page.Decode` only checks the
+> envelope, so `nonsense` and friends failed there and never reached the number.
+> Catching a well-formed cursor with a bad id needs `AGFiYw` — base64 of
+> `\x00abc`.
+
 ## Calling an instance by its name
 
 Every other resource took a name or an id. An instance took only an id, which is
@@ -2755,6 +2797,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 64  a container with a working /dev and /sys          done
 65  a container that can read its own limits          done
 66  calling an instance by its name                   done
+67  paging the audit trail and the event log          done
 ```
 
 ## License
