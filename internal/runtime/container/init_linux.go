@@ -56,6 +56,9 @@ func RunInit() error {
 	if err := mountProc(); err != nil {
 		return err
 	}
+	if err := mountDev(); err != nil {
+		return err
+	}
 
 	binary, err := resolveInRoot(cfg.Command[0])
 	if err != nil {

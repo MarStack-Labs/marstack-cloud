@@ -1307,6 +1307,54 @@ the server, so they are separate maps now, and only `/healthz` is in both.
 > hold exactly one session: the second login returned 409, the test ignored both
 > status codes, and an empty token was duly refused. One live command found it.
 
+## A container with a /dev
+
+There was no `/dev` at all — not a device node, not `/dev/pts`, not `/dev/shm`.
+`dd if=/dev/zero` failed with "No such file or directory", which is how it was
+found.
+
+```
+$ marstack logs i-h83rsvvwvv0fm
+fd  full  null  ptmx  pts  random  shm  stderr  stdin  stdout  tty  urandom  zero
+--- dd to shm ---
+8388608 bytes (8.0MB) copied, 0.002015 seconds, 3.9GB/s
+shm                      64.0M      8.0M     56.0M  13% /dev/shm
+--- urandom ---
+ 3b 73 18 63 05 ef 3a c8
+--- null ---
+null works
+```
+
+Right numbers, right modes:
+
+```
+crw-rw-rw-  1 root root  1,  3  /dev/null
+crw-rw-rw-  1 root root  5,  0  /dev/tty
+crw-rw-rw-  1 root root  1,  5  /dev/zero
+```
+
+**Six devices, and the list is the boundary.** null, zero, full, random, urandom,
+tty — the set programs cannot work without. Anything like `/dev/mem`, `/dev/kmsg`
+or a loop device belongs nowhere near it, so the test fails on an *addition* to
+that list, not only on a removal.
+
+`/dev` itself is mounted nosuid but **not** nodev: that flag makes every node on
+it useless — created, then unreadable. `/dev/shm` and `/dev/pts` do get nosuid,
+nodev and noexec, and the flags are named constants so a test can read them.
+
+Two things worth knowing:
+
+> `syscall.Mkdev` is not in the standard library on Linux — it lives in
+> `x/sys/unix`, an indirect dependency here, so the encoding is computed instead:
+> `(major&0xfff)<<8 | minor&0xff | (minor&~0xff)<<12`. My first test expectation
+> for a minor above 255 was wrong, not the code.
+
+> **`echo x > /dev/stdout` truncates a container's log.** Stdout is a file and `>`
+> opens it with O_TRUNC, so the probe that wrote its findings that way erased all
+> of them and printed one line. Not a bug, but a bad way to debug.
+
+`/sys` is still not mounted. Same class of gap, left for its own change.
+
 ## Two things I was wrong about
 
 **Per-workload time-series metrics already existed.** I had them on a list of
@@ -1334,10 +1382,8 @@ $ cat /sys/fs/cgroup/marstack/i-1pjz70vvajd1g/memory.current
 That is the resolution, not a bug — worth knowing before trusting a memory
 target on a workload that small.
 
-One real gap found on the way, not fixed here: **`/dev` is not populated in a
-container**, so `dd if=/dev/zero` fails with "No such file or directory". Two
-attempts to make a workload consume memory died on that before the log said why,
-and plenty of ordinary programs want `/dev/null` and `/dev/urandom`.
+One real gap found on the way, fixed in the next entry: `/dev` was not populated
+in a container at all.
 
 ## Starting a container the node already holds
 
@@ -2634,6 +2680,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 61  starting a container the node already holds       done
 62  people, sessions and who did it                   done
 63  scaling on memory, not only cpu                   done
+64  a container with a working /dev                   done
 ```
 
 ## License

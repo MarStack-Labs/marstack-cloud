@@ -823,10 +823,21 @@ make check      # vet + test + security scans
   is true, and a target with an unknown allocation stops the pass rather than dividing by a guess.
   An unset target is ignored, not treated as zero - zero would read as "always under target".
 - A policy must name at least one target. One with neither would sit in the sweep forever.
-- **`/dev` is not populated in a container**, so there is no `/dev/zero`, and `dd if=/dev/zero`
-  fails with "No such file or directory". Two attempts to make a workload use memory failed on this
-  before the log said why. Plenty of ordinary programs want `/dev/null` and `/dev/urandom`; this is
-  its own gap, not fixed here.
+- A container gets a tmpfs `/dev` with **six** device nodes - null, zero, full, random, urandom,
+  tty - plus `/dev/pts`, a 64 MiB `/dev/shm`, and the standard links. **The list in `dev_linux.go`
+  is the boundary**, so anything like `/dev/mem`, `/dev/kmsg` or a loop device belongs nowhere near
+  it, and the test says so rather than only checking the six are present.
+- **`/dev` itself must not be mounted `nodev`.** That flag makes every node on it useless: they are
+  created and then nothing can be read from them. `/dev/shm` and `/dev/pts` do get nosuid, nodev and
+  noexec, and the flags are named constants so a test can assert them.
+- `syscall.Mkdev` does not exist on Linux in the standard library - it lives in `x/sys/unix`, which
+  is an indirect dependency here. The encoding is
+  `(major&0xfff)<<8 | minor&0xff | (minor&~0xff)<<12`; my first test expectation for a minor above
+  255 was wrong, not the code.
+- **`echo x > /dev/stdout` truncates a container's log**, because stdout is a file and `>` opens it
+  with O_TRUNC. A probe that wrote its findings that way erased them all and printed one line. Not a
+  bug - worth knowing before debugging with it.
+- `/sys` is still not mounted in a container. Same class of gap, left for its own change.
 - Making a container use memory from busybox: doubling a shell variable needs **twice** the memory
   for the moment of the copy, so a steady 52% of the limit peaks at 104% and gets OOM-killed. The
   replica-health loop then churns, which is correct behaviour and looks like the feature failing.
