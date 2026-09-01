@@ -446,6 +446,7 @@ type autoscaleView struct {
 	Min        int    `json:"min"`
 	Max        int    `json:"max"`
 	TargetCPU  int    `json:"target_cpu"`
+	TargetMem  int    `json:"target_memory"`
 	LastAt     string `json:"last_at"`
 	LastReason string `json:"last_reason"`
 }
@@ -454,18 +455,26 @@ type autoscaleListView struct {
 	Autoscalers []autoscaleView `json:"autoscalers"`
 }
 
-var autoscaleHeaders = []string{"SERVICE", "MIN", "MAX", "TARGET CPU", "LAST", "WHY"}
+var autoscaleHeaders = []string{"SERVICE", "MIN", "MAX", "TARGETS", "LAST", "WHY"}
 
 func autoscaleRow(a autoscaleView) []string {
 	last := "never"
 	if a.LastAt != "" {
 		last = a.LastAt[:min(len(a.LastAt), 19)]
 	}
+	targets := make([]string, 0, 2)
+	if a.TargetCPU > 0 {
+		targets = append(targets, "cpu "+strconv.Itoa(a.TargetCPU)+"%")
+	}
+	if a.TargetMem > 0 {
+		targets = append(targets, "mem "+strconv.Itoa(a.TargetMem)+"%")
+	}
+
 	return []string{
 		a.ServiceID,
 		strconv.Itoa(a.Min),
 		strconv.Itoa(a.Max),
-		strconv.Itoa(a.TargetCPU) + "%",
+		strings.Join(targets, ", "),
 		last,
 		shortenLine(a.LastReason, 50),
 	}
@@ -481,7 +490,10 @@ func newServiceAutoscaleCmd(g *globals) *cobra.Command {
 			"refuses to act on a reading that is missing or stale, waits out a cooldown\n" +
 			"after every change, ignores a difference inside a deadband, and moves by a\n" +
 			"bounded step - a service that scales on a guess oscillates, and one that\n" +
-			"jumps on a single reading is worse than one that does nothing.",
+			"jumps on a single reading is worse than one that does nothing.\n\n" +
+			"With both a cpu and a memory target the harder pressed of the two decides.\n" +
+			"Averaging them would let a service whose memory is nearly full stay small\n" +
+			"because its cpu happens to be idle.",
 	}
 	cmd.AddCommand(newAutoscaleSetCmd(g), newAutoscaleListCmd(g), newAutoscaleOffCmd(g))
 	return cmd
@@ -489,9 +501,10 @@ func newServiceAutoscaleCmd(g *globals) *cobra.Command {
 
 func newAutoscaleSetCmd(g *globals) *cobra.Command {
 	var req struct {
-		Min       int `json:"min"`
-		Max       int `json:"max"`
-		TargetCPU int `json:"target_cpu"`
+		Min          int `json:"min"`
+		Max          int `json:"max"`
+		TargetCPU    int `json:"target_cpu"`
+		TargetMemory int `json:"target_memory"`
 	}
 
 	cmd := &cobra.Command{
@@ -515,7 +528,9 @@ func newAutoscaleSetCmd(g *globals) *cobra.Command {
 	cmd.Flags().IntVar(&req.Min, "min", 1, "fewest replicas to hold")
 	cmd.Flags().IntVar(&req.Max, "max", 4, "most replicas to hold")
 	cmd.Flags().IntVar(&req.TargetCPU, "target-cpu", 70,
-		"average cpu percent across the replicas to aim for")
+		"average cpu percent across the replicas to aim for, 0 to ignore cpu")
+	cmd.Flags().IntVar(&req.TargetMemory, "target-memory", 0,
+		"average share of each replica's memory to aim for, 0 to ignore memory")
 
 	return cmd
 }

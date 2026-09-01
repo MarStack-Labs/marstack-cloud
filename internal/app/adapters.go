@@ -283,7 +283,8 @@ func (s scalableServices) Scale(ctx context.Context, projectID, serviceID string
 }
 
 type instanceLoad struct {
-	usage *usage.Module
+	usage     *usage.Module
+	instances *instance.Module
 }
 
 func (l instanceLoad) SamplesOf(ctx context.Context) (map[string]autoscale.Sample, error) {
@@ -294,10 +295,18 @@ func (l instanceLoad) SamplesOf(ctx context.Context) (map[string]autoscale.Sampl
 
 	held := make(map[string]autoscale.Sample, len(samples))
 	for _, sample := range samples {
-		held[sample.InstanceID] = autoscale.Sample{
+		one := autoscale.Sample{
 			CPUPercent: sample.CPUPercent,
 			ReportedAt: sample.ReportedAt,
 		}
+
+		if found, err := l.instances.Get(ctx, sample.InstanceID); err == nil &&
+			found.MemoryMiB > 0 {
+			one.MemoryPercent = float64(sample.MemoryUsedMiB) /
+				float64(found.MemoryMiB) * 100
+			one.MemoryKnown = true
+		}
+		held[sample.InstanceID] = one
 	}
 	return held, nil
 }

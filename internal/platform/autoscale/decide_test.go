@@ -29,11 +29,89 @@ func loadOf(group Group, cpu float64, age time.Duration) map[string]Sample {
 	samples := make(map[string]Sample, len(group.Members))
 	for _, member := range group.Members {
 		samples[member.InstanceID] = Sample{
-			CPUPercent: cpu,
-			ReportedAt: noon.Add(-age),
+			CPUPercent:  cpu,
+			MemoryKnown: true,
+			ReportedAt:  noon.Add(-age),
 		}
 	}
 	return samples
+}
+
+func withMemory(samples map[string]Sample, percent float64) map[string]Sample {
+	for id, sample := range samples {
+		sample.MemoryPercent = percent
+		samples[id] = sample
+	}
+	return samples
+}
+
+func TestMemoryPressureScalesEvenWhenTheCpuIsIdle(t *testing.T) {
+	group := groupOf(2, 10*time.Minute)
+	samples := withMemory(loadOf(group, 2, time.Second), 90)
+
+	policy := policyOf(1, 10, 70)
+	policy.TargetMemory = 45
+
+	got := decide(policy, group, samples, noon)
+	if !got.Act || got.Replicas <= 2 {
+		t.Fatalf("decision = %+v, want more replicas: taking the average of the two "+
+			"resources lets a service whose memory is nearly full stay small because "+
+			"its cpu happens to be idle", got)
+	}
+	if !strings.Contains(got.Reason, "memory") {
+		t.Fatalf("reason = %q, want it to name the resource that forced the change",
+			got.Reason)
+	}
+}
+
+func TestTheHarderPressedResourceWins(t *testing.T) {
+	group := groupOf(4, 10*time.Minute)
+	samples := withMemory(loadOf(group, 90, time.Second), 10)
+
+	policy := policyOf(1, 20, 45)
+	policy.TargetMemory = 80
+
+	got := decide(policy, group, samples, noon)
+	if !got.Act || !strings.Contains(got.Reason, "cpu") {
+		t.Fatalf("decision = %+v, want cpu to drive it: memory is far under its target "+
+			"and must not hold the service down", got)
+	}
+}
+
+func TestAMemoryTargetWithoutAKnownAllocationIsRefused(t *testing.T) {
+	group := groupOf(2, 10*time.Minute)
+	samples := loadOf(group, 5, time.Second)
+	for id, sample := range samples {
+		sample.MemoryKnown = false
+		samples[id] = sample
+	}
+
+	policy := policyOf(1, 10, 70)
+	policy.TargetMemory = 50
+
+	if got := decide(policy, group, samples, noon); got.Act {
+		t.Fatal("it worked out a share of memory without knowing how much there was")
+	}
+}
+
+func TestAnUnsetMemoryTargetIsIgnoredRatherThanTreatedAsZero(t *testing.T) {
+	group := groupOf(2, 10*time.Minute)
+	samples := withMemory(loadOf(group, 70, time.Second), 95)
+
+	got := decide(policyOf(1, 10, 70), group, samples, noon)
+	if got.Act {
+		t.Fatalf("decision = %+v, want nothing: the cpu is on target and no memory target "+
+			"was asked for, so 95%% memory is not this policy's business", got)
+	}
+}
+
+func TestAPolicyWithNoTargetAtAllDecidesNothing(t *testing.T) {
+	group := groupOf(2, 10*time.Minute)
+
+	got := decide(Policy{Min: 1, Max: 10}, group, loadOf(group, 90, time.Second), noon)
+	if got.Act {
+		t.Fatalf("decision = %+v, want nothing to scale against", got)
+	}
 }
 
 func TestLoadOverTheTargetAddsReplicas(t *testing.T) {

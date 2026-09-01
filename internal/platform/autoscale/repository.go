@@ -13,7 +13,7 @@ import (
 var errNotFound = errors.New("autoscale policy not found")
 
 const columns = `id, project_id, service_id, min_replicas, max_replicas, target_cpu,
-	last_at, last_reason, created_at, updated_at`
+	target_memory, last_at, last_reason, created_at, updated_at`
 
 type repository struct {
 	db *sql.DB
@@ -26,13 +26,14 @@ func newRepository(st *store.Store) *repository {
 func (r *repository) upsert(ctx context.Context, p Policy) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO autoscalers (`+columns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT (service_id) DO UPDATE SET
 			min_replicas = excluded.min_replicas,
 			max_replicas = excluded.max_replicas,
 			target_cpu = excluded.target_cpu,
+			target_memory = excluded.target_memory,
 			updated_at = excluded.updated_at`,
-		p.ID, p.ProjectID, p.ServiceID, p.Min, p.Max, p.TargetCPU,
+		p.ID, p.ProjectID, p.ServiceID, p.Min, p.Max, p.TargetCPU, p.TargetMemory,
 		"", p.LastReason,
 		p.CreatedAt.Format(time.RFC3339Nano), p.UpdatedAt.Format(time.RFC3339Nano))
 	if err != nil {
@@ -105,7 +106,8 @@ func (r *repository) load(ctx context.Context, query string, args ...any) ([]Pol
 			created, updated string
 		)
 		if err := rows.Scan(&p.ID, &p.ProjectID, &p.ServiceID, &p.Min, &p.Max,
-			&p.TargetCPU, &last, &p.LastReason, &created, &updated); err != nil {
+			&p.TargetCPU, &p.TargetMemory, &last, &p.LastReason,
+			&created, &updated); err != nil {
 			return nil, fmt.Errorf("scan a policy: %w", err)
 		}
 

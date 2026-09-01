@@ -198,7 +198,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	tokens.UseUsers(people)
 	scalers := autoscale.New(st, log)
 	scalers.UseServices(scalableServices{services: services})
-	scalers.UseLoad(instanceLoad{usage: usages})
+	scalers.UseLoad(instanceLoad{usage: usages, instances: instances})
 	scalers.UseClock(cfg.Now)
 	a.scalers = scalers
 	jobs := job.New(st, log)

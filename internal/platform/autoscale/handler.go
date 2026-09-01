@@ -9,9 +9,10 @@ import (
 )
 
 type setRequest struct {
-	Min       int `json:"min"`
-	Max       int `json:"max"`
-	TargetCPU int `json:"target_cpu"`
+	Min          int `json:"min"`
+	Max          int `json:"max"`
+	TargetCPU    int `json:"target_cpu"`
+	TargetMemory int `json:"target_memory"`
 }
 
 type response struct {
@@ -19,7 +20,8 @@ type response struct {
 	ServiceID  string `json:"service_id"`
 	Min        int    `json:"min"`
 	Max        int    `json:"max"`
-	TargetCPU  int    `json:"target_cpu"`
+	TargetCPU  int    `json:"target_cpu,omitempty"`
+	TargetMem  int    `json:"target_memory,omitempty"`
 	LastAt     string `json:"last_at,omitempty"`
 	LastReason string `json:"last_reason,omitempty"`
 	CreatedAt  string `json:"created_at"`
@@ -37,6 +39,7 @@ func toResponse(p Policy) response {
 		Min:        p.Min,
 		Max:        p.Max,
 		TargetCPU:  p.TargetCPU,
+		TargetMem:  p.TargetMemory,
 		LastReason: p.LastReason,
 		CreatedAt:  p.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:  p.UpdatedAt.Format(time.RFC3339Nano),
@@ -58,11 +61,12 @@ func (h *handler) set(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	policy, err := h.svc.set(r.Context(), PolicyParams{
-		ProjectID: scope.From(r.Context()).ProjectID,
-		ServiceID: r.PathValue("id"),
-		Min:       req.Min,
-		Max:       req.Max,
-		TargetCPU: req.TargetCPU,
+		ProjectID:    scope.From(r.Context()).ProjectID,
+		ServiceID:    r.PathValue("id"),
+		Min:          req.Min,
+		Max:          req.Max,
+		TargetCPU:    req.TargetCPU,
+		TargetMemory: req.TargetMemory,
 	})
 	if err != nil {
 		return err

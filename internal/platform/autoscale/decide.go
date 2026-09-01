@@ -12,6 +12,21 @@ type Decision struct {
 	Act      bool
 }
 
+type pressure struct {
+	name    string
+	average float64
+	target  float64
+}
+
+func (p pressure) demand() float64 {
+	return p.average / p.target
+}
+
+func (p pressure) String() string {
+	return "average " + p.name + " " + round(p.average) + "% against a target of " +
+		round(p.target) + "%"
+}
+
 func decide(policy Policy, group Group, samples map[string]Sample, now time.Time) Decision {
 	if !group.Settled {
 		return Decision{Reason: "the service has not reached its replica count yet"}
@@ -21,7 +36,7 @@ func decide(policy Policy, group Group, samples map[string]Sample, now time.Time
 	}
 
 	ready := 0
-	var total float64
+	var cpu, memory float64
 	for _, member := range group.Members {
 		if now.Sub(member.CreatedAt) < Warmup {
 			continue
@@ -32,7 +47,12 @@ func decide(policy Policy, group Group, samples map[string]Sample, now time.Time
 			return Decision{Reason: "the load of " + member.InstanceID +
 				" is missing or stale, and scaling on a guess is worse than not scaling"}
 		}
-		total += sample.CPUPercent
+		if policy.TargetMemory > 0 && !sample.MemoryKnown {
+			return Decision{Reason: "how much memory " + member.InstanceID +
+				" was given is not known, so a share of it cannot be worked out"}
+		}
+		cpu += sample.CPUPercent
+		memory += sample.MemoryPercent
 		ready++
 	}
 
@@ -40,38 +60,57 @@ func decide(policy Policy, group Group, samples map[string]Sample, now time.Time
 		return Decision{Reason: "every replica is still warming up"}
 	}
 
-	average := total / float64(ready)
-	target := float64(policy.TargetCPU)
-
-	if math.Abs(average-target) <= Deadband {
-		return Decision{Reason: "the load is within " +
-			strconv.FormatFloat(Deadband, 'f', 0, 64) + " points of the target"}
+	worst, ok := hardestPressed(policy, cpu/float64(ready), memory/float64(ready))
+	if !ok {
+		return Decision{Reason: "this policy names no target to scale against"}
 	}
 
-	wanted := int(math.Ceil(float64(group.Replicas) * average / target))
+	if math.Abs(worst.demand()-1) <= DeadbandRatio {
+		return Decision{Reason: worst.String() + ", which is close enough to leave alone"}
+	}
+
+	wanted := int(math.Ceil(float64(group.Replicas) * worst.demand()))
 	wanted = step(group.Replicas, wanted)
 	wanted = clamp(wanted, policy.Min, policy.Max)
 
 	if wanted == group.Replicas {
-		return Decision{Reason: reasonFor(average, target, group.Replicas, policy)}
+		return Decision{Reason: reasonFor(worst, group.Replicas, policy)}
 	}
-
-	return Decision{
-		Replicas: wanted,
-		Act:      true,
-		Reason: "average cpu " + round(average) + "% against a target of " +
-			round(target) + "%",
-	}
+	return Decision{Replicas: wanted, Act: true, Reason: worst.String()}
 }
 
-func reasonFor(average, target float64, replicas int, policy Policy) string {
+func hardestPressed(policy Policy, cpu, memory float64) (pressure, bool) {
+	candidates := make([]pressure, 0, 2)
+	if policy.TargetCPU > 0 {
+		candidates = append(candidates, pressure{"cpu", cpu, float64(policy.TargetCPU)})
+	}
+	if policy.TargetMemory > 0 {
+		candidates = append(candidates,
+			pressure{"memory", memory, float64(policy.TargetMemory)})
+	}
+	if len(candidates) == 0 {
+		return pressure{}, false
+	}
+
+	worst := candidates[0]
+	for _, candidate := range candidates[1:] {
+		if candidate.demand() > worst.demand() {
+			worst = candidate
+		}
+	}
+	return worst, true
+}
+
+func reasonFor(worst pressure, replicas int, policy Policy) string {
 	switch {
-	case average > target && replicas >= policy.Max:
-		return "over target but already at the maximum of " + strconv.Itoa(policy.Max)
-	case average < target && replicas <= policy.Min:
-		return "under target but already at the minimum of " + strconv.Itoa(policy.Min)
+	case worst.demand() > 1 && replicas >= policy.Max:
+		return worst.String() + ", but already at the maximum of " +
+			strconv.Itoa(policy.Max)
+	case worst.demand() < 1 && replicas <= policy.Min:
+		return worst.String() + ", but already at the minimum of " +
+			strconv.Itoa(policy.Min)
 	default:
-		return "the load does not move the replica count"
+		return worst.String() + ", which does not move the replica count"
 	}
 }
 

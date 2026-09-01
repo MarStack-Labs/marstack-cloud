@@ -1307,6 +1307,38 @@ the server, so they are separate maps now, and only `/healthz` is in both.
 > hold exactly one session: the second login returned 409, the test ignored both
 > status codes, and an empty token was duly refused. One live command found it.
 
+## Two things I was wrong about
+
+**Per-workload time-series metrics already existed.** I had them on a list of
+gaps. They were not a gap:
+
+```
+$ marstack usage history i-1pjz70vvajd1g --window 10m
+i-1pjz70vvajd1g over 10m0s, 11 buckets
+
+cpu     ▁▁▁▁▁▁▁▁▁▁▁  avg 0.0%  peak 0.0%
+memory  ▁▁▁▁▁▁▁▁▁▁▁  avg 0Mi  peak 0Mi
+```
+
+Per-minute buckets, average and peak for both resources, project-scoped, a day
+kept, with a CLI that draws them. Check before building.
+
+**The zeroes there are also right.** They looked like a broken sampler. The
+container really uses 118,784 bytes, and whole-MiB reporting turns that into 0:
+
+```
+$ cat /sys/fs/cgroup/marstack/i-1pjz70vvajd1g/memory.current
+118784
+```
+
+That is the resolution, not a bug — worth knowing before trusting a memory
+target on a workload that small.
+
+One real gap found on the way, not fixed here: **`/dev` is not populated in a
+container**, so `dd if=/dev/zero` fails with "No such file or directory". Two
+attempts to make a workload consume memory died on that before the log said why,
+and plenty of ordinary programs want `/dev/null` and `/dev/urandom`.
+
 ## Starting a container the node already holds
 
 Layers were cached. The manifest was not. So every container start needed a live
@@ -1368,6 +1400,26 @@ Autoscaling is its own module: `service` may not import `usage`, so it declares
 `Services` and `Load` as consumer interfaces and the composition root joins them
 — the same shape as the scheduler. The routes still hang off the service, since
 owning a route is not owning the resource.
+
+A policy names a cpu target, a memory target, or both — and with both, **the
+harder pressed resource decides**:
+
+```
+$ marstack service autoscale set hungry --min 2 --max 4 --target-cpu 0 \
+    --target-memory 20
+
+replicas 2 up 2 | every replica is still warming up
+replicas 3 up 2 | average memory 25.0% against a target of 20.0%
+replicas 3 up 3 | waiting out the cooldown after the last change
+replicas 4 up 3 | average memory 25.0% against a target of 20.0%
+```
+
+Cpu idle throughout. Averaging the two resources would let a service whose memory
+is nearly full stay small because its cpu happens to be quiet; taking the minimum
+is the same mistake with the sign flipped. A memory target also needs to know how
+much memory a replica was *given* — without that the pass stops rather than
+dividing by a guess, and an unset target is ignored rather than read as zero,
+which would mean "always under target".
 
 **The formula is the easy part.** Seven guards are the feature, and each one is a
 mutation test:
@@ -2581,6 +2633,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 60  a service that holds its own replica count        done
 61  starting a container the node already holds       done
 62  people, sessions and who did it                   done
+63  scaling on memory, not only cpu                   done
 ```
 
 ## License

@@ -53,6 +53,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  2,
 			SQL:    `CREATE UNIQUE INDEX autoscalers_service ON autoscalers (service_id)`,
 		},
+		{
+			Module: "autoscale",
+			Index:  3,
+			SQL:    `ALTER TABLE autoscalers ADD COLUMN target_memory INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 }
 

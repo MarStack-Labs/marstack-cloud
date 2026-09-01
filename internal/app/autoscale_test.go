@@ -14,6 +14,7 @@ type scalerBody struct {
 	Min        int    `json:"min"`
 	Max        int    `json:"max"`
 	TargetCPU  int    `json:"target_cpu"`
+	TargetMem  int    `json:"target_memory"`
 	LastReason string `json:"last_reason"`
 }
 
@@ -88,6 +89,37 @@ func TestSettingAPolicyTwiceReplacesIt(t *testing.T) {
 	}
 }
 
+func TestAPolicyCanNameEitherTargetOrBoth(t *testing.T) {
+	a, _ := newBalancingApp(t)
+	created := scaledService(t, a)
+
+	for _, body := range []string{
+		`{"min":1,"max":4,"target_cpu":70}`,
+		`{"min":1,"max":4,"target_memory":60}`,
+		`{"min":1,"max":4,"target_cpu":70,"target_memory":60}`,
+	} {
+		if code, _ := setAutoscale(t, a, created.ID, body); code != http.StatusOK {
+			t.Errorf("%s: status = %d, want %d", body, code, http.StatusOK)
+		}
+	}
+
+	_, held := readAutoscale(t, a, created.ID)
+	if held.TargetCPU != 70 || held.TargetMem != 60 {
+		t.Fatalf("policy = %+v, want both targets kept", held)
+	}
+}
+
+func TestAPolicyWithNoTargetIsRefused(t *testing.T) {
+	a, _ := newBalancingApp(t)
+	created := scaledService(t, a)
+
+	if code, _ := setAutoscale(t, a, created.ID, `{"min":1,"max":4}`); code !=
+		http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: a policy with nothing to scale against would sit "+
+			"in the sweep forever doing nothing", code, http.StatusBadRequest)
+	}
+}
+
 func TestAPolicyThatCannotHoldIsRefused(t *testing.T) {
 	a, _ := newBalancingApp(t)
 	created := scaledService(t, a)
@@ -95,8 +127,8 @@ func TestAPolicyThatCannotHoldIsRefused(t *testing.T) {
 	for _, body := range []string{
 		`{"min":0,"max":4,"target_cpu":70}`,
 		`{"min":5,"max":2,"target_cpu":70}`,
-		`{"min":1,"max":4,"target_cpu":0}`,
 		`{"min":1,"max":4,"target_cpu":140}`,
+		`{"min":1,"max":4,"target_memory":140}`,
 	} {
 		if code, _ := setAutoscale(t, a, created.ID, body); code != http.StatusBadRequest {
 			t.Errorf("%s: status = %d, want %d", body, code, http.StatusBadRequest)

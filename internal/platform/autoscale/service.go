@@ -59,21 +59,37 @@ func (s *service) set(ctx context.Context, params PolicyParams) (Policy, error) 
 		return Policy{}, fault.Invalid("invalid_max", fmt.Sprintf(
 			"max must be between min and %d", MaxReplicas))
 	}
-	if params.TargetCPU < MinTarget || params.TargetCPU > MaxTarget {
-		return Policy{}, fault.Invalid("invalid_target", fmt.Sprintf(
-			"the target cpu percent must be between %d and %d", MinTarget, MaxTarget))
+	if params.TargetCPU == 0 && params.TargetMemory == 0 {
+		return Policy{}, fault.Invalid("invalid_target",
+			"name a target cpu percent, a target memory percent, or both: a policy with "+
+				"neither has nothing to scale against")
+	}
+	for _, named := range []struct {
+		name   string
+		target int
+	}{{"cpu", params.TargetCPU}, {"memory", params.TargetMemory}} {
+		name, target := named.name, named.target
+		if target == 0 {
+			continue
+		}
+		if target < MinTarget || target > MaxTarget {
+			return Policy{}, fault.Invalid("invalid_target", fmt.Sprintf(
+				"the target %s percent must be between %d and %d",
+				name, MinTarget, MaxTarget))
+		}
 	}
 
 	at := s.now()
 	policy := Policy{
-		ID:        ids.New("as"),
-		ProjectID: params.ProjectID,
-		ServiceID: group.ServiceID,
-		Min:       params.Min,
-		Max:       params.Max,
-		TargetCPU: params.TargetCPU,
-		CreatedAt: at,
-		UpdatedAt: at,
+		ID:           ids.New("as"),
+		ProjectID:    params.ProjectID,
+		ServiceID:    group.ServiceID,
+		Min:          params.Min,
+		Max:          params.Max,
+		TargetCPU:    params.TargetCPU,
+		TargetMemory: params.TargetMemory,
+		CreatedAt:    at,
+		UpdatedAt:    at,
 	}
 
 	if err := s.repo.upsert(ctx, policy); err != nil {

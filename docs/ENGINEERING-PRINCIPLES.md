@@ -814,6 +814,30 @@ make check      # vet + test + security scans
   `$(...)`. `marstack login` writes the token to `OutOrStdout` and the note about it to stderr.
 - A password is read from a file, never a flag: a command line is kept in shell history and shown
   in `ps`.
+- With two targets the **harder pressed** resource decides. Averaging them lets a service whose
+  memory is nearly full stay small because its cpu happens to be idle, and taking the minimum is the
+  same mistake with the sign flipped. Flipping the comparison in `hardestPressed` is a mutation test.
+- The deadband is a **ratio** around 1.0, not a number of percentage points, because a band that
+  means something for cpu at 70% means something else for memory at 20%.
+- A memory target needs to know how much memory a replica was given. `MemoryKnown` says whether that
+  is true, and a target with an unknown allocation stops the pass rather than dividing by a guess.
+  An unset target is ignored, not treated as zero - zero would read as "always under target".
+- A policy must name at least one target. One with neither would sit in the sweep forever.
+- **`/dev` is not populated in a container**, so there is no `/dev/zero`, and `dd if=/dev/zero`
+  fails with "No such file or directory". Two attempts to make a workload use memory failed on this
+  before the log said why. Plenty of ordinary programs want `/dev/null` and `/dev/urandom`; this is
+  its own gap, not fixed here.
+- Making a container use memory from busybox: doubling a shell variable needs **twice** the memory
+  for the moment of the copy, so a steady 52% of the limit peaks at 104% and gets OOM-killed. The
+  replica-health loop then churns, which is correct behaviour and looks like the feature failing.
+  Give the limit room for the transient instead: 512 MiB with a 20% target and a 134 MB string.
+- I claimed per-workload time-series metrics were missing. **They already existed** - per-minute
+  buckets with cpu and memory average and peak, project-scoped, a day kept, on
+  `GET /v1/usage/history?subject=` and `marstack usage history` with sparklines. Check before
+  building.
+- Memory is reported in whole MiB, so a workload under 1 MiB reads as exactly zero. An idle
+  container using 116 KiB is not a broken sampler; it is the resolution. Verified against
+  `memory.current` before calling it a bug.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.
