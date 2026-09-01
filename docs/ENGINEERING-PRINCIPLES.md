@@ -837,7 +837,14 @@ make check      # vet + test + security scans
 - **`echo x > /dev/stdout` truncates a container's log**, because stdout is a file and `>` opens it
   with O_TRUNC. A probe that wrote its findings that way erased them all and printed one line. Not a
   bug - worth knowing before debugging with it.
-- `/sys` is still not mounted in a container. Same class of gap, left for its own change.
+- `/sys` is mounted **read-only**, and that is the reason it can be mounted at all rather than a
+  nicety: there is no user namespace, so a container runs as real root and a writable sysfs lets it
+  change the host kernel's settings. Dropping `MS_RDONLY` is a mutation test.
+- Mounting sysfs from inside the network namespace is what makes `/sys/class/net` show only the
+  container's own interfaces. Verified live: `eth0 lo`, not the node's bridges.
+- **`/sys/fs/cgroup` is left empty on purpose.** Mounting cgroup2 there would expose the host's whole
+  cgroup tree; giving a container its own subtree is a separate decision with its own risk, so it is
+  not bundled in with sysfs.
 - Making a container use memory from busybox: doubling a shell variable needs **twice** the memory
   for the moment of the copy, so a steady 52% of the limit peaks at 104% and gets OOM-killed. The
   replica-health loop then churns, which is correct behaviour and looks like the feature failing.

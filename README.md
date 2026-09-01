@@ -1353,7 +1353,30 @@ Two things worth knowing:
 > opens it with O_TRUNC, so the probe that wrote its findings that way erased all
 > of them and printed one line. Not a bug, but a bad way to debug.
 
-`/sys` is still not mounted. Same class of gap, left for its own change.
+`/sys` is mounted too, **read-only**:
+
+```
+--- readable ---
+block bus class dev devices firmware fs hypervisor kernel module power
+--- own interfaces ---
+eth0 lo
+--- writable? ---
+sh: can't create /sys/kernel/profiling: Read-only file system
+touch: /sys/newfile: Read-only file system
+--- mount options ---
+sysfs /sys sysfs ro,nosuid,nodev,noexec,relatime 0 0
+```
+
+Read-only is the reason it can be mounted at all rather than a nicety. There is
+no user namespace here, so a container runs as **real root**: a writable sysfs
+lets it change the host kernel's settings. Mounting it from inside the network
+namespace is also what makes `/sys/class/net` show `eth0 lo` — the container's
+own interfaces, not the node's bridges.
+
+**`/sys/fs/cgroup` is left empty on purpose.** Mounting cgroup2 there exposes the
+host's whole cgroup tree; giving a container just its own subtree is a separate
+decision with its own risk, and bundling it in with sysfs would smuggle that
+decision past anybody reading this.
 
 ## Two things I was wrong about
 
@@ -2680,7 +2703,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 61  starting a container the node already holds       done
 62  people, sessions and who did it                   done
 63  scaling on memory, not only cpu                   done
-64  a container with a working /dev                   done
+64  a container with a working /dev and /sys          done
 ```
 
 ## License

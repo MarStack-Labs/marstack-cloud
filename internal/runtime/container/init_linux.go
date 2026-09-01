@@ -59,6 +59,9 @@ func RunInit() error {
 	if err := mountDev(); err != nil {
 		return err
 	}
+	if err := mountSys(); err != nil {
+		return err
+	}
 
 	binary, err := resolveInRoot(cfg.Command[0])
 	if err != nil {
@@ -130,6 +133,16 @@ func mountProc() error {
 	flags := uintptr(syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC)
 	if err := syscall.Mount("proc", "/proc", "proc", flags, ""); err != nil {
 		return fmt.Errorf("mount /proc: %w", err)
+	}
+	return nil
+}
+
+func mountSys() error {
+	if err := os.MkdirAll("/sys", 0o555); err != nil {
+		return fmt.Errorf("create /sys: %w", err)
+	}
+	if err := syscall.Mount("sysfs", "/sys", "sysfs", sysFlags, ""); err != nil {
+		return fmt.Errorf("mount /sys: %w", err)
 	}
 	return nil
 }

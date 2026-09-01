@@ -87,6 +87,23 @@ func TestSharedMemoryIsMountedTightly(t *testing.T) {
 	}
 }
 
+func TestSysIsReadOnly(t *testing.T) {
+	if sysFlags&syscall.MS_RDONLY == 0 {
+		t.Fatal("/sys is writable. There is no user namespace here, so a container runs as " +
+			"real root: a writable sysfs lets it change the host kernel's settings, and " +
+			"read-only is the reason it can be mounted at all rather than a nicety")
+	}
+	for name, flag := range map[string]int{
+		"nodev":  syscall.MS_NODEV,
+		"noexec": syscall.MS_NOEXEC,
+		"nosuid": syscall.MS_NOSUID,
+	} {
+		if sysFlags&flag == 0 {
+			t.Errorf("/sys is not %s", name)
+		}
+	}
+}
+
 func TestTheStandardLinksArePresent(t *testing.T) {
 	wanted := map[string]string{
 		"/dev/fd":     "/proc/self/fd",

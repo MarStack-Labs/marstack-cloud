@@ -28,6 +28,8 @@ const (
 	devFlags = syscall.MS_NOSUID | syscall.MS_STRICTATIME
 	ptsFlags = syscall.MS_NOSUID | syscall.MS_NOEXEC
 	shmFlags = syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC
+	sysFlags = syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC |
+		syscall.MS_RDONLY
 )
 
 var links = [][2]string{
