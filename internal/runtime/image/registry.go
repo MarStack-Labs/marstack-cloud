@@ -21,9 +21,10 @@ const (
 	ociIndex       = "application/vnd.oci.image.index.v1+json"
 	ociManifest    = "application/vnd.oci.image.manifest.v1+json"
 
-	requestTimeout = 2 * time.Minute
-	maxManifest    = 4 << 20
-	maxLayer       = 2 << 30
+	requestTimeout  = 2 * time.Minute
+	manifestTimeout = 20 * time.Second
+	maxManifest     = 4 << 20
+	maxLayer        = 2 << 30
 )
 
 type descriptor struct {
@@ -194,6 +195,9 @@ func splitChallenge(value string) []string {
 
 func (r *registry) manifest(ctx context.Context, ref Reference) (manifest, error) {
 	accept := []string{manifestListV2, manifestV2, ociIndex, ociManifest}
+
+	ctx, cancel := context.WithTimeout(ctx, manifestTimeout)
+	defer cancel()
 
 	res, err := r.get(ctx, ref, "/manifests/"+ref.target(), accept)
 	if err != nil {

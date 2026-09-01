@@ -771,11 +771,21 @@ make check      # vet + test + security scans
 - A mutation that fails to compile is not a mutation. `if false` on a line that binds `held` makes
   the package stop building, and a grep for `--- FAIL` shows nothing - which reads exactly like a
   guard that no test covers. Grep for the build failure too, or write the mutation so it compiles.
-- **`Store.Pull` always fetches the manifest**, even when every layer is cached, so a node cannot
-  start a container it already holds all the bytes for if the registry is slow. The pull runs inside
-  the reconcile pass, so one unreachable registry stalls every workload on that node for the client
-  timeout - two minutes at a time. Found while four replicas sat at `pending` and `curl` answered
-  401 from the same machine in milliseconds. Not fixed here; it is its own change.
+- Layers were cached and the manifest was not, so a node could not start a container it held every
+  byte of. The rule now is **registry first, cache only when the registry fails** - a tag moves, and
+  a cache that answers first never notices. Answering from the cache before asking is a mutation
+  test.
+- The fallback is only taken when every blob the cached manifest names is present. Without that
+  check the pull announces it is using what the node holds and then fails fetching a layer that is
+  not there: the same failure, one step later, with a misleading line in between. The test counts
+  registry calls, because both versions fail and only the call count tells them apart.
+- The manifest fetch has its own 20 second budget, separate from the two minutes a layer download
+  may need. The pull runs inside the reconcile pass, so before this an unreachable registry stalled
+  every workload on the node two minutes at a time.
+- **HTTP keep-alive defeats an `/etc/hosts` block.** Blocking the registry and watching a running
+  agent pull anyway proves nothing: the connection was already open to the real address, so no name
+  was ever resolved. Restart the agent after blocking, or the experiment measures nothing. This
+  looked exactly like the fix not working.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

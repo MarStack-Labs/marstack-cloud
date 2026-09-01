@@ -1242,6 +1242,47 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## Starting a container the node already holds
+
+Layers were cached. The manifest was not. So every container start needed a live
+registry round trip, and a node could not start a container it held every byte
+of — while the pull sat inside the reconcile pass, stalling every other workload
+on that node for two minutes at a time.
+
+```
+$ echo "127.0.0.1 registry-1.docker.io" >> /etc/hosts   # on the node
+$ marstack instance create --name offline2 --image alpine:3.20 -- sleep 300
+
+offline2   i-npyctv7sk2854   alpine:3.20   running
+
+using the manifest this node already holds, because the registry did not answer
+  image=registry-1.docker.io/library/alpine:3.20
+  error="dial tcp 127.0.0.1:443: connect: connection refused"
+```
+
+An image the node has never seen still fails, as it must:
+
+```
+$ marstack instance create --name never2 --image alpine:3.19 -- sleep 300
+never2   i-293djehvjnghg   alpine:3.19   failed   call registry: Get ".../3.19"…
+```
+
+**The rule is registry first, cache only when the registry fails.** A tag moves,
+and a cache that answers first never notices. The fallback is taken only when
+every blob the cached manifest names is present — otherwise the pull announces it
+is using what the node holds and then fails on a missing layer, which is the same
+failure one step later with a misleading line in between. Both versions fail, so
+the test counts registry calls: one, not two.
+
+The manifest fetch also gets its own 20 second budget, separate from the two
+minutes a layer download may legitimately need.
+
+> **The first live run of this proved nothing.** Blocking the registry in
+> `/etc/hosts` and watching the running agent pull anyway looked like the fix not
+> working. The agent's HTTP connection was already open to the real address, so
+> no name was ever resolved. Restart the agent after blocking, or the experiment
+> measures nothing.
+
 ## A service that holds its own replica count
 
 `usage` had been collecting the cpu of every replica since roadmap 15, and
@@ -1295,15 +1336,7 @@ The autoscaler asked for 4, the quota refused the fourth, and the settled guard
 then stopped it deciding anything else until the count was real again.
 
 Scaling **down** is covered by the decision tests rather than a live run: the lab
-node stalled part way through, on something worth its own entry —
-
-> `Store.Pull` fetches the manifest from the registry on every container start,
-> even when every layer is already cached. So a node cannot start a container it
-> has all the bytes for if the registry is slow, and because the pull happens
-> inside the reconcile pass, one unreachable registry stalls every workload on
-> that node for the client timeout. Found while watching four replicas sit at
-> `pending` with `curl https://registry-1.docker.io/v2/` answering 401 in
-> milliseconds from the same machine.
+node stalled part way through, on the registry problem fixed in the next entry.
 
 ## Work that finishes
 
@@ -2481,6 +2514,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 58  reading what a workload printed                   done
 59  work that finishes: jobs and schedules            done
 60  a service that holds its own replica count        done
+61  starting a container the node already holds       done
 ```
 
 ## License

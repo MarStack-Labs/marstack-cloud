@@ -2,6 +2,8 @@ package image
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,6 +40,101 @@ func New(root string, log *slog.Logger) *Store {
 	}
 }
 
+func (s *Store) manifestDir() string {
+	return filepath.Join(s.root, "manifests")
+}
+
+func manifestName(ref Reference) string {
+	sum := sha256.Sum256([]byte(ref.String()))
+	return hex.EncodeToString(sum[:]) + ".json"
+}
+
+func (s *Store) rememberManifest(ref Reference, parsed manifest) {
+	if err := os.MkdirAll(s.manifestDir(), 0o750); err != nil {
+		s.log.Warn("could not keep a manifest", "image", ref.String(), "error", err)
+		return
+	}
+
+	body, err := json.Marshal(parsed)
+	if err != nil {
+		s.log.Warn("could not encode a manifest", "image", ref.String(), "error", err)
+		return
+	}
+
+	root, err := os.OpenRoot(s.manifestDir())
+	if err != nil {
+		s.log.Warn("could not open the manifest directory", "error", err)
+		return
+	}
+	defer root.Close()
+
+	name := manifestName(ref)
+	if err := root.WriteFile(name+".partial", body, 0o640); err != nil {
+		s.log.Warn("could not write a manifest", "image", ref.String(), "error", err)
+		return
+	}
+	if err := root.Rename(name+".partial", name); err != nil {
+		s.log.Warn("could not commit a manifest", "image", ref.String(), "error", err)
+	}
+}
+
+func (s *Store) rememberedManifest(ref Reference) (manifest, bool) {
+	root, err := os.OpenRoot(s.manifestDir())
+	if err != nil {
+		return manifest{}, false
+	}
+	defer root.Close()
+
+	file, err := root.Open(manifestName(ref))
+	if err != nil {
+		return manifest{}, false
+	}
+	defer file.Close()
+
+	var parsed manifest
+	if err := json.NewDecoder(io.LimitReader(file, maxManifest)).Decode(&parsed); err != nil {
+		return manifest{}, false
+	}
+	if len(parsed.Layers) == 0 {
+		return manifest{}, false
+	}
+	return parsed, true
+}
+
+func (s *Store) holdsEveryBlob(parsed manifest) bool {
+	wanted := make([]descriptor, 0, len(parsed.Layers)+1)
+	wanted = append(wanted, parsed.Layers...)
+	if parsed.Config.Digest != "" {
+		wanted = append(wanted, parsed.Config)
+	}
+
+	for _, blob := range wanted {
+		file, err := s.openBlob(blob.Digest)
+		if err != nil {
+			return false
+		}
+		file.Close()
+	}
+	return true
+}
+
+func (s *Store) resolve(ctx context.Context, ref Reference) (manifest, error) {
+	parsed, err := s.registry.manifest(ctx, ref)
+	if err == nil {
+		s.rememberManifest(ref, parsed)
+		return parsed, nil
+	}
+
+	held, found := s.rememberedManifest(ref)
+	if !found || !s.holdsEveryBlob(held) {
+		return manifest{}, err
+	}
+
+	s.log.Warn("using the manifest this node already holds, because the registry did not answer",
+		"image", ref.String(), "error", err)
+	return held, nil
+}
+
 func (s *Store) blobDir() string {
 	return filepath.Join(s.root, "blobs")
 }
@@ -68,7 +165,7 @@ func (s *Store) Pull(ctx context.Context, reference, dest string) (Config, error
 
 	s.log.Info("pulling image", "image", ref.String())
 
-	parsed, err := s.registry.manifest(ctx, ref)
+	parsed, err := s.resolve(ctx, ref)
 	if err != nil {
 		return Config{}, err
 	}
