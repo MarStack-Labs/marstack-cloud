@@ -1242,6 +1242,55 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## Seeing what a workload printed
+
+Everything the platform could tell you was its own verdict. What the workload
+itself said lived in a file on the node, reachable only by logging into it.
+
+```
+$ marstack instance list
+NAME   ID                IMAGE         OBSERVED   MESSAGE
+dier   i-qehvpvp1tfgda   alpine:3.20   failed     exited with code 3: starting up config…
+
+$ marstack logs i-qehvpvp1tfgda
+starting up
+config file missing: /etc/app.conf
+```
+
+The agent has no HTTP server — everything is the agent pulling from the control
+plane — so a log cannot be fetched on demand. The node ships new output on every
+reconcile pass, the same shape as usage reporting. VMs come along for free
+through the console log the serial hub already writes:
+
+```
+$ marstack logs i-7dn7y7vsn7218 --tail 5
+[  OK  ] Finished cloud-final.service - Cloud-init: Final Stage.
+[  OK  ] Reached target cloud-init.target - Cloud-init target.
+
+Ubuntu 24.04.4 LTS login-vm ttyAMA0
+```
+
+**This is a bounded recent window, not an archive.** Four separate limits, each
+one a mutation test:
+
+| bound | where | stops |
+|---|---|---|
+| 64 KiB per pass, 500 lines per report | agent | one pass flooding one request |
+| 500 lines, 2 KiB per line | service | a request asking for unbounded work |
+| 2000 lines kept per instance | repository | a loop filling the control plane's disk |
+| 1000 lines returned | read | one `GET` pulling everything |
+
+The offset only moves **after** the report lands. Advancing it when the lines are
+read loses whatever a failed request was carrying; deleting it on failure resends
+the whole file as duplicate output. A file shorter than the stored offset was
+rotated, so the offset resets to zero — without that, an offset past the end
+reads nothing ever again.
+
+One trap worth naming: the per-instance trim is invisible from the API, because
+`tail` caps the answer long before the store does. Dropping `WHERE instance_id`
+from it lets one chatty workload erase another's output and every app-level test
+still passes. That bound is tested at the repository, where it can be seen.
+
 ## A replica that is dead but still counted
 
 The service loop asked one question about each replica: does it still exist? So a
@@ -2310,6 +2359,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 55  rolling update of a service's template            done
 56  refusing a workload that names nothing            done
 57  replacing a replica the node gave up on            done
+58  reading what a workload printed                   done
 ```
 
 ## License

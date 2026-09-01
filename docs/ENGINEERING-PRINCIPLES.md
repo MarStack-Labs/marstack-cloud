@@ -705,6 +705,27 @@ make check      # vet + test + security scans
 - The webhook tests assumed two pumps were enough to deliver. Under a full `./...` run they are not
   always, and the app package got heavier, so `pumpFor` pumps until the sink has what is expected
   and fails if it never arrives. An absence still uses a fixed count - you cannot wait for nothing.
+- The agent has **no HTTP server**: everything is the agent pulling from the control plane. So a
+  log cannot be fetched on demand - the node ships new output on every reconcile pass, the same
+  shape as `PUT /v1/nodes/{id}/usage`. That is why the last line can be a few seconds behind, and
+  why the answer is a bounded recent window rather than an archive.
+- Four separate bounds, and each one is a mutation test: at most `maxShipBytes` read per pass and
+  `maxShipLines` per report (agent), `MaxLinesPerReport` per request and `MaxLineBytes` per line
+  (service), `MaxLinesPerInstance` kept (repository), `MaxTail` returned (read). Drop any one and a
+  workload printing in a loop either floods a request or fills the control plane's disk.
+- **The offset only moves after the report lands.** Advancing it when the lines are read loses
+  everything a failed request was carrying. Deleting the offset on failure is the opposite mistake -
+  the whole file is resent as duplicate output.
+- A file shorter than the stored offset was rotated, so the offset resets to 0. Without that, an
+  offset past the end reads nothing ever again.
+- A partial trailing line is held back until its newline arrives, or shipped anyway once it passes
+  `maxHeldLineSize` - otherwise a workload printing without newlines stalls its own log forever.
+- **`UseClock(cfg.Now)` with a nil clock stores nil and panics on the first call**, which the
+  recover middleware turns into a 500 with no clue in it. The setter refuses nil now. The older
+  modules guard at the call site instead, which is one `if` away from the same bug.
+- The trim is per instance. Dropping `WHERE instance_id = ?` from it lets one chatty workload erase
+  another's output, and no app-level test can see it because `tail` caps the answer long before the
+  store does - that one is only visible from the repository.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

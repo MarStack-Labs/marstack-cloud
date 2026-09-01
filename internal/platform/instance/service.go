@@ -26,6 +26,7 @@ type service struct {
 	volumes   Volumes
 	forwards  Forwards
 	balancers Balancers
+	logs      Logs
 	events    events.Recorder
 	firewalls Firewalls
 	sealing   *sealed.Keyring
@@ -297,6 +298,12 @@ func (s *service) delete(ctx context.Context, id, projectID string) error {
 		if err := s.balancers.ReleaseInstance(ctx, id); err != nil {
 			return fault.Internal(fmt.Errorf(
 				"instance %s was deleted but stayed a balancer backend: %w", id, err))
+		}
+	}
+	if s.logs != nil {
+		if err := s.logs.ReleaseInstance(ctx, id); err != nil {
+			return fault.Internal(fmt.Errorf(
+				"instance %s was deleted but its log was kept: %w", id, err))
 		}
 	}
 	return nil

@@ -158,6 +158,10 @@ type Sampler interface {
 	Sample(instanceID string) (Sample, bool)
 }
 
+type Logged interface {
+	LogPath(instanceID string) (string, bool)
+}
+
 type VolumeKeeper interface {
 	PruneVolumes(keep []string) error
 	SyncSnapshots(plans []SnapshotPlan) []SnapshotState

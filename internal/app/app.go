@@ -23,6 +23,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/image"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/keypair"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/logs"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/project"
@@ -185,6 +186,9 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	})
 	usages := usage.New(st, log)
 	usages.UseWorkloads(usageWorkloads{instances: instances})
+	logbook := logs.New(st, log)
+	logbook.UseInstances(logInstances{instances: instances})
+	logbook.UseClock(cfg.Now)
 	trail := audit.New(st, log)
 	a.trail = trail
 	a.tokens = tokens
@@ -207,6 +211,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		balancers,
 		firewalls,
 		usages,
+		logbook,
 		trail,
 		projects,
 		quotas,
@@ -219,6 +224,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	instances.UseVolumes(volumes)
 	instances.UseForwards(forwards)
 	instances.UseBalancers(balancers)
+	instances.UseLogs(logbook)
 	instances.UseEvents(events)
 	balancers.UseEvents(events)
 	services.UseWorkloads(serviceWorkloads{instances: instances})

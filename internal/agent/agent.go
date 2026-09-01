@@ -77,6 +77,9 @@ type Agent struct {
 	marksMu sync.Mutex
 	marks   map[string]sampleMark
 
+	logsMu     sync.Mutex
+	logOffsets map[string]int64
+
 	probesMu sync.Mutex
 	probes   map[string]*probeState
 
@@ -90,20 +93,21 @@ type Agent struct {
 func New(cfg Config, deps Deps, log *slog.Logger) *Agent {
 	cfg = cfg.withDefaults()
 	return &Agent{
-		cfg:       cfg,
-		client:    newClient(cfg.Endpoint, cfg.Token, cfg.TLS),
-		log:       log,
-		host:      inspectHost(),
-		runtimes:  deps.Runtimes,
-		datapath:  deps.Datapath,
-		resolver:  deps.Resolver,
-		tls:       tlsproxy.New(log),
-		catalog:   deps.Catalog,
-		now:       time.Now,
-		restarts:  map[string]*restartState{},
-		marks:     map[string]sampleMark{},
-		probes:    map[string]*probeState{},
-		fencedFor: map[string]time.Duration{},
+		cfg:        cfg,
+		client:     newClient(cfg.Endpoint, cfg.Token, cfg.TLS),
+		log:        log,
+		host:       inspectHost(),
+		runtimes:   deps.Runtimes,
+		datapath:   deps.Datapath,
+		resolver:   deps.Resolver,
+		tls:        tlsproxy.New(log),
+		catalog:    deps.Catalog,
+		now:        time.Now,
+		restarts:   map[string]*restartState{},
+		marks:      map[string]sampleMark{},
+		logOffsets: map[string]int64{},
+		probes:     map[string]*probeState{},
+		fencedFor:  map[string]time.Duration{},
 	}
 }
 

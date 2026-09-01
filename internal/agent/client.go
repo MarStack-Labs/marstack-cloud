@@ -349,6 +349,15 @@ func (c *client) reportUsage(ctx context.Context, nodeID string, body usageBody)
 	return c.do(ctx, http.MethodPut, "/v1/nodes/"+nodeID+"/usage", body, nil)
 }
 
+func (c *client) reportLogs(ctx context.Context, nodeID, instanceID string,
+	lines []string) error {
+	body := struct {
+		Lines []string `json:"lines"`
+	}{Lines: lines}
+	return c.do(ctx, http.MethodPut,
+		"/v1/nodes/"+nodeID+"/instances/"+instanceID+"/logs", body, nil)
+}
+
 func (c *client) firewalls(ctx context.Context, nodeID string) ([]firewallView, error) {
 	var out firewallsBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/firewalls", nil, &out)

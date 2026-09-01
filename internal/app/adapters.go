@@ -231,6 +231,18 @@ func (w webhookEvents) NewestID(ctx context.Context) (int64, error) {
 	return w.events.NewestID(ctx)
 }
 
+type logInstances struct {
+	instances *instance.Module
+}
+
+func (l logInstances) NodeOf(ctx context.Context, instanceID string) (string, string, error) {
+	found, err := l.instances.Get(ctx, instanceID)
+	if err != nil {
+		return "", "", err
+	}
+	return found.NodeID, found.ProjectID, nil
+}
+
 type usageWorkloads struct {
 	instances *instance.Module
 }
