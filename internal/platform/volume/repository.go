@@ -19,7 +19,8 @@ var (
 )
 
 const columns = `id, project_id, name, size_gib, node_id, instance_id, restore_from, ` +
-	`backup_id, encrypted, key_sealed, key_id, created_at, updated_at`
+	`backup_id, clone_from, clone_snap, encrypted, key_sealed, key_id, ` +
+	`created_at, updated_at`
 
 const snapshotColumns = `id, volume_id, name, state, message, size_bytes,
 	schedule_id, created_at`
@@ -34,9 +35,10 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, v Volume) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO volumes (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO volumes (`+columns+`)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		v.ID, v.ProjectID, v.Name, v.SizeGiB, v.NodeID, v.InstanceID, v.RestoreFrom, v.BackupID,
-		v.Encrypted, v.KeySealed, v.KeyID,
+		v.CloneFrom, v.CloneSnap, v.Encrypted, v.KeySealed, v.KeyID,
 		v.CreatedAt.Format(time.RFC3339Nano), v.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -323,7 +325,8 @@ func scan(row scanner) (Volume, error) {
 	var created, updated string
 
 	if err := row.Scan(&v.ID, &v.ProjectID, &v.Name, &v.SizeGiB, &v.NodeID, &v.InstanceID,
-		&v.RestoreFrom, &v.BackupID, &v.Encrypted, &v.KeySealed, &v.KeyID,
+		&v.RestoreFrom, &v.BackupID, &v.CloneFrom, &v.CloneSnap,
+		&v.Encrypted, &v.KeySealed, &v.KeyID,
 		&created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Volume{}, err

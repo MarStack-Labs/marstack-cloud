@@ -1307,6 +1307,48 @@ the server, so they are separate maps now, and only `/healthz` is in both.
 > hold exactly one session: the second login returned 409, the test ignored both
 > status codes, and an empty token was duly refused. One live command found it.
 
+## A snapshot that becomes a volume
+
+Restoring rolled a volume back and threw away what came after, so a snapshot
+could not be used to make a copy: no testing against production data, no
+recovering one file without losing the rest.
+
+```sh
+marstack volume snapshot clone snap-1f8brpra4zjct --name copyvol
+```
+
+The proof is what happens when the original moves on afterwards:
+
+```
+$ # write "the original contents", snapshot, then overwrite it
+$ cat /mnt/copy/marker.txt
+the original contents
+$ cat /mnt/src/marker.txt
+changed after the snapshot
+```
+
+The copy holds the snapshot's contents; the source holds what was written after
+it. A point in time, and the original untouched.
+
+A snapshot is an **internal qcow2 snapshot inside the volume's own disk file** on
+one node, so the copy is made there and lands on that node — a source that is on
+no node is refused, because there is no file to copy from. The work follows the
+restore-from-backup shape exactly: the volume records where it came from, the
+agent sees it every pass, and `HasVolume` is the idempotency guard.
+
+**An encrypted volume is refused rather than copied.** The copy would either need
+the key on a second disk or write the contents out in the clear, and doing either
+without being asked is a leak.
+
+> **`qemu-img convert -s` does not exist any more.** qemu 8.2 wants
+> `-l snapshot.name=<name>`. Nothing but a live run finds a wrong command-line
+> flag — the unit tests never execute `qemu-img`, and every one of them passed
+> while the node logged `unrecognized option '-s'` every ten seconds.
+
+> That encryption test also skipped silently at first. On an app with no sealing
+> key an encrypted volume cannot be made at all, so it needs `newSealingApp` —
+> otherwise removing the guard breaks nothing.
+
 ## Reading a trail from the end
 
 `/v1/audit` and `/v1/events` took a `limit` and nothing else, so history beyond
@@ -2798,6 +2840,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 65  a container that can read its own limits          done
 66  calling an instance by its name                   done
 67  paging the audit trail and the event log          done
+68  a snapshot that becomes a volume of its own       done
 ```
 
 ## License

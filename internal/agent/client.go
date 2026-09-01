@@ -186,6 +186,8 @@ type volumeView struct {
 	InstanceID  string         `json:"instance_id,omitempty"`
 	RestoreFrom string         `json:"restore_from,omitempty"`
 	BackupID    string         `json:"backup_id,omitempty"`
+	CloneFrom   string         `json:"clone_from,omitempty"`
+	CloneSnap   string         `json:"clone_snap,omitempty"`
 	Encrypted   bool           `json:"encrypted,omitempty"`
 	Snapshots   []snapshotView `json:"snapshots,omitempty"`
 }

@@ -164,6 +164,16 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  17,
 			SQL:    `ALTER TABLE snapshots ADD COLUMN schedule_id TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "volume",
+			Index:  18,
+			SQL:    `ALTER TABLE volumes ADD COLUMN clone_from TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "volume",
+			Index:  19,
+			SQL:    `ALTER TABLE volumes ADD COLUMN clone_snap TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -187,6 +197,7 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("GET /v1/snapshots", httpx.Wrap(m.log, m.handler.listSnapshots))
 	mux.Handle("DELETE /v1/snapshots/{id}", httpx.Wrap(m.log, m.handler.deleteSnapshot))
 	mux.Handle("POST /v1/snapshots/{id}/restore", httpx.Wrap(m.log, m.handler.restore))
+	mux.Handle("POST /v1/snapshots/{id}/clone", httpx.Wrap(m.log, m.handler.clone))
 
 	mux.Handle("GET /v1/nodes/{nodeID}/volumes", httpx.Wrap(m.log, m.handler.listForNode))
 	mux.Handle("GET /v1/nodes/{nodeID}/volumes/{id}/key", httpx.Wrap(m.log, m.handler.nodeKey))

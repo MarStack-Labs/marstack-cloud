@@ -23,6 +23,8 @@ type Volume struct {
 	InstanceID  string
 	RestoreFrom string
 	BackupID    string
+	CloneFrom   string
+	CloneSnap   string
 	Encrypted   bool
 	KeySealed   string
 	KeyID       string

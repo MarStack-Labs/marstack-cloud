@@ -219,13 +219,14 @@ func snapshotRow(s snapshotView) []string {
 func newVolumeSnapshotCmd(g *globals) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "snapshot",
-		Short:   "Take, list, restore and remove volume snapshots",
+		Short:   "Take, list, restore, copy and remove volume snapshots",
 		Aliases: []string{"snapshots"},
 	}
 	cmd.AddCommand(
 		newSnapshotCreateCmd(g),
 		newSnapshotListCmd(g),
 		newSnapshotRestoreCmd(g),
+		newSnapshotCloneCmd(g),
 		newSnapshotDeleteCmd(g),
 	)
 	return cmd
@@ -308,6 +309,42 @@ func newSnapshotRestoreCmd(g *globals) *cobra.Command {
 			return renderVolume(cmd, g, restored)
 		},
 	}
+}
+
+func newSnapshotCloneCmd(g *globals) *cobra.Command {
+	var name string
+
+	cmd := &cobra.Command{
+		Use:   "clone <snapshot id>",
+		Short: "Make a new volume from a snapshot, leaving the original alone",
+		Long: "Make a new volume from a snapshot, leaving the original alone.\n\n" +
+			"Restoring rolls a volume back and throws away what came after. This copies\n" +
+			"instead, so the snapshot's contents turn up as a volume of their own: a copy of\n" +
+			"production data to test against, or one file recovered without losing the rest.\n\n" +
+			"A snapshot lives inside the disk file on the node that holds the volume, so the\n" +
+			"copy is made there and lands on that node. An encrypted volume is refused: the\n" +
+			"copy would either need its key on a second disk or write the contents out in\n" +
+			"the clear, and neither is something to do quietly.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body := struct {
+				Name string `json:"name"`
+			}{Name: name}
+
+			var made volumeView
+			if err := g.client().do(
+				cmd.Context(), "POST", "/v1/snapshots/"+args[0]+"/clone", body, &made,
+			); err != nil {
+				return err
+			}
+			cmd.PrintErrln("the node copies the disk on its next pass")
+			return renderVolume(cmd, g, made)
+		},
+	}
+
+	cmd.Flags().StringVar(&name, "name", "", "name for the new volume")
+	must(cmd.MarkFlagRequired("name"))
+	return cmd
 }
 
 func newSnapshotDeleteCmd(g *globals) *cobra.Command {

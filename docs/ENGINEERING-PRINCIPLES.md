@@ -889,6 +889,20 @@ make check      # vet + test + security scans
   `?limit=abc` is a 400 rather than a different page than the one asked for.
 - A filter is not part of the cursor. The caller resends `kind`, `subject` or `severity` with the
   cursor and the query still applies it - verified live across four filtered pages.
+- A snapshot is an **internal qcow2 snapshot inside `<volumeID>.qcow2`** on one node, so a copy of
+  it can only be made on that node. The new volume is created with the source's `node_id`, and a
+  source that is on no node is refused - there is no file to copy from.
+- The copy follows the restore-from-backup shape exactly: the volume carries where it came from, the
+  agent sees it every pass, and `HasVolume` is the idempotency guard. Nothing new to schedule.
+- **An encrypted volume is refused rather than copied.** The copy would either need the key on a
+  second disk or write the contents out in the clear; doing either without being asked is a leak.
+  That test needs `newSealingApp`, not `newBalancingApp` - on an app with no key the volume cannot
+  be made at all, so the test skips and proves nothing.
+- **`qemu-img convert -s` does not exist any more.** qemu 8.2 wants
+  `-l snapshot.name=<name>`. Nothing but a live run finds a wrong command-line flag: the unit tests
+  never execute `qemu-img`.
+- `volume attach --instance` still takes an instance id rather than a name. The volume module does
+  its own lookup and did not gain the resolver, so that inconsistency is still open.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

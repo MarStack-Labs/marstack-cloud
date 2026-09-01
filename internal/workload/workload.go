@@ -184,6 +184,11 @@ type VolumeArchiver interface {
 	ImportVolume(volumeID string, content io.Reader) error
 }
 
+type VolumeCloner interface {
+	HasVolume(volumeID string) bool
+	CloneVolume(newID, fromID, snapshot string) error
+}
+
 type Runtime interface {
 	Name() string
 	List(ctx context.Context) ([]string, error)

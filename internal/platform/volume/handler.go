@@ -77,6 +77,8 @@ type response struct {
 	InstanceID  string             `json:"instance_id,omitempty"`
 	RestoreFrom string             `json:"restore_from,omitempty"`
 	BackupID    string             `json:"backup_id,omitempty"`
+	CloneFrom   string             `json:"clone_from,omitempty"`
+	CloneSnap   string             `json:"clone_snap,omitempty"`
 	Encrypted   bool               `json:"encrypted,omitempty"`
 	KeyID       string             `json:"key_id,omitempty"`
 	Snapshots   []snapshotResponse `json:"snapshots,omitempty"`
@@ -99,6 +101,8 @@ func toResponse(v Volume) response {
 		InstanceID:  v.InstanceID,
 		RestoreFrom: v.RestoreFrom,
 		BackupID:    v.BackupID,
+		CloneFrom:   v.CloneFrom,
+		CloneSnap:   v.CloneSnap,
 		Encrypted:   v.Encrypted,
 		KeyID:       v.KeyID,
 		CreatedAt:   v.CreatedAt.Format(time.RFC3339Nano),
@@ -286,6 +290,26 @@ func (h *handler) deleteSnapshot(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+type cloneRequest struct {
+	Name string `json:"name"`
+}
+
+func (h *handler) clone(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[cloneRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	made, err := h.svc.clone(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, req.Name)
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusCreated, toResponse(made))
 	return nil
 }
 

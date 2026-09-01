@@ -87,6 +87,62 @@ func (s *service) create(ctx context.Context, params CreateParams) (Volume, erro
 	return v, nil
 }
 
+func (s *service) clone(ctx context.Context, snapshotID, projectID, name string) (Volume, error) {
+	if err := validate.Name("name", name); err != nil {
+		return Volume{}, err
+	}
+
+	snap, err := s.ownedSnapshot(ctx, snapshotID, projectID)
+	if err != nil {
+		return Volume{}, err
+	}
+	if snap.State != SnapshotReady {
+		return Volume{}, fault.Conflict("snapshot_not_ready",
+			"the snapshot is "+snap.State+" and there is nothing to copy yet")
+	}
+
+	source, err := s.repo.byID(ctx, snap.VolumeID)
+	if err != nil {
+		return Volume{}, translate(err)
+	}
+	if source.NodeID == "" {
+		return Volume{}, fault.Conflict("volume_not_placed",
+			"a snapshot lives inside the disk file on the node that holds the volume, and "+
+				"this volume is not on a node, so there is nothing to copy from")
+	}
+	if source.Encrypted {
+		return Volume{}, fault.Conflict("volume_encrypted",
+			"copying an encrypted volume would either need its key on a second disk or "+
+				"write the contents out in the clear, and neither is something to do "+
+				"quietly: restore it onto a volume of its own instead")
+	}
+
+	if s.quota != nil {
+		if err := s.quota.AdmitVolume(ctx, projectID, source.SizeGiB); err != nil {
+			return Volume{}, err
+		}
+	}
+
+	now := s.now()
+	v := Volume{
+		ID:        ids.New("vol"),
+		ProjectID: projectID,
+		Name:      name,
+		SizeGiB:   source.SizeGiB,
+		NodeID:    source.NodeID,
+		CloneFrom: source.ID,
+		CloneSnap: snap.Name,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	if err := s.repo.insert(ctx, v); err != nil {
+		return Volume{}, translate(err)
+	}
+
+	return v, nil
+}
+
 func (s *service) resolveIn(ctx context.Context, nameOrID, projectID string) (Volume, error) {
 	v, err := s.repo.byName(ctx, projectID, nameOrID)
 	if err == nil {
