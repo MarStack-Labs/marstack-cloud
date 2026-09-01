@@ -104,6 +104,22 @@ func TestSysIsReadOnly(t *testing.T) {
 	}
 }
 
+func TestACgroupCannotBeWrittenFromInside(t *testing.T) {
+	if cgroupFlags&syscall.MS_RDONLY == 0 {
+		t.Fatal("/sys/fs/cgroup is writable, so a container that runs as root can raise " +
+			"its own memory.max and walk straight out of the limit the platform gave it")
+	}
+	for name, flag := range map[string]int{
+		"nodev":  syscall.MS_NODEV,
+		"noexec": syscall.MS_NOEXEC,
+		"nosuid": syscall.MS_NOSUID,
+	} {
+		if cgroupFlags&flag == 0 {
+			t.Errorf("/sys/fs/cgroup is not %s", name)
+		}
+	}
+}
+
 func TestTheStandardLinksArePresent(t *testing.T) {
 	wanted := map[string]string{
 		"/dev/fd":     "/proc/self/fd",
@@ -126,5 +142,12 @@ func TestTheStandardLinksArePresent(t *testing.T) {
 	}
 	for path := range wanted {
 		t.Errorf("%s is missing: a shell that redirects to it fails", path)
+	}
+}
+
+func TestTheContainerGetsItsOwnCgroupView(t *testing.T) {
+	if cloneFlags()&syscall.CLONE_NEWCGROUP == 0 {
+		t.Fatal("without a cgroup namespace, mounting cgroup2 shows the host's whole tree: " +
+			"every other container's limits and usage, and a path to walk up out of its own")
 	}
 }

@@ -1373,10 +1373,29 @@ lets it change the host kernel's settings. Mounting it from inside the network
 namespace is also what makes `/sys/class/net` show `eth0 lo` — the container's
 own interfaces, not the node's bridges.
 
-**`/sys/fs/cgroup` is left empty on purpose.** Mounting cgroup2 there exposes the
-host's whole cgroup tree; giving a container just its own subtree is a separate
-decision with its own risk, and bundling it in with sysfs would smuggle that
-decision past anybody reading this.
+`/sys/fs/cgroup` is a **cgroup namespace** plus a read-only cgroup2 mount:
+
+```
+--- what it sees at the root ---
+cgroup.controllers cgroup.events cgroup.freeze cgroup.kill cgroup.max.depth …
+memory.max: 268435456
+cpu.max: 200000 100000
+--- can it see anything above? ---
+0::/
+ls: /sys/fs/cgroup/marstack: No such file or directory
+--- can it raise its own limit? ---
+sh: can't create /sys/fs/cgroup/memory.max: Read-only file system
+```
+
+That is a container created with `--memory-mib 256 --vcpu 2` reading exactly
+those numbers back. `CLONE_NEWCGROUP` is what makes the kernel present the
+container's own cgroup as the root — `0::/`, with no path upward to walk.
+Without it, mounting cgroup2 shows the host's whole tree: every other
+container's limits and usage.
+
+**The mount is read-only because the container is real root.** A writable
+`memory.max` lets it raise its own limit and walk out of the quota it was given.
+Both the flag and the namespace are mutation tests.
 
 ## Two things I was wrong about
 
@@ -2704,6 +2723,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 62  people, sessions and who did it                   done
 63  scaling on memory, not only cpu                   done
 64  a container with a working /dev and /sys          done
+65  a container that can read its own limits          done
 ```
 
 ## License

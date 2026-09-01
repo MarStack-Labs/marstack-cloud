@@ -151,11 +151,7 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 	cmd.Stderr = output
 	cmd.ExtraFiles = []*os.File{gate}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Cloneflags: syscall.CLONE_NEWNS |
-			syscall.CLONE_NEWPID |
-			syscall.CLONE_NEWUTS |
-			syscall.CLONE_NEWIPC |
-			syscall.CLONE_NEWNET,
+		Cloneflags:   cloneFlags(),
 		Unshareflags: syscall.CLONE_NEWNS,
 		Setsid:       true,
 		UseCgroupFD:  true,
@@ -403,6 +399,15 @@ func (r *Runtime) Stop(_ context.Context, instanceID string) error {
 		return fmt.Errorf("kill container: %w", err)
 	}
 	return nil
+}
+
+func cloneFlags() uintptr {
+	return syscall.CLONE_NEWNS |
+		syscall.CLONE_NEWPID |
+		syscall.CLONE_NEWUTS |
+		syscall.CLONE_NEWIPC |
+		syscall.CLONE_NEWNET |
+		syscall.CLONE_NEWCGROUP
 }
 
 func (r *Runtime) Status(_ context.Context, instanceID string) (workload.State, error) {

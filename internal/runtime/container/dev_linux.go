@@ -30,6 +30,8 @@ const (
 	shmFlags = syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC
 	sysFlags = syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC |
 		syscall.MS_RDONLY
+	cgroupFlags = syscall.MS_NOSUID | syscall.MS_NODEV | syscall.MS_NOEXEC |
+		syscall.MS_RDONLY
 )
 
 var links = [][2]string{

@@ -62,6 +62,9 @@ func RunInit() error {
 	if err := mountSys(); err != nil {
 		return err
 	}
+	if err := mountCgroup(); err != nil {
+		return err
+	}
 
 	binary, err := resolveInRoot(cfg.Command[0])
 	if err != nil {
@@ -143,6 +146,17 @@ func mountSys() error {
 	}
 	if err := syscall.Mount("sysfs", "/sys", "sysfs", sysFlags, ""); err != nil {
 		return fmt.Errorf("mount /sys: %w", err)
+	}
+	return nil
+}
+
+func mountCgroup() error {
+	if _, err := os.Stat("/sys/fs/cgroup"); err != nil {
+		return fmt.Errorf("this kernel has no /sys/fs/cgroup to mount over: %w", err)
+	}
+	if err := syscall.Mount("cgroup2", "/sys/fs/cgroup", "cgroup2",
+		cgroupFlags, ""); err != nil {
+		return fmt.Errorf("mount /sys/fs/cgroup: %w", err)
 	}
 	return nil
 }

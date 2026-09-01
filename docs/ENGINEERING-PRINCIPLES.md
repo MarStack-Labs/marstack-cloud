@@ -842,9 +842,16 @@ make check      # vet + test + security scans
   change the host kernel's settings. Dropping `MS_RDONLY` is a mutation test.
 - Mounting sysfs from inside the network namespace is what makes `/sys/class/net` show only the
   container's own interfaces. Verified live: `eth0 lo`, not the node's bridges.
-- **`/sys/fs/cgroup` is left empty on purpose.** Mounting cgroup2 there would expose the host's whole
-  cgroup tree; giving a container its own subtree is a separate decision with its own risk, so it is
-  not bundled in with sysfs.
+- `/sys/fs/cgroup` is a **cgroup namespace** plus a read-only cgroup2 mount, not a bind mount of the
+  container's directory. `CLONE_NEWCGROUP` makes the kernel present the container's own cgroup as
+  the root of the hierarchy, so `/proc/self/cgroup` reads `0::/` and there is no path upward to
+  walk. Without it, mounting cgroup2 shows the host's whole tree - every other container's limits
+  and usage.
+- **The cgroup mount must be read-only.** A container runs as real root, so a writable
+  `memory.max` lets it raise its own limit and walk out of the quota it was given. Both the flag and
+  the namespace are mutation tests.
+- Mounting cgroup2 works even though `/sys` above it is read-only: a mount does not modify the
+  filesystem it covers. `/sys/fs/cgroup` already exists in a fresh sysfs, so nothing needs creating.
 - Making a container use memory from busybox: doubling a shell variable needs **twice** the memory
   for the moment of the copy, so a steady 52% of the limit peaks at 104% and gets OOM-killed. The
   replica-health loop then churns, which is correct behaviour and looks like the feature failing.
