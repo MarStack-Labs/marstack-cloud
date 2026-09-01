@@ -319,6 +319,7 @@ func (s *service) listByNode(ctx context.Context, nodeID string) ([]Instance, er
 
 func (s *service) reportObserved(
 	ctx context.Context, nodeID, instanceID, observed, message string, restarts int,
+	exitCode *int,
 ) (Instance, error) {
 	if err := validate.OneOf("observed_state", observed, AllObservedStates()...); err != nil {
 		return Instance{}, err
@@ -336,7 +337,7 @@ func (s *service) reportObserved(
 	before, beforeErr := s.repo.get(ctx, instanceID)
 
 	if err := s.repo.setObserved(
-		ctx, instanceID, nodeID, ObservedState(observed), message, restarts, s.now(),
+		ctx, instanceID, nodeID, ObservedState(observed), message, restarts, exitCode, s.now(),
 	); err != nil {
 		if errors.Is(err, errNotFound) {
 			return Instance{}, fault.NotFound("instance_not_on_node",

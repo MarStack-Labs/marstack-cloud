@@ -10,6 +10,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/event"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/job"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/network"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/quota"
@@ -229,6 +230,53 @@ func (w webhookEvents) Since(
 
 func (w webhookEvents) NewestID(ctx context.Context) (int64, error) {
 	return w.events.NewestID(ctx)
+}
+
+type jobWorkloads struct {
+	instances *instance.Module
+}
+
+func (w jobWorkloads) Create(ctx context.Context, workload job.Workload) (string, error) {
+	created, err := w.instances.Create(ctx, instance.CreateParams{
+		ProjectID:     workload.ProjectID,
+		Name:          workload.Name,
+		Isolation:     workload.Template.Isolation,
+		Image:         workload.Template.Image,
+		Kernel:        workload.Template.Kernel,
+		Command:       workload.Template.Command,
+		NetworkID:     workload.Template.NetworkID,
+		FirewallID:    workload.Template.FirewallID,
+		VCPU:          workload.Template.VCPU,
+		MemoryMiB:     workload.Template.MemoryMiB,
+		NodeSelector:  workload.Template.NodeSelector,
+		Env:           workload.Env,
+		Files:         filesOf(workload.Files),
+		RestartPolicy: string(instance.RestartNever),
+	})
+	if err != nil {
+		return "", err
+	}
+	return created.ID, nil
+}
+
+func filesOf(files []job.File) []instance.File {
+	dropped := make([]instance.File, 0, len(files))
+	for _, f := range files {
+		dropped = append(dropped, instance.File{Path: f.Path, Content: f.Content, Mode: f.Mode})
+	}
+	return dropped
+}
+
+func (w jobWorkloads) Delete(ctx context.Context, projectID, instanceID string) error {
+	return w.instances.Delete(ctx, instanceID, projectID)
+}
+
+func (w jobWorkloads) StateOf(ctx context.Context, instanceID string) (string, *int, string, error) {
+	found, err := w.instances.Get(ctx, instanceID)
+	if err != nil {
+		return "", nil, "", err
+	}
+	return string(found.Observed), found.ExitCode, found.ObservedMessage, nil
 }
 
 type logInstances struct {

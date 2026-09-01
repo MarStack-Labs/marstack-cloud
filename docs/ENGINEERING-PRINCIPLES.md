@@ -726,6 +726,31 @@ make check      # vet + test + security scans
 - The trim is per instance. Dropping `WHERE instance_id = ?` from it lets one chatty workload erase
   another's output, and no app-level test can see it because `tail` caps the answer long before the
   store does - that one is only visible from the repository.
+- A job needed a signal for **finished on purpose**, and the platform had four observed states with
+  no way to tell a clean exit from a kill. The exit code now travels with the status report and is
+  kept on the instance, so success is `stopped` **and** exit 0. Reading `stopped` alone records work
+  that never happened.
+- The exit code is only sent when the phase was `exited` and the workload was not restarted, so a
+  restart never leaves a stale code behind. `sameExit` compares pointers by value, or every pass
+  reports a status that has not changed.
+- **A job's run always carries `restart never`, whatever the template says.** The instance default
+  is `always`, so a run left to it is restarted by its node every time it exits and the job never
+  finishes. No unit test caught removing this - the node is faked in tests - so there is one that
+  reads the created instance back and checks the policy.
+- Two runs of one job never overlap. A turn that comes due while the previous run is still going is
+  skipped and recorded as `job.run_skipped`, not stacked - same rule as the snapshot schedule.
+- A finished run's workload is deleted. Without it a nightly job leaves one exited container behind
+  every night until the quota stops it.
+- `retries` is retries, not attempts: `attempt <= retries` gives one try plus that many more.
+- A job template is one JSON column rather than twenty. It is never queried by field, and the
+  service module's twenty-column version is the reason its insert has twenty-eight placeholders to
+  keep in step.
+- Adding a column to instance `columns` also means adding a `?` to the INSERT. It is the same trap
+  as `snapshotsPageIn`, and it shows up as `instance_already_placed` rather than a SQL error.
+- The seal/open helpers are copied per module on purpose. They are thin wrappers over
+  `sealed.SealJSON`, and their whole content is the fault message - "every replica would carry it"
+  against "every run would carry it". Lifting them into the kernel flattens exactly the part that
+  tells an operator what to do.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

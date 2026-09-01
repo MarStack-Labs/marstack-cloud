@@ -41,6 +41,7 @@ type statusRequest struct {
 	ObservedState string `json:"observed_state"`
 	Message       string `json:"message,omitempty"`
 	Restarts      int    `json:"restarts,omitempty"`
+	ExitCode      *int   `json:"exit_code,omitempty"`
 }
 
 type response struct {
@@ -68,6 +69,7 @@ type response struct {
 	Desired         string            `json:"desired_state"`
 	Observed        string            `json:"observed_state"`
 	ObservedMessage string            `json:"observed_message,omitempty"`
+	ExitCode        *int              `json:"exit_code,omitempty"`
 	NodeID          string            `json:"node_id,omitempty"`
 	CreatedAt       string            `json:"created_at"`
 	UpdatedAt       string            `json:"updated_at"`
@@ -104,6 +106,7 @@ func toResponse(in Instance) response {
 		Desired:         string(in.Desired),
 		Observed:        string(in.Observed),
 		ObservedMessage: in.ObservedMessage,
+		ExitCode:        in.ExitCode,
 		NodeID:          in.NodeID,
 		CreatedAt:       in.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:       in.UpdatedAt.Format(time.RFC3339Nano),
@@ -269,6 +272,7 @@ func (h *handler) reportStatus(w http.ResponseWriter, r *http.Request) error {
 		req.ObservedState,
 		req.Message,
 		req.Restarts,
+		req.ExitCode,
 	)
 	if err != nil {
 		return err

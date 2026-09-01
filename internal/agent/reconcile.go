@@ -143,16 +143,18 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 	for _, in := range state.Instances {
 		a.plugDisks(ctx, in, disks[in.ID])
 
-		observed, message := a.reconcileOne(ctx, in, interfaces[in.ID], disks[in.ID])
+		observed, message, exitCode := a.reconcileOne(ctx, in, interfaces[in.ID], disks[in.ID])
 		restarts := a.restartAttempts(in.ID)
 
 		if !report {
 			continue
 		}
-		if in.ObservedState == observed && in.ObservedMessage == message && in.RestartCount == restarts {
+		if in.ObservedState == observed && in.ObservedMessage == message &&
+			in.RestartCount == restarts && sameExit(in.ExitCode, exitCode) {
 			continue
 		}
-		if err := a.client.reportStatus(ctx, a.currentNodeID(), in.ID, observed, message, restarts); err != nil {
+		if err := a.client.reportStatus(ctx, a.currentNodeID(), in.ID, observed, message,
+			restarts, exitCode); err != nil {
 			a.log.Warn("could not report status", "instance", in.ID, "error", err)
 		}
 	}
@@ -733,15 +735,15 @@ func (a *Agent) reconcileOne(
 	in instanceView,
 	nics []workload.NetworkConfig,
 	disks []workload.Disk,
-) (string, string) {
+) (string, string, *int) {
 	runtime, known := a.runtimeFor(in.Isolation)
 	if !known {
-		return observedFailed, "this node has no runtime for isolation " + in.Isolation
+		return observedFailed, "this node has no runtime for isolation " + in.Isolation, nil
 	}
 
 	drops, err := fileDrops(in.Files)
 	if err != nil {
-		return observedFailed, "could not read the config files: " + err.Error()
+		return observedFailed, "could not read the config files: " + err.Error(), nil
 	}
 
 	spec := workload.Spec{
@@ -765,20 +767,40 @@ func (a *Agent) reconcileOne(
 
 	state, err := runtime.Status(ctx, in.ID)
 	if err != nil {
-		return observedFailed, "could not inspect the workload: " + err.Error()
+		return observedFailed, "could not inspect the workload: " + err.Error(), nil
 	}
 
+	var observed, message string
 	switch in.DesiredState {
 	case desiredRunning:
 		if len(nics) == 0 {
-			return observedPending, "waiting for an address"
+			return observedPending, "waiting for an address", nil
 		}
-		return a.ensureRunning(ctx, runtime, spec, state, in.RestartPolicy)
+		observed, message = a.ensureRunning(ctx, runtime, spec, state, in.RestartPolicy)
 	case desiredStopped:
-		return a.ensureStopped(ctx, runtime, in.ID, state)
+		observed, message = a.ensureStopped(ctx, runtime, in.ID, state)
 	default:
-		return observedFailed, "unknown desired state " + in.DesiredState
+		return observedFailed, "unknown desired state " + in.DesiredState, nil
 	}
+	return observed, message, exitCodeOf(state, observed)
+}
+
+func exitCodeOf(state workload.State, observed string) *int {
+	if state.Phase != workload.PhaseExited {
+		return nil
+	}
+	if observed != observedStopped && observed != observedFailed {
+		return nil
+	}
+	code := state.ExitCode
+	return &code
+}
+
+func sameExit(held, seen *int) bool {
+	if held == nil || seen == nil {
+		return held == nil && seen == nil
+	}
+	return *held == *seen
 }
 
 type resizer interface {

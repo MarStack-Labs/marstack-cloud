@@ -50,6 +50,7 @@ type instanceView struct {
 	DesiredState    string            `json:"desired_state"`
 	ObservedState   string            `json:"observed_state"`
 	ObservedMessage string            `json:"observed_message,omitempty"`
+	ExitCode        *int              `json:"exit_code,omitempty"`
 }
 
 type fileView struct {
@@ -97,6 +98,7 @@ type statusBody struct {
 	ObservedState string `json:"observed_state"`
 	Message       string `json:"message,omitempty"`
 	Restarts      int    `json:"restarts,omitempty"`
+	ExitCode      *int   `json:"exit_code,omitempty"`
 }
 
 type registerBody struct {
@@ -386,10 +388,12 @@ func (c *client) reportImages(ctx context.Context, nodeID string, staged []stage
 
 func (c *client) reportStatus(
 	ctx context.Context, nodeID, instanceID, observed, message string, restarts int,
+	exitCode *int,
 ) error {
 	return c.do(ctx, http.MethodPut,
 		"/v1/nodes/"+nodeID+"/instances/"+instanceID+"/status",
-		statusBody{ObservedState: observed, Message: message, Restarts: restarts}, nil)
+		statusBody{ObservedState: observed, Message: message, Restarts: restarts,
+			ExitCode: exitCode}, nil)
 }
 
 type statusError struct {

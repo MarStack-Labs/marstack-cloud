@@ -27,7 +27,7 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, project_id, placement_group, placement_strict, ssh_keys, node_selector, env, env_key_id, env_names, files, file_paths, extra_networks, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, node_id, created_at, updated_at`
+const columns = `id, project_id, placement_group, placement_strict, ssh_keys, node_selector, env, env_key_id, env_names, files, file_paths, extra_networks, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, exit_code, node_id, created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
 	taken, err := r.nameTaken(ctx, in.ProjectID, in.Name)
@@ -70,12 +70,12 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO instances (`+columns+`) VALUES `+
-			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.ID, in.ProjectID, in.Group, in.Strict, string(keys), string(selector),
 		in.EnvSealed, in.SealKeyID, string(envNames), in.FilesSealed, string(filePaths), string(extra), in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
 		in.FirewallID, string(command), in.NetworkID,
 		string(in.RestartPolicy), in.RestartCount, in.VCPU, in.MemoryMiB,
-		string(in.Desired), string(in.Observed), in.ObservedMessage, in.NodeID,
+		string(in.Desired), string(in.Observed), in.ObservedMessage, in.ExitCode, in.NodeID,
 		in.CreatedAt.Format(time.RFC3339Nano), in.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -245,12 +245,14 @@ func (r *repository) listByNode(ctx context.Context, nodeID string) ([]Instance,
 
 func (r *repository) setObserved(
 	ctx context.Context, instanceID, nodeID string,
-	observed ObservedState, message string, restarts int, now time.Time,
+	observed ObservedState, message string, restarts int, exitCode *int, now time.Time,
 ) error {
 	res, err := r.db.ExecContext(ctx,
-		`UPDATE instances SET observed_state = ?, observed_message = ?, restart_count = ?, updated_at = ?
+		`UPDATE instances SET observed_state = ?, observed_message = ?, restart_count = ?,
+			exit_code = ?, updated_at = ?
 		 WHERE id = ? AND node_id = ?`,
-		string(observed), message, restarts, now.Format(time.RFC3339Nano), instanceID, nodeID,
+		string(observed), message, restarts, exitCode,
+		now.Format(time.RFC3339Nano), instanceID, nodeID,
 	)
 	if err != nil {
 		return fmt.Errorf("set observed state: %w", err)
@@ -421,7 +423,7 @@ func scanInstance(row scanner) (Instance, error) {
 		&in.ISO, &in.Kernel, &in.DiskGiB,
 		&in.FirewallID, &command, &in.NetworkID,
 		&policy, &in.RestartCount, &in.VCPU, &in.MemoryMiB,
-		&desired, &observed, &in.ObservedMessage, &nodeID, &createdRaw, &updatedRaw,
+		&desired, &observed, &in.ObservedMessage, &in.ExitCode, &nodeID, &createdRaw, &updatedRaw,
 	); err != nil {
 		return Instance{}, err
 	}

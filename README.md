@@ -1242,6 +1242,62 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## Work that finishes
+
+Everything was a workload meant to stay up. There was no way to say run this
+once, or run it every night.
+
+```sh
+marstack job create --name greet --image alpine:3.20 -- sh -c 'echo working; sleep 3'
+marstack job run greet
+```
+
+```
+RUN                 ATTEMPT   STATE       EXIT   NOTE
+run-kv57vd4xx2kkm   1         succeeded   0      exited with code 0: doing the work done
+```
+
+**A job needed a signal for "finished on purpose", and the platform had none.**
+There were four observed states and no way to tell a clean exit from a kill, so
+the exit code now travels with the status report and is kept on the instance.
+Success is `stopped` *and* exit 0 — reading `stopped` alone records work that
+never happened.
+
+A failure is retried up to `--retries` times and then the job stops:
+
+```
+$ marstack job create --name failer --retries 2 --image alpine:3.20 \
+    -- sh -c 'echo "cannot reach the database" >&2; exit 4'
+
+RUN                 ATTEMPT   STATE    EXIT   NOTE
+run-837vhwaqk9d18   1         failed   4      exited with code 4: cannot reach the da…
+run-5t7k2dtmm2y6y   2         failed   4      exited with code 4: cannot reach the da…
+run-sf1msxp9jadm4   3         failed   4      exited with code 4: cannot reach the da…
+```
+
+Three attempts, not four: `retries` is retries, not attempts.
+
+**A run always carries a restart policy of `never`, whatever the template says.**
+The instance default is `always`, so a run left to it is restarted by its node
+every time it exits and the job never finishes. No test caught removing that —
+the node is faked in tests — so there is one that reads the created instance back
+and checks the policy.
+
+With `--every` the job also runs on a schedule, and two runs never overlap:
+
+```
+$ marstack job create --name slowpoke --every 1m --image alpine:3.20 -- sh -c 'sleep 240'
+
+runs 1 ['1:running']   # ...for four minutes, while the interval came due three times
+
+job.run_skipped - slowpoke was due but its previous run is still going
+job.run_skipped - slowpoke was due but its previous run is still going
+job.run_skipped - slowpoke was due but its previous run is still going
+```
+
+A finished run's workload is deleted. Without that, a nightly job leaves one
+exited container behind every night until the quota stops it.
+
 ## Seeing what a workload printed
 
 Everything the platform could tell you was its own verdict. What the workload
@@ -2360,6 +2416,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 56  refusing a workload that names nothing            done
 57  replacing a replica the node gave up on            done
 58  reading what a workload printed                   done
+59  work that finishes: jobs and schedules            done
 ```
 
 ## License

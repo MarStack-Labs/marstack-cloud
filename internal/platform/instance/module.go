@@ -298,6 +298,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  26,
 			SQL:    `ALTER TABLE instances ADD COLUMN extra_networks TEXT NOT NULL DEFAULT '[]'`,
 		},
+		{
+			Module: "instance",
+			Index:  27,
+			SQL:    `ALTER TABLE instances ADD COLUMN exit_code INTEGER`,
+		},
 	}
 }
 

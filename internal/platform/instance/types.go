@@ -94,6 +94,7 @@ type Instance struct {
 	Desired         DesiredState
 	Observed        ObservedState
 	ObservedMessage string
+	ExitCode        *int
 	NodeID          string
 	Group           string
 	Strict          bool
