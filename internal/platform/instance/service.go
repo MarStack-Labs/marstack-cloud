@@ -206,27 +206,34 @@ func (s *service) pageIn(
 	return instances, nil
 }
 
-func (s *service) getIn(ctx context.Context, id, projectID string) (Instance, error) {
-	in, err := s.get(ctx, id)
+func (s *service) getIn(ctx context.Context, ref, projectID string) (Instance, error) {
+	in, err := s.repo.get(ctx, ref)
+	if err == nil && in.ProjectID == projectID {
+		return in, nil
+	}
+	if err != nil && !errors.Is(err, errNotFound) {
+		return Instance{}, translate(err)
+	}
+
+	byName, err := s.repo.byName(ctx, projectID, ref)
 	if err != nil {
-		return Instance{}, err
+		return Instance{}, fault.NotFound("instance_not_found",
+			"no instance with that name or id exists")
 	}
-	if in.ProjectID != projectID {
-		return Instance{}, fault.NotFound("instance_not_found", "no instance with that id exists")
-	}
-	return in, nil
+	return byName, nil
 }
 
 func (s *service) setDesired(
 	ctx context.Context, id, projectID string, desired DesiredState,
 ) (Instance, error) {
-	if _, err := s.getIn(ctx, id, projectID); err != nil {
+	in, err := s.getIn(ctx, id, projectID)
+	if err != nil {
 		return Instance{}, err
 	}
-	if err := s.repo.setDesired(ctx, id, desired, s.now()); err != nil {
+	if err := s.repo.setDesired(ctx, in.ID, desired, s.now()); err != nil {
 		return Instance{}, translate(err)
 	}
-	return s.get(ctx, id)
+	return s.get(ctx, in.ID)
 }
 
 func (s *service) resize(
@@ -263,16 +270,19 @@ func (s *service) resize(
 		}
 	}
 
-	if err := s.repo.setSize(ctx, id, vcpu, memoryMiB, s.now()); err != nil {
+	if err := s.repo.setSize(ctx, in.ID, vcpu, memoryMiB, s.now()); err != nil {
 		return Instance{}, translate(err)
 	}
-	return s.get(ctx, id)
+	return s.get(ctx, in.ID)
 }
 
-func (s *service) delete(ctx context.Context, id, projectID string) error {
-	if _, err := s.getIn(ctx, id, projectID); err != nil {
+func (s *service) delete(ctx context.Context, ref, projectID string) error {
+	found, err := s.getIn(ctx, ref, projectID)
+	if err != nil {
 		return err
 	}
+
+	id := found.ID
 	if err := s.repo.delete(ctx, id); err != nil {
 		return translate(err)
 	}

@@ -58,8 +58,7 @@ func (h *handler) tail(w http.ResponseWriter, r *http.Request) error {
 		limit = parsed
 	}
 
-	instanceID := r.PathValue("id")
-	lines, err := h.svc.tailIn(r.Context(), instanceID,
+	instanceID, lines, err := h.svc.tailIn(r.Context(), r.PathValue("id"),
 		scope.From(r.Context()).ProjectID, limit)
 	if err != nil {
 		return err

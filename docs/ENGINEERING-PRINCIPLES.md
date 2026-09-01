@@ -863,6 +863,16 @@ make check      # vet + test + security scans
 - Memory is reported in whole MiB, so a workload under 1 MiB reads as exactly zero. An idle
   container using 116 KiB is not a broken sampler; it is the resolution. Verified against
   `memory.current` before calling it a bug.
+- An instance takes a **name or an id** now, like every other resource. `getIn` resolves it, and
+  the id is tried first: a name that looks like an id must not shadow the instance it identifies.
+- **Resolving in one place is not enough.** `setDesired`, `resize` and `delete` all took the
+  resolved instance for the permission check and then passed the *typed* string to the repository.
+  For delete that is the dangerous one - it releases addresses, volumes, forwards, balancers and
+  logs by that string, so a name releases nothing and leaves every one of them pointing at an
+  instance that is gone. Reverting `id := found.ID` to `id := ref` is a mutation test.
+- `logs` resolves through the instance module rather than repeating the lookup, so
+  `marstack logs <name>` works and the response carries the id it resolved to rather than what was
+  asked for.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

@@ -12,6 +12,7 @@ import (
 
 type Instances interface {
 	NodeOf(ctx context.Context, instanceID string) (nodeID, projectID string, err error)
+	ResolveIn(ctx context.Context, ref, projectID string) (instanceID string, err error)
 }
 
 type clock func() time.Time
@@ -73,18 +74,16 @@ func clip(text string) string {
 	return cut
 }
 
-func (s *service) tailIn(ctx context.Context, instanceID, projectID string,
-	limit int) ([]Line, error) {
+func (s *service) tailIn(ctx context.Context, ref, projectID string,
+	limit int) (string, []Line, error) {
 	if s.instances == nil {
-		return nil, fault.NotFound("instance_not_found", "no instance with that id exists")
+		return "", nil, fault.NotFound("instance_not_found",
+			"no instance with that name or id exists")
 	}
 
-	_, owner, err := s.instances.NodeOf(ctx, instanceID)
+	instanceID, err := s.instances.ResolveIn(ctx, ref, projectID)
 	if err != nil {
-		return nil, err
-	}
-	if owner != projectID {
-		return nil, fault.NotFound("instance_not_found", "no instance with that id exists")
+		return "", nil, err
 	}
 
 	switch {
@@ -93,7 +92,12 @@ func (s *service) tailIn(ctx context.Context, instanceID, projectID string,
 	case limit > MaxTail:
 		limit = MaxTail
 	}
-	return s.repo.tail(ctx, instanceID, limit)
+
+	lines, err := s.repo.tail(ctx, instanceID, limit)
+	if err != nil {
+		return "", nil, err
+	}
+	return instanceID, lines, nil
 }
 
 func (s *service) forget(ctx context.Context, instanceID string) error {

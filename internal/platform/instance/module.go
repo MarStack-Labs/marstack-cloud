@@ -102,6 +102,10 @@ func (m *Module) UseFirewalls(firewalls Firewalls) {
 	m.svc.firewalls = firewalls
 }
 
+func (m *Module) ResolveIn(ctx context.Context, ref, projectID string) (Instance, error) {
+	return m.svc.getIn(ctx, ref, projectID)
+}
+
 func (m *Module) Get(ctx context.Context, id string) (Instance, error) {
 	return m.svc.get(ctx, id)
 }

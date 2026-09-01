@@ -362,6 +362,14 @@ type logInstances struct {
 	instances *instance.Module
 }
 
+func (l logInstances) ResolveIn(ctx context.Context, ref, projectID string) (string, error) {
+	found, err := l.instances.ResolveIn(ctx, ref, projectID)
+	if err != nil {
+		return "", err
+	}
+	return found.ID, nil
+}
+
 func (l logInstances) NodeOf(ctx context.Context, instanceID string) (string, string, error) {
 	found, err := l.instances.Get(ctx, instanceID)
 	if err != nil {

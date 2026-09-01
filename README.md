@@ -1307,6 +1307,36 @@ the server, so they are separate maps now, and only `/healthz` is in both.
 > hold exactly one session: the second login returned 409, the test ignored both
 > status codes, and an empty token was duly refused. One live command found it.
 
+## Calling an instance by its name
+
+Every other resource took a name or an id. An instance took only an id, which is
+the one people type most.
+
+```
+$ marstack instance get namedbox
+namedbox   i-n3jv7q3xjdd8w   alpine:3.20   1cpu/512Mi   running   running
+
+$ marstack logs namedbox
+up
+
+$ marstack instance resize namedbox --vcpu 2
+namedbox   i-n3jv7q3xjdd8w   alpine:3.20   2cpu/512Mi   running   running
+
+$ marstack instance stop namedbox
+namedbox   i-n3jv7q3xjdd8w   alpine:3.20   2cpu/512Mi   stopped   running
+```
+
+The id is tried first, so a name that looks like an id cannot shadow the instance
+it identifies.
+
+**Resolving in one place was not enough.** `setDesired`, `resize` and `delete`
+each took the resolved instance for the permission check and then passed the
+*typed* string to the database. For delete that is the dangerous one: it releases
+addresses, volumes, forwards, balancers and logs by that string, so a name would
+release nothing and leave every one of them pointing at an instance that is gone
+— while the request returned 204. That is what the test asserts, and reverting
+one line to the typed value fails it.
+
 ## A container with a /dev
 
 There was no `/dev` at all — not a device node, not `/dev/pts`, not `/dev/shm`.
@@ -2724,6 +2754,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 63  scaling on memory, not only cpu                   done
 64  a container with a working /dev and /sys          done
 65  a container that can read its own limits          done
+66  calling an instance by its name                   done
 ```
 
 ## License

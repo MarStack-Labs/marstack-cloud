@@ -127,6 +127,21 @@ func (r *repository) pageIn(
 	return instances, rows.Err()
 }
 
+func (r *repository) byName(ctx context.Context, projectID, name string) (Instance, error) {
+	row := r.db.QueryRowContext(ctx,
+		`SELECT `+columns+` FROM instances WHERE project_id = ? AND name = ?`,
+		projectID, name)
+
+	in, err := scanInstance(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Instance{}, errNotFound
+	}
+	if err != nil {
+		return Instance{}, fmt.Errorf("get instance by name: %w", err)
+	}
+	return in, nil
+}
+
 func (r *repository) get(ctx context.Context, id string) (Instance, error) {
 	row := r.db.QueryRowContext(ctx, `SELECT `+columns+` FROM instances WHERE id = ?`, id)
 
