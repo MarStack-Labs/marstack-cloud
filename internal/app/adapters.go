@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/platform/autoscale"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/balancer"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
@@ -230,6 +231,75 @@ func (w webhookEvents) Since(
 
 func (w webhookEvents) NewestID(ctx context.Context) (int64, error) {
 	return w.events.NewestID(ctx)
+}
+
+type scalableServices struct {
+	services *service.Module
+}
+
+func asGroup(m *service.Module, s service.Service) autoscale.Group {
+	members := make([]autoscale.Member, 0, len(s.Members))
+	for _, member := range s.Members {
+		members = append(members, autoscale.Member{
+			InstanceID: member.InstanceID,
+			CreatedAt:  member.CreatedAt,
+		})
+	}
+	return autoscale.Group{
+		ServiceID: s.ID,
+		ProjectID: s.ProjectID,
+		Name:      s.Name,
+		Replicas:  s.Replicas,
+		Settled:   m.Settled(s),
+		Members:   members,
+	}
+}
+
+func (s scalableServices) GroupOf(ctx context.Context, projectID,
+	serviceID string) (autoscale.Group, error) {
+	found, err := s.services.Describe(ctx, projectID, serviceID)
+	if err != nil {
+		return autoscale.Group{}, err
+	}
+	return asGroup(s.services, found), nil
+}
+
+func (s scalableServices) Groups(ctx context.Context) ([]autoscale.Group, error) {
+	all, err := s.services.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	groups := make([]autoscale.Group, 0, len(all))
+	for _, one := range all {
+		groups = append(groups, asGroup(s.services, one))
+	}
+	return groups, nil
+}
+
+func (s scalableServices) Scale(ctx context.Context, projectID, serviceID string,
+	replicas int) error {
+	return s.services.Scale(ctx, projectID, serviceID, replicas)
+}
+
+type instanceLoad struct {
+	usage *usage.Module
+}
+
+func (l instanceLoad) SamplesOf(ctx context.Context) (map[string]autoscale.Sample, error) {
+	samples, err := l.usage.Instances(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	held := make(map[string]autoscale.Sample, len(samples))
+	for _, sample := range samples {
+		held[sample.InstanceID] = autoscale.Sample{
+			CPUPercent: sample.CPUPercent,
+			ReportedAt: sample.ReportedAt,
+		}
+	}
+	return held, nil
 }
 
 type jobWorkloads struct {

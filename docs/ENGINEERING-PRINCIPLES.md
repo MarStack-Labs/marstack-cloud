@@ -751,6 +751,31 @@ make check      # vet + test + security scans
   `sealed.SealJSON`, and their whole content is the fault message - "every replica would carry it"
   against "every run would carry it". Lifting them into the kernel flattens exactly the part that
   tells an operator what to do.
+- Autoscaling is its own module because `service` may not import `usage`. It declares `Services`
+  and `Load` as consumer interfaces and the composition root joins them, the same shape as
+  `scheduler`. The routes still hang off `/v1/services/{id}/autoscale` - owning a route is not
+  owning the resource.
+- The formula is the easy part. Seven guards are the feature, and each is a mutation test:
+  a **deadband** so a rounding error does not scale anything, a **cooldown** so a change is given
+  time to take effect, a **step limit** so one reading cannot ask for a cluster, **min/max**, a
+  **warmup** so a replica that has just started is not counted, a **settled** check so it never
+  decides from a replica count that is not true yet, and a **refusal on stale or missing load**.
+- **Refuse rather than average what you have.** A replica whose sample is missing is not zero load;
+  leaving it out makes the answer about the replicas that happened to report. Both cases stop the
+  pass and say so.
+- The warmup guard is the subtle one: a replica that just started reads as idle, so averaging it in
+  scales *down* the service that is busy - it kills what it just made.
+- Every pass records why nothing happened, not only what changed. A service that will not scale and
+  says nothing is the worst version of this feature.
+- A policy whose service is gone is deleted on the pass that notices, or it is swept over forever.
+- A mutation that fails to compile is not a mutation. `if false` on a line that binds `held` makes
+  the package stop building, and a grep for `--- FAIL` shows nothing - which reads exactly like a
+  guard that no test covers. Grep for the build failure too, or write the mutation so it compiles.
+- **`Store.Pull` always fetches the manifest**, even when every layer is cached, so a node cannot
+  start a container it already holds all the bytes for if the registry is slow. The pull runs inside
+  the reconcile pass, so one unreachable registry stalls every workload on that node for the client
+  timeout - two minutes at a time. Found while four replicas sat at `pending` and `curl` answered
+  401 from the same machine in milliseconds. Not fixed here; it is its own change.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

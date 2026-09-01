@@ -95,6 +95,10 @@ var memberPaths = []string{
 	"POST /v1/services",
 	"POST /v1/services/{id}/scale",
 	"PUT /v1/services/{id}/template",
+	"PUT /v1/services/{id}/autoscale",
+	"GET /v1/services/{id}/autoscale",
+	"DELETE /v1/services/{id}/autoscale",
+	"GET /v1/autoscalers",
 	"DELETE /v1/services/{id}",
 
 	"GET /v1/keys",

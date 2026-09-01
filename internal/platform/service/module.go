@@ -159,6 +159,30 @@ func (m *Module) UseWorkloads(workloads Workloads) {
 	m.svc.workloads = workloads
 }
 
+func (m *Module) Describe(ctx context.Context, projectID, serviceID string) (Service, error) {
+	return m.svc.find(ctx, projectID, serviceID)
+}
+
+func (m *Module) All(ctx context.Context) ([]Service, error) {
+	services, err := m.svc.repo.all(ctx)
+	if err != nil {
+		return nil, translate(err)
+	}
+	if err := m.svc.withStates(ctx, services); err != nil {
+		return nil, err
+	}
+	return services, nil
+}
+
+func (m *Module) Scale(ctx context.Context, projectID, serviceID string, replicas int) error {
+	_, err := m.svc.scale(ctx, projectID, serviceID, replicas)
+	return err
+}
+
+func (m *Module) Settled(s Service) bool {
+	return len(s.Members) == s.Replicas && allRunning(s.Members)
+}
+
 func (m *Module) MembersOf(ctx context.Context, projectID, serviceID string) ([]string, error) {
 	return m.svc.membersOf(ctx, projectID, serviceID)
 }

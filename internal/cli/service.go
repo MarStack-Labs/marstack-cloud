@@ -79,6 +79,7 @@ func newServiceCmd(g *globals) *cobra.Command {
 		newServiceGetCmd(g),
 		newServiceScaleCmd(g),
 		newServiceUpdateCmd(g),
+		newServiceAutoscaleCmd(g),
 		newServiceDeleteCmd(g),
 	)
 	return cmd
@@ -438,6 +439,125 @@ func checkCarried(current serviceView, env, files int, drop bool) error {
 		" carries " + strings.Join(missing, " and ") + ", and a revision is the whole " +
 		"template rather than a patch. These are sealed and never served back, so they " +
 		"cannot be carried over for you: pass them again, or --drop to publish without them")
+}
+
+type autoscaleView struct {
+	ServiceID  string `json:"service_id"`
+	Min        int    `json:"min"`
+	Max        int    `json:"max"`
+	TargetCPU  int    `json:"target_cpu"`
+	LastAt     string `json:"last_at"`
+	LastReason string `json:"last_reason"`
+}
+
+type autoscaleListView struct {
+	Autoscalers []autoscaleView `json:"autoscalers"`
+}
+
+var autoscaleHeaders = []string{"SERVICE", "MIN", "MAX", "TARGET CPU", "LAST", "WHY"}
+
+func autoscaleRow(a autoscaleView) []string {
+	last := "never"
+	if a.LastAt != "" {
+		last = a.LastAt[:min(len(a.LastAt), 19)]
+	}
+	return []string{
+		a.ServiceID,
+		strconv.Itoa(a.Min),
+		strconv.Itoa(a.Max),
+		strconv.Itoa(a.TargetCPU) + "%",
+		last,
+		shortenLine(a.LastReason, 50),
+	}
+}
+
+func newServiceAutoscaleCmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "autoscale",
+		Short: "Let a service hold its own replica count against a target load",
+		Long: "Let a service hold its own replica count against a target load.\n\n" +
+			"The loop compares the average cpu of the replicas that have been up long\n" +
+			"enough to have one against the target, and moves the count toward it. It\n" +
+			"refuses to act on a reading that is missing or stale, waits out a cooldown\n" +
+			"after every change, ignores a difference inside a deadband, and moves by a\n" +
+			"bounded step - a service that scales on a guess oscillates, and one that\n" +
+			"jumps on a single reading is worse than one that does nothing.",
+	}
+	cmd.AddCommand(newAutoscaleSetCmd(g), newAutoscaleListCmd(g), newAutoscaleOffCmd(g))
+	return cmd
+}
+
+func newAutoscaleSetCmd(g *globals) *cobra.Command {
+	var req struct {
+		Min       int `json:"min"`
+		Max       int `json:"max"`
+		TargetCPU int `json:"target_cpu"`
+	}
+
+	cmd := &cobra.Command{
+		Use:   "set <service>",
+		Short: "Scale a service between min and max toward a target cpu",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var policy autoscaleView
+			if err := g.client().do(
+				cmd.Context(), "PUT", "/v1/services/"+args[0]+"/autoscale", req, &policy,
+			); err != nil {
+				return err
+			}
+			return render(cmd.OutOrStdout(), g.output, policy, table{
+				headers: autoscaleHeaders,
+				rows:    [][]string{autoscaleRow(policy)},
+			})
+		},
+	}
+
+	cmd.Flags().IntVar(&req.Min, "min", 1, "fewest replicas to hold")
+	cmd.Flags().IntVar(&req.Max, "max", 4, "most replicas to hold")
+	cmd.Flags().IntVar(&req.TargetCPU, "target-cpu", 70,
+		"average cpu percent across the replicas to aim for")
+
+	return cmd
+}
+
+func newAutoscaleListCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List the services that scale themselves",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var list autoscaleListView
+			if err := g.client().do(
+				cmd.Context(), "GET", "/v1/autoscalers", nil, &list,
+			); err != nil {
+				return err
+			}
+
+			rows := make([][]string, 0, len(list.Autoscalers))
+			for _, one := range list.Autoscalers {
+				rows = append(rows, autoscaleRow(one))
+			}
+			return render(cmd.OutOrStdout(), g.output, list,
+				table{headers: autoscaleHeaders, rows: rows})
+		},
+	}
+}
+
+func newAutoscaleOffCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "off <service>",
+		Short: "Stop a service scaling itself, leaving the count where it is",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.client().do(
+				cmd.Context(), "DELETE", "/v1/services/"+args[0]+"/autoscale", nil, nil,
+			); err != nil {
+				return err
+			}
+			cmd.Printf("%s no longer scales itself\n", args[0])
+			return nil
+		},
+	}
 }
 
 func newServiceDeleteCmd(g *globals) *cobra.Command {

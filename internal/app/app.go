@@ -14,6 +14,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/s3"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/autoscale"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/balancer"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
@@ -119,6 +120,7 @@ type App struct {
 	backups   *backup.Module
 	volumes   *volume.Module
 	jobs      *job.Module
+	scalers   *autoscale.Module
 	services  *service.Module
 	webhooks  *webhook.Module
 	tokens    *token.Module
@@ -188,6 +190,11 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	})
 	usages := usage.New(st, log)
 	usages.UseWorkloads(usageWorkloads{instances: instances})
+	scalers := autoscale.New(st, log)
+	scalers.UseServices(scalableServices{services: services})
+	scalers.UseLoad(instanceLoad{usage: usages})
+	scalers.UseClock(cfg.Now)
+	a.scalers = scalers
 	jobs := job.New(st, log)
 	jobs.UseWorkloads(jobWorkloads{instances: instances})
 	jobs.UseNetworks(networks)
@@ -220,6 +227,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		balancers,
 		firewalls,
 		usages,
+		scalers,
 		jobs,
 		logbook,
 		trail,
@@ -236,6 +244,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	instances.UseBalancers(balancers)
 	instances.UseLogs(logbook)
 	jobs.UseEvents(events)
+	scalers.UseEvents(events)
 	instances.UseEvents(events)
 	balancers.UseEvents(events)
 	services.UseWorkloads(serviceWorkloads{instances: instances})
@@ -387,6 +396,7 @@ func (a *App) Run(ctx context.Context) error {
 	go a.backups.Run(ctx)
 	go a.volumes.Run(ctx)
 	go a.jobs.Run(ctx)
+	go a.scalers.Run(ctx)
 	go a.services.Run(ctx)
 	go a.webhooks.Run(ctx)
 

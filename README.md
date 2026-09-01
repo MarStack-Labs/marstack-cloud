@@ -1242,6 +1242,69 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## A service that holds its own replica count
+
+`usage` had been collecting the cpu of every replica since roadmap 15, and
+`service` had been holding a replica count since 30. Nothing joined them.
+
+```sh
+marstack service autoscale set busy --min 2 --max 6 --target-cpu 50
+```
+
+```
+replicas 2 up 2 | the service has not reached its replica count yet
+replicas 2 up 2 | every replica is still warming up
+replicas 2 up 2 | every replica is still warming up
+replicas 4 up 2 | average cpu 100.0% against a target of 50.0%
+```
+
+Autoscaling is its own module: `service` may not import `usage`, so it declares
+`Services` and `Load` as consumer interfaces and the composition root joins them
+— the same shape as the scheduler. The routes still hang off the service, since
+owning a route is not owning the resource.
+
+**The formula is the easy part.** Seven guards are the feature, and each one is a
+mutation test:
+
+| guard | without it |
+|---|---|
+| deadband | a rounding error scales the service back and forth forever |
+| cooldown | it scales again before the replicas it made take any load |
+| step limit | one reading asks for a whole cluster |
+| min / max | the operator's ceiling means nothing |
+| warmup | a replica that just started reads as idle and scales *down* the busy service — it kills what it just made |
+| settled | it decides from a replica count that is not true yet |
+| stale or missing load | it acts on what the load was before the last change |
+
+The last one is a refusal, not an average. A replica whose sample is missing is
+not zero load; leaving it out makes the answer about the replicas that happened
+to report.
+
+Every pass records **why nothing happened**, not just what changed. A service
+that will not scale and says nothing is the worst version of this feature — the
+run above shows the guards firing in order before the one decision.
+
+The live run also found its own limit honestly:
+
+```
+blocked: quota_exceeded: the project is limited to 20 instances and already
+holds 20, so 1 more would not fit
+```
+
+The autoscaler asked for 4, the quota refused the fourth, and the settled guard
+then stopped it deciding anything else until the count was real again.
+
+Scaling **down** is covered by the decision tests rather than a live run: the lab
+node stalled part way through, on something worth its own entry —
+
+> `Store.Pull` fetches the manifest from the registry on every container start,
+> even when every layer is already cached. So a node cannot start a container it
+> has all the bytes for if the registry is slow, and because the pull happens
+> inside the reconcile pass, one unreachable registry stalls every workload on
+> that node for the client timeout. Found while watching four replicas sit at
+> `pending` with `curl https://registry-1.docker.io/v2/` answering 401 in
+> milliseconds from the same machine.
+
 ## Work that finishes
 
 Everything was a workload meant to stay up. There was no way to say run this
@@ -2417,6 +2480,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 57  replacing a replica the node gave up on            done
 58  reading what a workload printed                   done
 59  work that finishes: jobs and schedules            done
+60  a service that holds its own replica count        done
 ```
 
 ## License

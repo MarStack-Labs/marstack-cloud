@@ -100,6 +100,10 @@ func (m *Module) Nodes(ctx context.Context) ([]NodeSample, error) {
 	return m.svc.nodes(ctx)
 }
 
+func (m *Module) Instances(ctx context.Context) ([]InstanceSample, error) {
+	return m.svc.repo.instances(ctx)
+}
+
 func (m *Module) Forget(ctx context.Context, nodeID string) error {
 	return m.svc.forget(ctx, nodeID)
 }
