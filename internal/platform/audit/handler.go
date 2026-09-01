@@ -12,6 +12,7 @@ import (
 type response struct {
 	At        string `json:"at"`
 	Actor     string `json:"actor"`
+	UserID    string `json:"user_id,omitempty"`
 	Role      string `json:"role"`
 	ProjectID string `json:"project_id,omitempty"`
 	Method    string `json:"method"`
@@ -47,6 +48,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 		body.Entries = append(body.Entries, response{
 			At:        entry.At.Format(time.RFC3339Nano),
 			Actor:     entry.Actor,
+			UserID:    entry.UserID,
 			Role:      entry.Role,
 			ProjectID: entry.ProjectID,
 			Method:    entry.Method,

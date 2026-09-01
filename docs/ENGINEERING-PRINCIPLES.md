@@ -786,6 +786,34 @@ make check      # vet + test + security scans
   agent pull anyway proves nothing: the connection was already open to the real address, so no name
   was ever resolved. Restart the agent after blocking, or the experiment measures nothing. This
   looked exactly like the fix not working.
+- `openPaths` was doing two jobs: skip authentication **and** skip the rate limiter. The login route
+  needs the first and needs the second more than anything else on the server, so they are separate
+  maps now - `openPaths` for auth, `unlimitedPaths` for the limiter, and only `/healthz` is in both.
+- The login has its own limiter inside the `user` module, keyed on the client address, at a rate
+  meant for a person typing rather than the per-caller default of fifty a second.
+- An unknown address and a wrong password must give **byte-identical** answers. An unknown address
+  also spends the same time: `spendTheSameTime` runs the KDF against a decoy so the response does
+  not reveal who has an account.
+- Passwords are PBKDF2-HMAC-SHA256 from `crypto/pbkdf2`, which is standard library as of Go 1.24 -
+  no new dependency in a repo that carries only cobra and sqlite. The scheme and cost are stored in
+  front of the hash so either can change without locking anybody out, and a stored value that does
+  not parse is refused rather than treated as a match.
+- **Disabling a person stops every token they hold**, checked on verify rather than by deleting
+  rows, so enabling them again brings the sessions back - a disable that has to be undone by
+  re-issuing tokens is not a disable. Changing a password or deleting a person **does** delete the
+  rows, because those are one-way.
+- `ForgetUser` on delete is not what keeps a deleted person out - `Allowed` already refuses a token
+  whose user is gone. What it buys is that the row goes away, so `token list` does not show a
+  session nobody can account for. That is what the test has to assert, and the first version did
+  not: it checked the request was refused, which was true either way.
+- **A token name is unique, so a session name has to be too.** Naming it `session-<user id>` meant
+  one person could hold exactly one session; the second login returned a 409. The test that was
+  supposed to catch it passed for the wrong reason - it logged in twice, ignored both status codes,
+  and asserted an empty token was refused. Live caught it in one command.
+- `cmd.Printf` in cobra writes to **stderr**, so a secret printed with it cannot be captured with
+  `$(...)`. `marstack login` writes the token to `OutOrStdout` and the note about it to stderr.
+- A password is read from a file, never a flag: a command line is kept in shell history and shown
+  in `ps`.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

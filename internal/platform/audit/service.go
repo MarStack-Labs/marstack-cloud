@@ -25,6 +25,7 @@ func (s *service) record(ctx context.Context, record Record) error {
 	entry := Entry{
 		At:        s.now(),
 		Actor:     record.Actor,
+		UserID:    record.UserID,
 		Role:      record.Role,
 		ProjectID: record.ProjectID,
 		Method:    record.Method,

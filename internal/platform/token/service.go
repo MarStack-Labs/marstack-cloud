@@ -29,9 +29,14 @@ type Projects interface {
 	Exists(ctx context.Context, id string) (bool, error)
 }
 
+type Users interface {
+	Allowed(ctx context.Context, userID string) (bool, error)
+}
+
 type service struct {
 	repo     *repository
 	projects Projects
+	users    Users
 	now      clock
 }
 
@@ -80,6 +85,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Token, strin
 		Name:       params.Name,
 		Role:       params.Role,
 		ProjectID:  params.ProjectID,
+		UserID:     params.UserID,
 		CreatedAt:  now,
 		LastUsedAt: now,
 	}
@@ -111,6 +117,17 @@ func (s *service) verify(ctx context.Context, secret string) (Identity, error) {
 	if !identity.ExpiresAt.IsZero() && !now.Before(identity.ExpiresAt) {
 		return Identity{}, fault.Unauthenticated("token_expired",
 			"the bearer token expired on "+identity.ExpiresAt.Format(time.RFC3339))
+	}
+
+	if identity.UserID != "" && s.users != nil {
+		allowed, err := s.users.Allowed(ctx, identity.UserID)
+		if err != nil {
+			return Identity{}, err
+		}
+		if !allowed {
+			return Identity{}, fault.Unauthenticated("user_not_allowed",
+				"the person this token belongs to can no longer sign in")
+		}
 	}
 
 	if err := s.repo.touch(ctx, identity.ID, now); err != nil {

@@ -1242,6 +1242,71 @@ both and none may import another, the same reason the keyring moved into the
 kernel. The confinement test came along and no longer needs Linux, so the symlink
 escape case runs on every `make check` rather than only in a VM.
 
+## Who did it
+
+Authentication was bearer tokens and nothing else, so the audit trail could name
+a token but never a person, and taking somebody's access away meant hunting down
+every token they had made.
+
+```sh
+marstack user create --email ada@marstack.test --name ada --role member \
+  --password-file ./pw
+marstack login --email ada@marstack.test --password-file ./pw
+```
+
+```
+mst_hcudiye6ljek...
+signed in as ada@marstack.test (member), expires 2026-09-01T18:31:10
+```
+
+Two sessions — a laptop and a phone — then one command:
+
+```
+$ marstack user disable ada@marstack.test
+ada@marstack.test   usr-ggth4875w3phc   ada   member   prj-default   disabled
+
+/tmp/tok1 -> 401
+/tmp/tok2 -> 401
+$ marstack login --email ada@marstack.test --password-file ./pw
+error: bad_credentials: that email and password do not match an account that
+can sign in
+```
+
+Enabling them brings both back, because a disable that has to be undone by
+re-issuing tokens is not a disable. Changing a password or deleting the person
+**does** delete the rows — those are one-way.
+
+And the trail says who:
+
+```
+ACTOR                        USER                  WHAT
+session-ggth4875w3phc-84mbkm usr-ggth4875w3phc     POST /v1/networks 201
+bm-1                                               PUT  .../balancers/health 204
+bootstrap                                          POST .../enable 200
+```
+
+Some things worth naming:
+
+| decision | why |
+|---|---|
+| `crypto/pbkdf2` | standard library since Go 1.24 — no new dependency in a repo carrying only cobra and sqlite |
+| scheme and cost stored in front of the hash | either can change without locking anybody out |
+| a stored value that does not parse is refused | a row edited by hand must not become a way in |
+| unknown address and wrong password answer identically, and take the same time | otherwise the login is a way to find out who has an account |
+| the login has its own limiter | the one route reachable without a token is the one that most needs one |
+| passwords read from a file, never a flag | a command line is kept in shell history and shown in `ps` |
+
+**`openPaths` had been doing two jobs** — skip authentication and skip the rate
+limiter. Login needs the first and needs the second more than anything else on
+the server, so they are separate maps now, and only `/healthz` is in both.
+
+> **Two of my own tests passed for the wrong reason here.** Deleting a person is
+> caught by `Allowed` refusing the token, not by deleting the row — so asserting
+> "the request is refused" held either way, and the test had to assert the row is
+> gone instead. And a token name is unique, so `session-<user id>` let one person
+> hold exactly one session: the second login returned 409, the test ignored both
+> status codes, and an empty token was duly refused. One live command found it.
+
 ## Starting a container the node already holds
 
 Layers were cached. The manifest was not. So every container start needed a live
@@ -2515,6 +2580,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 59  work that finishes: jobs and schedules            done
 60  a service that holds its own replica count        done
 61  starting a container the node already holds       done
+62  people, sessions and who did it                   done
 ```
 
 ## License

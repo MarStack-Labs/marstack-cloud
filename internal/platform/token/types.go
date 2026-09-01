@@ -21,6 +21,7 @@ type Token struct {
 	Name       string
 	Role       string
 	ProjectID  string
+	UserID     string
 	CreatedAt  time.Time
 	LastUsedAt time.Time
 	ExpiresAt  time.Time
@@ -35,6 +36,7 @@ type Identity struct {
 	Name      string
 	Role      string
 	ProjectID string
+	UserID    string
 	ExpiresAt time.Time
 }
 
@@ -42,6 +44,7 @@ type CreateParams struct {
 	Name      string
 	Role      string
 	ProjectID string
+	UserID    string
 	ExpiresIn string
 }
 

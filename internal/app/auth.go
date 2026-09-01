@@ -30,6 +30,11 @@ func noteIdentity(ctx context.Context, identity token.Identity) {
 }
 
 var openPaths = map[string]bool{
+	"/healthz":  true,
+	"/v1/login": true,
+}
+
+var unlimitedPaths = map[string]bool{
 	"/healthz": true,
 }
 
@@ -90,6 +95,13 @@ var memberPaths = []string{
 	"POST /v1/jobs/{id}/pause",
 	"POST /v1/jobs/{id}/resume",
 	"DELETE /v1/jobs/{id}",
+	"POST /v1/users",
+	"GET /v1/users",
+	"GET /v1/users/{id}",
+	"PUT /v1/users/{id}/password",
+	"POST /v1/users/{id}/disable",
+	"POST /v1/users/{id}/enable",
+	"DELETE /v1/users/{id}",
 	"GET /v1/services",
 	"GET /v1/services/{id}",
 	"POST /v1/services",
@@ -223,6 +235,7 @@ func authenticate(verify verifier, log *slog.Logger) httpx.Middleware {
 				ProjectID: identity.ProjectID,
 				TokenID:   identity.ID,
 				TokenName: identity.Name,
+				UserID:    identity.UserID,
 				Role:      identity.Role,
 			})))
 		})

@@ -16,7 +16,7 @@ var (
 	errNameTaken = errors.New("token name already exists")
 )
 
-const columns = `id, name, role, project_id, secret_hash, created_at, last_used_at, expires_at`
+const columns = `id, name, role, project_id, user_id, secret_hash, created_at, last_used_at, expires_at`
 
 type repository struct {
 	db *sql.DB
@@ -28,8 +28,8 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, t Token, hash string) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO tokens (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		t.ID, t.Name, t.Role, t.ProjectID, hash,
+		`INSERT INTO tokens (`+columns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		t.ID, t.Name, t.Role, t.ProjectID, t.UserID, hash,
 		t.CreatedAt.Format(time.RFC3339Nano), t.LastUsedAt.Format(time.RFC3339Nano),
 		stampOf(t.ExpiresAt),
 	)
@@ -48,8 +48,10 @@ func (r *repository) byHash(ctx context.Context, hash string) (Identity, error) 
 		expires  string
 	)
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, name, role, project_id, expires_at FROM tokens WHERE secret_hash = ?`, hash,
-	).Scan(&identity.ID, &identity.Name, &identity.Role, &identity.ProjectID, &expires)
+		`SELECT id, name, role, project_id, user_id, expires_at
+		 FROM tokens WHERE secret_hash = ?`, hash,
+	).Scan(&identity.ID, &identity.Name, &identity.Role, &identity.ProjectID,
+		&identity.UserID, &expires)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return Identity{}, errNotFound
@@ -82,6 +84,17 @@ func parseStamp(text string) (time.Time, error) {
 	return at, nil
 }
 
+func (r *repository) deleteForUser(ctx context.Context, userID string) error {
+	if userID == "" {
+		return nil
+	}
+	_, err := r.db.ExecContext(ctx, `DELETE FROM tokens WHERE user_id = ?`, userID)
+	if err != nil {
+		return fmt.Errorf("delete the tokens of a person: %w", err)
+	}
+	return nil
+}
+
 func (r *repository) touch(ctx context.Context, id string, at time.Time) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE tokens SET last_used_at = ? WHERE id = ?`, at.Format(time.RFC3339Nano), id)
@@ -93,7 +106,7 @@ func (r *repository) touch(ctx context.Context, id string, at time.Time) error {
 
 func (r *repository) list(ctx context.Context) ([]Token, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, role, project_id, created_at, last_used_at, expires_at
+		`SELECT id, name, role, project_id, user_id, created_at, last_used_at, expires_at
 		 FROM tokens ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list tokens: %w", err)
@@ -104,8 +117,8 @@ func (r *repository) list(ctx context.Context) ([]Token, error) {
 	for rows.Next() {
 		var t Token
 		var created, used, expires string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Role, &t.ProjectID, &created, &used,
-			&expires); err != nil {
+		if err := rows.Scan(&t.ID, &t.Name, &t.Role, &t.ProjectID, &t.UserID, &created,
+			&used, &expires); err != nil {
 			return nil, fmt.Errorf("scan token: %w", err)
 		}
 		if t.ExpiresAt, err = parseStamp(expires); err != nil {

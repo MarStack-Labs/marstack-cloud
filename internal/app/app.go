@@ -35,6 +35,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/user"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/webhook"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
@@ -190,6 +191,11 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	})
 	usages := usage.New(st, log)
 	usages.UseWorkloads(usageWorkloads{instances: instances})
+	people := user.New(st, log)
+	people.UseTokens(tokens)
+	people.UseRoles(tokens)
+	people.UseClock(cfg.Now)
+	tokens.UseUsers(people)
 	scalers := autoscale.New(st, log)
 	scalers.UseServices(scalableServices{services: services})
 	scalers.UseLoad(instanceLoad{usage: usages})
@@ -238,6 +244,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		webhooks,
 		keys,
 		tokens,
+		people,
 	}
 	instances.UseVolumes(volumes)
 	instances.UseForwards(forwards)
@@ -245,6 +252,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	instances.UseLogs(logbook)
 	jobs.UseEvents(events)
 	scalers.UseEvents(events)
+	people.UseEvents(events)
 	instances.UseEvents(events)
 	balancers.UseEvents(events)
 	services.UseWorkloads(serviceWorkloads{instances: instances})

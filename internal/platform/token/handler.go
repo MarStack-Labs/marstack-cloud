@@ -11,6 +11,7 @@ import (
 type createRequest struct {
 	Name      string `json:"name"`
 	Role      string `json:"role"`
+	UserID    string `json:"user_id,omitempty"`
 	ProjectID string `json:"project_id,omitempty"`
 	ExpiresIn string `json:"expires_in,omitempty"`
 }
@@ -20,6 +21,7 @@ type response struct {
 	Name       string `json:"name"`
 	Role       string `json:"role"`
 	ProjectID  string `json:"project_id"`
+	UserID     string `json:"user_id,omitempty"`
 	Secret     string `json:"secret,omitempty"`
 	CreatedAt  string `json:"created_at"`
 	LastUsedAt string `json:"last_used_at"`
@@ -37,6 +39,7 @@ func toResponse(t Token, secret string) response {
 		Name:       t.Name,
 		Role:       t.Role,
 		ProjectID:  t.ProjectID,
+		UserID:     t.UserID,
 		Secret:     secret,
 		CreatedAt:  t.CreatedAt.Format(time.RFC3339Nano),
 		LastUsedAt: t.LastUsedAt.Format(time.RFC3339Nano),

@@ -6,6 +6,7 @@ type Scope struct {
 	ProjectID string
 	TokenID   string
 	TokenName string
+	UserID    string
 	Role      string
 }
 

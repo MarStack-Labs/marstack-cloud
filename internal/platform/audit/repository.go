@@ -19,9 +19,11 @@ func newRepository(st *store.Store) *repository {
 
 func (r *repository) insert(ctx context.Context, entry Entry) error {
 	_, err := r.db.ExecContext(ctx,
-		`INSERT INTO audit (at, actor, role, project_id, method, path, status, request_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		entry.At.Format(time.RFC3339Nano), entry.Actor, entry.Role, entry.ProjectID,
+		`INSERT INTO audit (at, actor, user_id, role, project_id, method, path, status,
+			request_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		entry.At.Format(time.RFC3339Nano), entry.Actor, entry.UserID, entry.Role,
+		entry.ProjectID,
 		entry.Method, entry.Path, entry.Status, entry.RequestID,
 	)
 	if err != nil {
@@ -32,7 +34,7 @@ func (r *repository) insert(ctx context.Context, entry Entry) error {
 
 func (r *repository) list(ctx context.Context, limit int, projectID string) ([]Entry, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, at, actor, role, project_id, method, path, status, request_id
+		`SELECT id, at, actor, user_id, role, project_id, method, path, status, request_id
 		 FROM audit WHERE project_id = ? OR project_id = '' ORDER BY id DESC LIMIT ?`,
 		projectID, limit)
 	if err != nil {
@@ -44,8 +46,9 @@ func (r *repository) list(ctx context.Context, limit int, projectID string) ([]E
 	for rows.Next() {
 		var entry Entry
 		var stamp string
-		if err := rows.Scan(&entry.ID, &stamp, &entry.Actor, &entry.Role, &entry.ProjectID,
-			&entry.Method, &entry.Path, &entry.Status, &entry.RequestID); err != nil {
+		if err := rows.Scan(&entry.ID, &stamp, &entry.Actor, &entry.UserID, &entry.Role,
+			&entry.ProjectID, &entry.Method, &entry.Path, &entry.Status,
+			&entry.RequestID); err != nil {
 			return nil, fmt.Errorf("scan audit entry: %w", err)
 		}
 		if entry.At, err = time.Parse(time.RFC3339Nano, stamp); err != nil {

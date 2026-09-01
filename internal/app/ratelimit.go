@@ -30,5 +30,5 @@ func projectKey(r *http.Request) string {
 }
 
 func openToEveryone(r *http.Request) bool {
-	return openPaths[r.URL.Path]
+	return unlimitedPaths[r.URL.Path]
 }

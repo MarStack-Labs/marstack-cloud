@@ -77,6 +77,11 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  7,
 			SQL:    `ALTER TABLE tokens ADD COLUMN expires_at TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "token",
+			Index:  8,
+			SQL:    `ALTER TABLE tokens ADD COLUMN user_id TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -84,6 +89,30 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/tokens", httpx.Wrap(m.log, m.handler.create))
 	mux.Handle("GET /v1/tokens", httpx.Wrap(m.log, m.handler.list))
 	mux.Handle("DELETE /v1/tokens/{id}", httpx.Wrap(m.log, m.handler.delete))
+}
+
+func (m *Module) UseUsers(u Users) {
+	m.svc.users = u
+}
+
+func (m *Module) Issue(ctx context.Context, name, role, projectID, userID string,
+	lifetime time.Duration) (string, error) {
+	_, secret, err := m.svc.create(ctx, CreateParams{
+		Name:      name,
+		Role:      role,
+		ProjectID: projectID,
+		UserID:    userID,
+		ExpiresIn: lifetime.String(),
+	})
+	return secret, err
+}
+
+func (m *Module) ForgetUser(ctx context.Context, userID string) error {
+	return m.svc.repo.deleteForUser(ctx, userID)
+}
+
+func (m *Module) Names() []string {
+	return []string{RoleAdmin, RoleMember, RoleViewer}
 }
 
 func (m *Module) UseProjects(p Projects) {
