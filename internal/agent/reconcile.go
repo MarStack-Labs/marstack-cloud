@@ -485,15 +485,9 @@ func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView, balan
 	}
 
 	for _, b := range balancers {
-		targets := make([]string, 0, len(b.Backends))
-		for _, backend := range b.Backends {
-			if !backend.Healthy || backend.Address == "" {
-				continue
-			}
-			targets = append(targets, backend.Address)
-		}
+		targets := healthyAddresses(b.Backends)
 
-		if b.terminatesTLS() {
+		if b.runsInUserspace() {
 			terminating = append(terminating, tlsproxy.Endpoint{
 				ID:          b.ID,
 				ListenPort:  b.ListenPort,
@@ -501,6 +495,7 @@ func (a *Agent) applyForwards(ctx context.Context, forwards []forwardView, balan
 				Certificate: b.Certificate,
 				PrivateKey:  b.PrivateKey,
 				Targets:     targets,
+				Routes:      endpointRoutes(b.Routes),
 			})
 			continue
 		}
@@ -964,4 +959,31 @@ func sliceBits6(n networkView) int {
 type attachedNIC struct {
 	device int
 	config workload.NetworkConfig
+}
+
+func healthyAddresses(backends []balancerBackendView) []string {
+	addresses := make([]string, 0, len(backends))
+	for _, backend := range backends {
+		if !backend.Healthy || backend.Address == "" {
+			continue
+		}
+		addresses = append(addresses, backend.Address)
+	}
+	return addresses
+}
+
+func endpointRoutes(routes []balancerRouteView) []tlsproxy.EndpointRoute {
+	if len(routes) == 0 {
+		return nil
+	}
+
+	out := make([]tlsproxy.EndpointRoute, 0, len(routes))
+	for _, one := range routes {
+		out = append(out, tlsproxy.EndpointRoute{
+			Host:    one.Host,
+			Path:    one.Path,
+			Targets: healthyAddresses(one.Backends),
+		})
+	}
+	return out
 }

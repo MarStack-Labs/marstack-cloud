@@ -25,6 +25,8 @@ const (
 	DefaultRise   = 2
 	DefaultFall   = 2
 	MaxPathLength = 200
+	MaxRoutes     = 32
+	MaxHostLength = 253
 
 	HealthGrace = 90 * time.Second
 )
@@ -44,8 +46,16 @@ type Balancer struct {
 	Rise       int
 	Fall       int
 	Backends   []Backend
+	Routes     []Route
 	TLS        TLS
 	CreatedAt  time.Time
+}
+
+type Route struct {
+	Host      string
+	Path      string
+	ServiceID string
+	Backends  []Backend
 }
 
 type TLS struct {
@@ -84,6 +94,13 @@ type CreateParams struct {
 	Rise       int
 	Fall       int
 	Instances  []string
+	Routes     []RouteParams
+}
+
+type RouteParams struct {
+	Host    string
+	Path    string
+	Service string
 }
 
 type Member struct {

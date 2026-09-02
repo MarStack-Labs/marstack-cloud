@@ -919,6 +919,94 @@ singular either way.
 
 Checked live on all four isolations, both interfaces answering.
 
+## One port, many applications
+
+A balancer sends everything on its listen port to one set of backends. That is
+one application per port, and a fleet with twenty small services either burns
+twenty ports or puts something in front of the platform to sort the traffic out.
+Routes are that sorting, done by the node that is already holding the port:
+
+```sh
+marstack balancer create --name edge --target-port 80 --listen-port 8600 \
+  --route app.test=web \
+  --route app.test/api=api \
+  --route api.test=api \
+  --route /=web
+```
+
+```
+MATCH          SERVICE   INSTANCE          ADDRESS      STATE   WHY
+app.test/api   api       i-w5gqavbm3dhqr   10.20.0.67   up      -
+api.test/      api       i-w5gqavbm3dhqr   10.20.0.67   up      -
+app.test/      web       i-s6rwa4rftb2da   10.20.0.65   up      -
+                         i-6mfavhedq2z8w   10.20.0.66   up      -
+*/             web       i-s6rwa4rftb2da   10.20.0.65   up      -
+                         i-6mfavhedq2z8w   10.20.0.66   up      -
+```
+
+That table **is** the matching order, and it is the answer read back from the
+control plane rather than the order it was typed in. An exact host beats any
+host, then the longest path prefix wins. Live, on one port:
+
+```
+app.test         /      web-web-6e6kfr
+api.test         /      api-api-f8gfhg      # a different service, same port
+other.test       /      web-web-6e6kfr      # the catch-all
+app.test         /api   api-api-f8gfhg      # longest path of the exact host
+app.test:8600    /      web-web-aaj708      # the port is ignored, and a second replica
+APP.TEST         /      web-web-6e6kfr      # case does not matter
+```
+
+Two hostnames, two services, one port, and traffic spread over the replicas of
+whichever service matched. Verified from **both** nodes: every node claims the
+listen port, so either address is an entry point.
+
+**A route is a level of plurality on machinery that already existed.** A balancer
+already turned a service name into live backends on every read; a route does the
+same thing per rule, so scaling `web` to three moves traffic with nothing
+registered by hand. Health checks work per route too — a checked backend starts
+`unknown`, earns `up`, and the node holding it is still the only one allowed to
+say so.
+
+**Routing means reading the request, and the kernel does not read requests.** So
+a balancer with routes is a userspace listener for the same reason a balancer
+with a certificate is, and it is left out of the nftables set by the same rule:
+one port cannot be both. Checked live — `nft list ruleset` has nothing for the
+routing port. Routes are refused on `udp`, because there is no request in a
+datagram, and refused with `source_hash`, because a routing balancer picks a
+backend per request out of the route that matched, so the algorithm would be
+accepted and then ignored.
+
+A certificate and routes compose. The node terminates TLS, reads the host header
+inside the tunnel, and forwards plain HTTP to the backend it chose:
+
+```
+$ curl -sk --resolve app.test:8601:192.168.107.2 https://app.test:8601/
+web-web-6e6kfr
+$ curl -sk -o /dev/null -w '%{http_code}\n' --resolve nothing.test:8601:...
+404
+```
+
+**A request that matches nothing is answered, not guessed at.** 404 for no route,
+503 for a route whose service holds no replica, and the two are different
+answers on purpose. Deleting the `api` service live left the other routes serving
+and `balancer get` explaining itself:
+
+```
+MATCH          SERVICE   INSTANCE          ADDRESS      STATE   WHY
+app.test/api   api       -                 -            down    the service holds no replica
+api.test/      api       -                 -            down    the service holds no replica
+app.test/      web       i-s6rwa4rftb2da   10.20.0.65   up      -
+```
+
+The backend sees the host the client asked for and the whole path, plus
+`X-Forwarded-For`. Nothing is rewritten: a route decides *where* a request goes,
+not *what* it says. Two routes matching the same host and path are refused at
+create, because one request cannot have two answers, and a route naming a service
+that does not exist is refused rather than becoming a 404 nobody can explain.
+Websockets pass through, because `httputil.ReverseProxy` handles `Upgrade` and
+the standard library is the whole dependency.
+
 ## Terminating TLS at the balancer
 
 A balancer was an nftables rule: the kernel rewrites the destination and never
@@ -2957,6 +3045,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 68  a snapshot that becomes a volume of its own       done
 69  taking a node out with a vm on it                 done
 70  getting inside a running container                done
+71  one port serving many applications                done
 ```
 
 ## License

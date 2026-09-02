@@ -136,6 +136,17 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  16,
 			SQL:    `ALTER TABLE balancers ADD COLUMN family TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "balancer",
+			Index:  17,
+			SQL: `CREATE TABLE balancer_routes (
+				balancer_id TEXT NOT NULL,
+				host        TEXT NOT NULL DEFAULT '',
+				path        TEXT NOT NULL DEFAULT '',
+				service_id  TEXT NOT NULL,
+				PRIMARY KEY (balancer_id, host, path)
+			)`,
+		},
 	}
 }
 

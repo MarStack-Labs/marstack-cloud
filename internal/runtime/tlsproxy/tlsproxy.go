@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/http"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -25,11 +26,13 @@ type Endpoint struct {
 	Certificate string
 	PrivateKey  string
 	Targets     []string
+	Routes      []EndpointRoute
 }
 
 func (e Endpoint) fingerprint() string {
 	sum := sha256.Sum256([]byte(strconv.Itoa(e.ListenPort) + "\x00" +
-		e.Certificate + "\x00" + e.PrivateKey))
+		e.Certificate + "\x00" + e.PrivateKey + "\x00" +
+		strconv.FormatBool(len(e.Routes) > 0)))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -41,6 +44,9 @@ type listener struct {
 	net         net.Listener
 	stop        context.CancelFunc
 	done        chan struct{}
+	server      *http.Server
+	table       atomic.Pointer[routeTable]
+	routeHash   string
 }
 
 type Manager struct {
@@ -68,6 +74,11 @@ func (m *Manager) Apply(ctx context.Context, wanted []Endpoint) error {
 		if up && existing.fingerprint == e.fingerprint() {
 			targets := append([]string(nil), e.Targets...)
 			existing.targets.Store(&targets)
+
+			if hash := routesFingerprint(e.Routes); hash != existing.routeHash {
+				existing.routeHash = hash
+				existing.table.Store(compileRoutes(e.Routes))
+			}
 			continue
 		}
 		if up {
@@ -111,38 +122,70 @@ func (m *Manager) Close() {
 
 func (m *Manager) shutdown(id string, l *listener) {
 	l.stop()
+	if l.server != nil {
+		l.server.Close()
+	}
 	l.net.Close()
 	<-l.done
 	delete(m.running, id)
-	m.log.Info("tls listener stopped", "balancer", id)
+	m.log.Info("proxy listener stopped", "balancer", id)
 }
 
 func (m *Manager) start(ctx context.Context, e Endpoint) (*listener, error) {
-	pair, err := tls.X509KeyPair([]byte(e.Certificate), []byte(e.PrivateKey))
-	if err != nil {
-		return nil, fmt.Errorf("balancer %s: load the certificate: %w", e.ID, err)
+	secured := e.Certificate != "" || e.PrivateKey != ""
+	if !secured && len(e.Routes) == 0 {
+		return nil, fmt.Errorf(
+			"balancer %s: without a certificate and without routes there is nothing for a "+
+				"userspace listener to do", e.ID)
 	}
 
-	raw, err := net.Listen("tcp", ":"+strconv.Itoa(e.ListenPort))
+	var pair tls.Certificate
+	if secured {
+		loaded, err := tls.X509KeyPair([]byte(e.Certificate), []byte(e.PrivateKey))
+		if err != nil {
+			return nil, fmt.Errorf("balancer %s: load the certificate: %w", e.ID, err)
+		}
+		pair = loaded
+	}
+
+	front, err := net.Listen("tcp", ":"+strconv.Itoa(e.ListenPort))
 	if err != nil {
 		return nil, fmt.Errorf("balancer %s: listen on %d: %w", e.ID, e.ListenPort, err)
 	}
-
-	guarded := tls.NewListener(raw, &tls.Config{
-		Certificates: []tls.Certificate{pair},
-		MinVersion:   tls.VersionTLS12,
-	})
+	if secured {
+		front = tls.NewListener(front, &tls.Config{
+			Certificates: []tls.Certificate{pair},
+			MinVersion:   tls.VersionTLS12,
+		})
+	}
 
 	inner, stop := context.WithCancel(ctx)
 	l := &listener{
 		fingerprint: e.fingerprint(),
 		targetPort:  e.TargetPort,
-		net:         guarded,
+		net:         front,
 		stop:        stop,
 		done:        make(chan struct{}),
 	}
 	targets := append([]string(nil), e.Targets...)
 	l.targets.Store(&targets)
+
+	if len(e.Routes) > 0 {
+		l.routeHash = routesFingerprint(e.Routes)
+		l.table.Store(compileRoutes(e.Routes))
+		l.server = &http.Server{
+			Handler:           m.router(e.ID, l),
+			ReadHeaderTimeout: readHeaderTimeout,
+			IdleTimeout:       idleTimeout,
+			BaseContext:       func(net.Listener) context.Context { return inner },
+		}
+
+		go m.serveRoutes(e.ID, l)
+
+		m.log.Info("routing listener started", "balancer", e.ID, "port", e.ListenPort,
+			"routes", len(e.Routes), "tls", secured)
+		return l, nil
+	}
 
 	go m.serve(inner, e.ID, l)
 

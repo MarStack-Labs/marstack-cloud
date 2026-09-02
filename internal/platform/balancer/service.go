@@ -108,6 +108,29 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 	if err := thresholds(&params); err != nil {
 		return Balancer{}, err
 	}
+	routes, err := normalizeRoutes(params.Routes)
+	if err != nil {
+		return Balancer{}, err
+	}
+	if len(routes) > 0 && (params.ServiceID != "" || len(params.Instances) > 0) {
+		return Balancer{}, fault.Invalid("routes_and_backends",
+			"a balancer either routes by host and path or sends everything to one set of "+
+				"backends, and a request cannot be answered both ways")
+	}
+	if len(routes) > 0 && params.Algorithm == AlgorithmSourceHash {
+		return Balancer{}, fault.Invalid("routes_pick_per_request",
+			"a routing balancer chooses a backend for every request out of the route that "+
+				"matched, so source_hash would be accepted and then ignored")
+	}
+	if len(routes) > 0 && params.Protocol == ProtocolUDP {
+		return Balancer{}, fault.Invalid("routes_need_tcp",
+			"routing by host and path means reading the request, and there is no request "+
+				"to read in a udp datagram")
+	}
+	if err := s.checkRoutes(ctx, params.ProjectID, routes); err != nil {
+		return Balancer{}, err
+	}
+
 	if params.ServiceID != "" && len(params.Instances) > 0 {
 		return Balancer{}, fault.Invalid("backends_unused",
 			"a balancer that follows a service takes its backends from that service, so naming "+
@@ -170,8 +193,19 @@ func (s *service) create(ctx context.Context, params CreateParams) (Balancer, er
 		b.Backends = append(b.Backends, Backend{InstanceID: id, AddedAt: at})
 	}
 
+	for _, one := range routes {
+		b.Routes = append(b.Routes, Route{
+			Host:      one.Host,
+			Path:      one.Path,
+			ServiceID: one.Service,
+		})
+	}
+
 	if err := s.repo.insert(ctx, b); err != nil {
 		return Balancer{}, s.translatePort(b, err)
+	}
+	if err := s.repo.replaceRoutes(ctx, b.ID, b.Routes); err != nil {
+		return Balancer{}, translate(err)
 	}
 	return s.resolve(ctx, b)
 }
@@ -317,7 +351,11 @@ func (s *service) resolve(ctx context.Context, b Balancer) (Balancer, error) {
 	if err != nil {
 		return Balancer{}, err
 	}
-	return s.withHealth(ctx, held), nil
+	held, err = s.routeMembership(ctx, held)
+	if err != nil {
+		return Balancer{}, err
+	}
+	return s.withRouteHealth(ctx, s.withHealth(ctx, held)), nil
 }
 
 func (s *service) find(ctx context.Context, projectID, id string) (Balancer, error) {
@@ -423,11 +461,11 @@ func (s *service) reportHealth(ctx context.Context, nodeID string, reports []Rep
 
 	members := map[string]bool{}
 	for _, b := range known {
-		held, err := s.membership(ctx, b)
+		backends, err := s.everyBackend(ctx, b)
 		if err != nil {
 			return translate(err)
 		}
-		for _, backend := range held.Backends {
+		for _, backend := range backends {
 			members[b.ID+"/"+backend.InstanceID] = true
 		}
 	}
@@ -452,11 +490,11 @@ func (s *service) reportHealth(ctx context.Context, nodeID string, reports []Rep
 
 	was := map[string]Backend{}
 	for _, b := range known {
-		held, err := s.membership(ctx, b)
+		backends, err := s.everyBackend(ctx, b)
 		if err != nil {
 			return translate(err)
 		}
-		for _, backend := range held.Backends {
+		for _, backend := range backends {
 			was[b.ID+"/"+backend.InstanceID] = backend
 		}
 	}

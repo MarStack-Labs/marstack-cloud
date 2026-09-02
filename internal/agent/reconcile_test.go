@@ -1307,3 +1307,58 @@ func TestEveryAddressOfAGuardedInstanceGetsRules(t *testing.T) {
 		}
 	}
 }
+
+func TestARoutingBalancerIsNotProgrammedIntoTheDatapath(t *testing.T) {
+	in := runningInstance()
+
+	cp := &controlPlane{
+		instances: []instanceView{in},
+		networks:  []networkView{defaultNetworkView(in.ID, "10.20.0.65")},
+		balancers: []balancerView{
+			{
+				ID: "lb-1", Name: "edge", Protocol: "tcp", ListenPort: 28443,
+				TargetPort: 80,
+				Routes: []balancerRouteView{
+					{
+						Host: "app.test", Service: "web",
+						Backends: []balancerBackendView{
+							{InstanceID: "i-1", Address: "10.20.0.65", Healthy: true},
+							{InstanceID: "i-2", Address: "10.20.0.66", Healthy: false},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	dp := &fakeDatapath{}
+	rt := &fakeRuntime{state: workload.State{Phase: workload.PhaseAbsent}}
+
+	srv := httptest.NewServer(cp.handler())
+	defer srv.Close()
+
+	a := New(Config{Endpoint: srv.URL, Name: "bm-1", Interval: time.Hour},
+		Deps{Runtimes: runtimesFor(rt), Datapath: dp}, logging.New("error", io.Discard))
+	defer a.tls.Close()
+
+	if err := a.register(context.Background()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	a.reconcile(context.Background())
+
+	if published := dp.snapshotForwards(); len(published) != 0 {
+		t.Fatalf("forwards = %+v, want none: a listener in userspace and a dnat rule on one "+
+			"port is undefined, and nftables cannot read a host header anyway", published)
+	}
+
+	answer, err := http.Get("http://127.0.0.1:28443/")
+	if err != nil {
+		t.Fatalf("the node did not bind the listen port: %v", err)
+	}
+	defer answer.Body.Close()
+
+	if answer.StatusCode != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d for a host with no route", answer.StatusCode,
+			http.StatusNotFound)
+	}
+}

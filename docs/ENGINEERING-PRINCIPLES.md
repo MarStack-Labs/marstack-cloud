@@ -965,3 +965,46 @@ make check      # vet + test + security scans
   using `syscall` or `filepath` layout helpers goes in a `_linux.go` file, with a stub for other
   platforms. Putting a Linux-only helper in an untagged file compiles on macOS but shows up as dead
   code, and the tests then only run on one platform.
+- A balancer with **routes** is a userspace listener for the same reason one with a certificate is:
+  nftables does not read requests. `runsInUserspace()` is where the two reasons meet, and a routed
+  balancer is left out of the published set - a listener and a dnat rule on one port is undefined.
+  Verified live that `nft list ruleset` has nothing for the routing port.
+- The matching order lives in **two** packages on purpose. `internal/runtime/tlsproxy` may not
+  import `platform/balancer`, and a node that walked the routes in the order it was handed would
+  answer differently the day something reordered a JSON array. Exact host before any host, then
+  longest path, `sort.SliceStable` at both ends. `balancer get` shows the resolved order rather
+  than what was typed, which is what makes the rule readable.
+- A path prefix matches on **segment boundaries**: `/api` covers `/api` and `/api/users` and must
+  not cover `/apiary`. A plain `strings.HasPrefix` sends one application's traffic to another, and
+  that is a mutation test.
+- The Host header is matched **without its port and without case**. A client that dials
+  `app.test:8443` sends that whole string, so comparing it raw gives a 404 on the one request that
+  was correct.
+- **404 and 503 are different answers.** No route matched is a 404; a route whose service holds no
+  replica is a 503. Collapsing them hides which half is broken, and falling through to the first
+  route instead is how a request nothing claims reaches somebody else's application.
+- Nothing is rewritten on the way through. The backend gets the original Host and the whole path,
+  plus `X-Forwarded-For` from `SetXForwarded` - a route decides *where* a request goes, not *what*
+  it says. `ReverseProxy` in `Rewrite` mode clones the inbound request, so `Out.Host` already
+  carries the client's Host; setting `Out.URL.Host` alone is enough and an explicit
+  `Out.Host = In.Host` is a line that cannot fail. The behaviour is still tested, because
+  `SetURL` - or anyone clearing `Out.Host` - would break it.
+- Routes are refused together with `--service` or `--instance`, on `udp`, and with `source_hash`.
+  The last one is the `--env` trap again: a routing balancer picks a backend per request out of the
+  route that matched, so the algorithm would be accepted, stored, and then ignored.
+- **Route backends have to be added to `everyBackend`, not only to the read paths.** Both loops in
+  `reportHealth` build their membership map from it, and a report that is not in that map is
+  dropped as "not a member" with no error anywhere - the same trap the service-backed balancer
+  already had, one level deeper.
+- The route table is swapped behind an atomic pointer, and only when
+  `routesFingerprint` changes. Rebuilding it on every pass would reset the per-route round robin
+  counter every ten seconds, which under light traffic means every request goes to the first
+  backend. The listener itself restarts only when the port, the certificate, or **whether there are
+  routes at all** changes - that last one is in `Endpoint.fingerprint`, or giving a balancer routes
+  leaves it splicing raw bytes forever.
+- Deleting a balancer deletes its routes in the same transaction. No API can see an orphan route
+  row, so that one is only testable at the repository - the same reasoning as the per-instance log
+  trim.
+- Alpine's busybox has **no `httpd` applet** (it lives in `busybox-extras`), so the obvious way to
+  make a container serve HTTP for a live test fails and the service quietly churns replicas. A
+  `nc -l -p 80` loop dropped in with `--file` works and needs no image build.

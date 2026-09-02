@@ -67,10 +67,20 @@ func probeTargets(balancers []balancerView, mine map[string]bool) []probeTarget 
 		if b.Check == "" || b.Check == checkKindNone {
 			continue
 		}
-		for _, backend := range b.Backends {
+		seen := make(map[string]bool, len(b.Backends))
+		backends := append([]balancerBackendView(nil), b.Backends...)
+		for _, route := range b.Routes {
+			backends = append(backends, route.Backends...)
+		}
+
+		for _, backend := range backends {
 			if !mine[backend.InstanceID] || backend.Address == "" {
 				continue
 			}
+			if seen[backend.InstanceID] {
+				continue
+			}
+			seen[backend.InstanceID] = true
 			targets = append(targets, probeTarget{
 				balancerID: b.ID,
 				instanceID: backend.InstanceID,

@@ -173,6 +173,27 @@ module boundary honest and is also why deleting a service leaves its balancer se
 instead of being refused: the alternative is a referential check that only a mutual dependency could
 enforce. The balancer keeps naming the service it followed so the empty set explains itself.
 
+## Routing by host and path
+
+A route is one more level of the same derivation. A balancer already turned a service name into
+live backends on every read; `Balancer.Routes` holds a service name per rule and resolves the same
+way, so nothing new is stored that could go stale and scaling a service still moves traffic with
+nothing registered by hand.
+
+The matching order is decided in the control plane and **also** in the agent. That looks like
+duplication and is not: `internal/runtime/tlsproxy` may not import a platform module, and a node
+that trusted the order it was handed would answer requests differently the day something reordered
+a JSON array. The ordering is mechanism - exact host before any host, then longest path - so both
+ends compute it and `sort.SliceStable` keeps it deterministic. What the control plane owns is the
+part that is a rule: refusing two routes for one host and path, refusing a route to a service that
+does not exist, and bounding how many routes a balancer may hold.
+
+Routing needs the request, so it cannot be nftables. That puts a routed balancer on the same side
+of the existing split as one with a certificate - `runsInUserspace()` in the agent is where the two
+reasons meet - and the two compose: TLS is terminated, then the host header inside the tunnel is
+read. The proxy is `net/http/httputil`, so the whole feature adds no dependency and gets keep-alive,
+`Upgrade`, and streaming for free.
+
 ## Cordon and drain
 
 Draining could have been an action - call it, it moves things, it returns. It is state instead:

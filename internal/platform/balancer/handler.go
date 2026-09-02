@@ -9,18 +9,32 @@ import (
 )
 
 type createRequest struct {
-	Name       string   `json:"name"`
-	Protocol   string   `json:"protocol,omitempty"`
-	ListenPort int      `json:"listen_port,omitempty"`
-	TargetPort int      `json:"target_port"`
-	Algorithm  string   `json:"algorithm,omitempty"`
-	Service    string   `json:"service,omitempty"`
-	Check      string   `json:"check,omitempty"`
-	CheckPath  string   `json:"check_path,omitempty"`
-	Rise       int      `json:"rise,omitempty"`
-	Fall       int      `json:"fall,omitempty"`
-	Family     string   `json:"family,omitempty"`
-	Instances  []string `json:"instances,omitempty"`
+	Name       string         `json:"name"`
+	Protocol   string         `json:"protocol,omitempty"`
+	ListenPort int            `json:"listen_port,omitempty"`
+	TargetPort int            `json:"target_port"`
+	Algorithm  string         `json:"algorithm,omitempty"`
+	Service    string         `json:"service,omitempty"`
+	Check      string         `json:"check,omitempty"`
+	CheckPath  string         `json:"check_path,omitempty"`
+	Rise       int            `json:"rise,omitempty"`
+	Fall       int            `json:"fall,omitempty"`
+	Family     string         `json:"family,omitempty"`
+	Instances  []string       `json:"instances,omitempty"`
+	Routes     []routeRequest `json:"routes,omitempty"`
+}
+
+type routeRequest struct {
+	Host    string `json:"host,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Service string `json:"service"`
+}
+
+type routeResponse struct {
+	Host     string            `json:"host,omitempty"`
+	Path     string            `json:"path,omitempty"`
+	Service  string            `json:"service"`
+	Backends []backendResponse `json:"backends"`
 }
 
 type healthRequest struct {
@@ -62,6 +76,7 @@ type response struct {
 	Rise       int               `json:"rise,omitempty"`
 	Fall       int               `json:"fall,omitempty"`
 	Backends   []backendResponse `json:"backends"`
+	Routes     []routeResponse   `json:"routes,omitempty"`
 	Family     string            `json:"family,omitempty"`
 	TLS        *tlsResponse      `json:"tls,omitempty"`
 	CreatedAt  string            `json:"created_at"`
@@ -91,9 +106,9 @@ type listResponse struct {
 	Balancers []response `json:"balancers"`
 }
 
-func toResponse(b Balancer) response {
-	backends := make([]backendResponse, 0, len(b.Backends))
-	for _, backend := range b.Backends {
+func toBackends(held []Backend) []backendResponse {
+	backends := make([]backendResponse, 0, len(held))
+	for _, backend := range held {
 		entry := backendResponse{
 			InstanceID: backend.InstanceID,
 			Address:    backend.Address,
@@ -108,6 +123,28 @@ func toResponse(b Balancer) response {
 		}
 		backends = append(backends, entry)
 	}
+	return backends
+}
+
+func toRoutes(held []Route) []routeResponse {
+	if len(held) == 0 {
+		return nil
+	}
+
+	routes := make([]routeResponse, 0, len(held))
+	for _, one := range held {
+		routes = append(routes, routeResponse{
+			Host:     one.Host,
+			Path:     one.Path,
+			Service:  one.ServiceID,
+			Backends: toBackends(one.Backends),
+		})
+	}
+	return routes
+}
+
+func toResponse(b Balancer) response {
+	backends := toBackends(b.Backends)
 
 	var carried *tlsResponse
 	if b.TLS.Present() {
@@ -128,6 +165,7 @@ func toResponse(b Balancer) response {
 		Rise:       b.Rise,
 		Fall:       b.Fall,
 		Backends:   backends,
+		Routes:     toRoutes(b.Routes),
 		Family:     b.Family,
 		CreatedAt:  b.CreatedAt.Format(time.RFC3339Nano),
 	}
@@ -157,6 +195,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 		Fall:       req.Fall,
 		Family:     req.Family,
 		Instances:  req.Instances,
+		Routes:     toRouteParams(req.Routes),
 	})
 	if err != nil {
 		return err
@@ -297,4 +336,20 @@ func (h *handler) delete(w http.ResponseWriter, r *http.Request) error {
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+func toRouteParams(asked []routeRequest) []RouteParams {
+	if len(asked) == 0 {
+		return nil
+	}
+
+	params := make([]RouteParams, 0, len(asked))
+	for _, one := range asked {
+		params = append(params, RouteParams{
+			Host:    one.Host,
+			Path:    one.Path,
+			Service: one.Service,
+		})
+	}
+	return params
 }

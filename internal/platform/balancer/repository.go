@@ -171,6 +171,12 @@ func (r *repository) load(ctx context.Context, query string, args ...any) ([]Bal
 			return nil, err
 		}
 		balancers[i].Backends = backends
+
+		routes, err := r.routesOf(ctx, balancers[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		balancers[i].Routes = routes
 	}
 	return balancers, nil
 }
@@ -221,6 +227,50 @@ func (r *repository) backendsOf(ctx context.Context, balancerID string) ([]Backe
 		backends = append(backends, backend)
 	}
 	return backends, rows.Err()
+}
+
+func (r *repository) replaceRoutes(ctx context.Context, balancerID string,
+	routes []Route) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM balancer_routes WHERE balancer_id = ?`, balancerID); err != nil {
+		return fmt.Errorf("clear the routes: %w", err)
+	}
+
+	for _, one := range routes {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO balancer_routes (balancer_id, host, path, service_id)
+				VALUES (?, ?, ?, ?)`,
+			balancerID, one.Host, one.Path, one.ServiceID); err != nil {
+			return fmt.Errorf("insert a route: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func (r *repository) routesOf(ctx context.Context, balancerID string) ([]Route, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT host, path, service_id FROM balancer_routes
+			WHERE balancer_id = ? ORDER BY host, path`, balancerID)
+	if err != nil {
+		return nil, fmt.Errorf("list routes: %w", err)
+	}
+	defer rows.Close()
+
+	routes := make([]Route, 0, 4)
+	for rows.Next() {
+		var one Route
+		if err := rows.Scan(&one.Host, &one.Path, &one.ServiceID); err != nil {
+			return nil, fmt.Errorf("scan a route: %w", err)
+		}
+		routes = append(routes, one)
+	}
+	return routes, rows.Err()
 }
 
 func (r *repository) healthOf(ctx context.Context, balancerID string) (map[string]Backend, error) {
@@ -305,6 +355,10 @@ func (r *repository) delete(ctx context.Context, id string) error {
 	if _, err := tx.ExecContext(ctx,
 		`DELETE FROM balancer_health WHERE balancer_id = ?`, id); err != nil {
 		return fmt.Errorf("delete the health reports: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM balancer_routes WHERE balancer_id = ?`, id); err != nil {
+		return fmt.Errorf("delete the routes: %w", err)
 	}
 
 	result, err := tx.ExecContext(ctx, `DELETE FROM balancers WHERE id = ?`, id)

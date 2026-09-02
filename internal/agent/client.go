@@ -286,12 +286,24 @@ type balancerView struct {
 	Rise        int                   `json:"rise,omitempty"`
 	Fall        int                   `json:"fall,omitempty"`
 	Backends    []balancerBackendView `json:"backends"`
+	Routes      []balancerRouteView   `json:"routes,omitempty"`
 	Certificate string                `json:"certificate,omitempty"`
 	PrivateKey  string                `json:"private_key,omitempty"`
 }
 
+type balancerRouteView struct {
+	Host     string                `json:"host,omitempty"`
+	Path     string                `json:"path,omitempty"`
+	Service  string                `json:"service"`
+	Backends []balancerBackendView `json:"backends"`
+}
+
 func (b balancerView) terminatesTLS() bool {
 	return b.Certificate != "" && b.PrivateKey != ""
+}
+
+func (b balancerView) runsInUserspace() bool {
+	return b.terminatesTLS() || len(b.Routes) > 0
 }
 
 type healthReportBody struct {
