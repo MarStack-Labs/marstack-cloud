@@ -47,11 +47,13 @@ type Pending struct {
 }
 
 type Stranded struct {
-	ID        string
-	ProjectID string
-	Name      string
-	NodeID    string
-	Isolation string
+	ID         string
+	ProjectID  string
+	Name       string
+	NodeID     string
+	Isolation  string
+	Migrating  bool
+	DiskParked bool
 }
 
 type NodeSource interface {
@@ -68,6 +70,7 @@ type InstanceSource interface {
 	HoldPlacement(ctx context.Context, instanceID, reason string) error
 	Assign(ctx context.Context, instanceID, nodeID string) error
 	StrandedOn(ctx context.Context, nodeIDs []string) ([]Stranded, error)
+	BeginMigration(ctx context.Context, instanceID, nodeID string) error
 	ReleasePlacement(ctx context.Context, instanceID, nodeID string) error
 }
 
@@ -325,19 +328,15 @@ func (s *Scheduler) emptyDraining(ctx context.Context) error {
 		seen[in.ID] = true
 
 		if in.Isolation != movableIsolation {
-			stuck[in.NodeID]++
-			if !s.alreadyStuckDraining(in.ID) {
-				s.note(ctx, events.Entry{
-					ProjectID: in.ProjectID,
-					Kind:      "instance.drain_blocked",
-					Subject:   in.ID,
-					NodeID:    in.NodeID,
-					Message: "its node is draining, and isolation " + in.Isolation +
-						" cannot be moved without losing its disk",
-					Severity: events.Error,
-				})
+			if !carriesItsDisk[in.Isolation] {
+				stuck[in.NodeID]++
+				s.noteBlocked(ctx, in)
+				continue
 			}
-			continue
+			if s.carryDisk(ctx, in) {
+				stuck[in.NodeID]++
+				continue
+			}
 		}
 
 		if err := s.instances.ReleasePlacement(ctx, in.ID, in.NodeID); err != nil {
@@ -378,6 +377,53 @@ func (s *Scheduler) emptyDraining(ctx context.Context) error {
 		})
 	}
 	return nil
+}
+
+var carriesItsDisk = map[string]bool{
+	"vm":      true,
+	"microvm": true,
+	"sandbox": true,
+}
+
+func (s *Scheduler) noteBlocked(ctx context.Context, in Stranded) {
+	if s.alreadyStuckDraining(in.ID) {
+		return
+	}
+	s.note(ctx, events.Entry{
+		ProjectID: in.ProjectID,
+		Kind:      "instance.drain_blocked",
+		Subject:   in.ID,
+		NodeID:    in.NodeID,
+		Message: "its node is draining, and nothing here knows how to carry the disk of " +
+			"isolation " + in.Isolation,
+		Severity: events.Error,
+	})
+}
+
+func (s *Scheduler) carryDisk(ctx context.Context, in Stranded) bool {
+	if in.DiskParked {
+		return false
+	}
+
+	if err := s.instances.BeginMigration(ctx, in.ID, in.NodeID); err != nil {
+		s.log.Warn("could not start moving a workload off a draining node",
+			"instance", in.ID, "node", in.NodeID, "error", err)
+		return true
+	}
+	if in.Migrating {
+		return true
+	}
+
+	s.note(ctx, events.Entry{
+		ProjectID: in.ProjectID,
+		Kind:      "instance.migrating",
+		Subject:   in.ID,
+		NodeID:    in.NodeID,
+		Message: "its node is draining, so it is being stopped and its disk carried to " +
+			"another node",
+		Severity: events.Warn,
+	})
+	return true
 }
 
 func (s *Scheduler) forgetUnstuck(seen map[string]bool) {

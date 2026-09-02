@@ -27,7 +27,8 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, project_id, placement_group, placement_strict, ssh_keys, node_selector, env, env_key_id, env_names, files, file_paths, extra_networks, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, exit_code, node_id, created_at, updated_at`
+const columns = `id, project_id, placement_group, placement_strict, ssh_keys, node_selector, env, env_key_id, env_names, files, file_paths, extra_networks, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, exit_code, migrating, disk_parked, disk_from, node_id,
+	created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
 	taken, err := r.nameTaken(ctx, in.ProjectID, in.Name)
@@ -70,12 +71,13 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO instances (`+columns+`) VALUES `+
-			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.ID, in.ProjectID, in.Group, in.Strict, string(keys), string(selector),
 		in.EnvSealed, in.SealKeyID, string(envNames), in.FilesSealed, string(filePaths), string(extra), in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
 		in.FirewallID, string(command), in.NetworkID,
 		string(in.RestartPolicy), in.RestartCount, in.VCPU, in.MemoryMiB,
-		string(in.Desired), string(in.Observed), in.ObservedMessage, in.ExitCode, in.NodeID,
+		string(in.Desired), string(in.Observed), in.ObservedMessage, in.ExitCode,
+		in.Migrating, in.DiskParked, in.DiskFrom, in.NodeID,
 		in.CreatedAt.Format(time.RFC3339Nano), in.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -211,7 +213,8 @@ func (r *repository) list(ctx context.Context) ([]Instance, error) {
 func (r *repository) listPendingPlacement(ctx context.Context) ([]Instance, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT `+columns+` FROM instances
-		 WHERE desired_state = ? AND (node_id IS NULL OR node_id = '')
+		 WHERE (desired_state = ? OR migrating = 1)
+			AND (node_id IS NULL OR node_id = '')
 		 ORDER BY created_at, id`,
 		string(DesiredRunning),
 	)
@@ -325,7 +328,7 @@ func (r *repository) assign(ctx context.Context, id, nodeID string, now time.Tim
 func (r *repository) listRunningOn(ctx context.Context, nodeID string) ([]Instance, error) {
 	rows, err := r.db.QueryContext(ctx,
 		`SELECT `+columns+` FROM instances
-		 WHERE desired_state = ? AND node_id = ?
+		 WHERE (desired_state = ? OR migrating = 1) AND node_id = ?
 		 ORDER BY created_at, id`,
 		string(DesiredRunning), nodeID,
 	)
@@ -343,6 +346,18 @@ func (r *repository) listRunningOn(ctx context.Context, nodeID string) ([]Instan
 		instances = append(instances, in)
 	}
 	return instances, rows.Err()
+}
+
+func (r *repository) setMigrating(ctx context.Context, id string, migrating, parked bool,
+	from string, now time.Time) error {
+	res, err := r.db.ExecContext(ctx,
+		`UPDATE instances SET migrating = ?, disk_parked = ?, disk_from = ?, updated_at = ?
+			WHERE id = ?`,
+		migrating, parked, from, now.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("set the migration flags: %w", err)
+	}
+	return expectOneRow(res, "set the migration flags")
 }
 
 func (r *repository) releasePlacement(ctx context.Context, id, nodeID string, now time.Time) error {
@@ -438,7 +453,8 @@ func scanInstance(row scanner) (Instance, error) {
 		&in.ISO, &in.Kernel, &in.DiskGiB,
 		&in.FirewallID, &command, &in.NetworkID,
 		&policy, &in.RestartCount, &in.VCPU, &in.MemoryMiB,
-		&desired, &observed, &in.ObservedMessage, &in.ExitCode, &nodeID, &createdRaw, &updatedRaw,
+		&desired, &observed, &in.ObservedMessage, &in.ExitCode,
+		&in.Migrating, &in.DiskParked, &in.DiskFrom, &nodeID, &createdRaw, &updatedRaw,
 	); err != nil {
 		return Instance{}, err
 	}

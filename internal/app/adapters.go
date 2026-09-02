@@ -98,6 +98,10 @@ func (s instanceSource) PendingPlacement(ctx context.Context) ([]scheduler.Pendi
 	return pending, nil
 }
 
+func (s instanceSource) BeginMigration(ctx context.Context, instanceID, nodeID string) error {
+	return s.instances.BeginMigration(ctx, instanceID, nodeID)
+}
+
 func (s instanceSource) StrandedOn(ctx context.Context, nodeIDs []string) ([]scheduler.Stranded, error) {
 	stranded, err := s.instances.StrandedOn(ctx, nodeIDs)
 	if err != nil {
@@ -107,11 +111,13 @@ func (s instanceSource) StrandedOn(ctx context.Context, nodeIDs []string) ([]sch
 	out := make([]scheduler.Stranded, 0, len(stranded))
 	for _, in := range stranded {
 		out = append(out, scheduler.Stranded{
-			ID:        in.ID,
-			ProjectID: in.ProjectID,
-			Name:      in.Name,
-			NodeID:    in.NodeID,
-			Isolation: string(in.Isolation),
+			ID:         in.ID,
+			ProjectID:  in.ProjectID,
+			Name:       in.Name,
+			NodeID:     in.NodeID,
+			Isolation:  string(in.Isolation),
+			Migrating:  in.Migrating,
+			DiskParked: in.DiskParked,
 		})
 	}
 	return out, nil

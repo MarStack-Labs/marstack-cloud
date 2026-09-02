@@ -189,6 +189,13 @@ type VolumeCloner interface {
 	CloneVolume(newID, fromID, snapshot string) error
 }
 
+type DiskCarrier interface {
+	HasDisk(instanceID string) bool
+	ExportDisk(instanceID string) (io.ReadCloser, error)
+	ImportDisk(instanceID string, content io.Reader) error
+	Forget(instanceID string) error
+}
+
 type Runtime interface {
 	Name() string
 	List(ctx context.Context) ([]string, error)

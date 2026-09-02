@@ -120,6 +120,7 @@ type App struct {
 	projects  *project.Module
 	backups   *backup.Module
 	volumes   *volume.Module
+	instances *instance.Module
 	jobs      *job.Module
 	scalers   *autoscale.Module
 	services  *service.Module
@@ -217,6 +218,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.projects = projects
 	a.backups = backups
 	a.volumes = volumes
+	a.instances = instances
 	a.services = services
 	a.webhooks = webhooks
 
@@ -250,6 +252,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	instances.UseForwards(forwards)
 	instances.UseBalancers(balancers)
 	instances.UseLogs(logbook)
+	instances.UseDataDir(cfg.DataDir)
 	jobs.UseEvents(events)
 	scalers.UseEvents(events)
 	people.UseEvents(events)

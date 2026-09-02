@@ -146,6 +146,14 @@ func (m *Module) StrandedOn(ctx context.Context, nodeIDs []string) ([]Instance, 
 	return m.svc.strandedOn(ctx, nodeIDs)
 }
 
+func (m *Module) UseDataDir(dir string) {
+	m.svc.dataDir = dir
+}
+
+func (m *Module) BeginMigration(ctx context.Context, instanceID, nodeID string) error {
+	return m.svc.beginMigration(ctx, instanceID, nodeID)
+}
+
 func (m *Module) ReleasePlacement(ctx context.Context, instanceID, nodeID string) error {
 	return m.svc.releasePlacement(ctx, instanceID, nodeID)
 }
@@ -307,6 +315,21 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  27,
 			SQL:    `ALTER TABLE instances ADD COLUMN exit_code INTEGER`,
 		},
+		{
+			Module: "instance",
+			Index:  28,
+			SQL:    `ALTER TABLE instances ADD COLUMN migrating INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			Module: "instance",
+			Index:  29,
+			SQL:    `ALTER TABLE instances ADD COLUMN disk_parked INTEGER NOT NULL DEFAULT 0`,
+		},
+		{
+			Module: "instance",
+			Index:  30,
+			SQL:    `ALTER TABLE instances ADD COLUMN disk_from TEXT NOT NULL DEFAULT ''`,
+		},
 	}
 }
 
@@ -320,5 +343,11 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/instances/{id}/resize", httpx.Wrap(m.log, m.handler.resize))
 
 	mux.Handle("GET /v1/nodes/{nodeID}/instances", httpx.Wrap(m.log, m.handler.listForNode))
+	mux.Handle("PUT /v1/nodes/{nodeID}/instances/{instanceID}/disk",
+		httpx.Wrap(m.log, m.handler.parkDisk))
+	mux.Handle("GET /v1/nodes/{nodeID}/instances/{instanceID}/disk",
+		httpx.Wrap(m.log, m.handler.takeDisk))
+	mux.Handle("POST /v1/nodes/{nodeID}/instances/{instanceID}/landed",
+		httpx.Wrap(m.log, m.handler.landed))
 	mux.Handle("PUT /v1/nodes/{nodeID}/instances/{instanceID}/status", httpx.Wrap(m.log, m.handler.reportStatus))
 }

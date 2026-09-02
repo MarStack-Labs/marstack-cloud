@@ -51,6 +51,8 @@ type instanceView struct {
 	ObservedState   string            `json:"observed_state"`
 	ObservedMessage string            `json:"observed_message,omitempty"`
 	ExitCode        *int              `json:"exit_code,omitempty"`
+	Migrating       bool              `json:"migrating,omitempty"`
+	DiskParked      bool              `json:"disk_parked,omitempty"`
 }
 
 type fileView struct {
@@ -535,6 +537,58 @@ func (c *client) fetchBackup(ctx context.Context, nodeID, id string) (io.ReadClo
 		return nil, &statusError{Status: res.StatusCode, Code: errorCode(res.Body)}
 	}
 	return res.Body, nil
+}
+
+func (c *client) parkDisk(ctx context.Context, nodeID, instanceID string,
+	content io.Reader) error {
+	path := "/v1/nodes/" + nodeID + "/instances/" + instanceID + "/disk"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.endpoint+path, content)
+	if err != nil {
+		return fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+
+	res, err := c.transfer.Do(req)
+	if err != nil {
+		return fmt.Errorf("hand over the disk: %w", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode >= http.StatusBadRequest {
+		return &statusError{Status: res.StatusCode, Code: errorCode(res.Body)}
+	}
+	return nil
+}
+
+func (c *client) takeDisk(ctx context.Context, nodeID, instanceID string) (io.ReadCloser, error) {
+	path := "/v1/nodes/" + nodeID + "/instances/" + instanceID + "/disk"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.endpoint+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+
+	res, err := c.transfer.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch the disk: %w", err)
+	}
+	if res.StatusCode >= http.StatusBadRequest {
+		defer res.Body.Close()
+		return nil, &statusError{Status: res.StatusCode, Code: errorCode(res.Body)}
+	}
+	return res.Body, nil
+}
+
+func (c *client) diskLanded(ctx context.Context, nodeID, instanceID string) error {
+	return c.do(ctx, http.MethodPost,
+		"/v1/nodes/"+nodeID+"/instances/"+instanceID+"/landed", nil, nil)
 }
 
 type volumeKeyBody struct {

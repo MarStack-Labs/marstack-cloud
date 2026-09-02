@@ -903,6 +903,33 @@ make check      # vet + test + security scans
   never execute `qemu-img`.
 - `volume attach --instance` still takes an instance id rather than a name. The volume module does
   its own lookup and did not gain the resolver, so that inconsistency is still open.
+- A drain now **carries the disk** of a vm, microvm or sandbox instead of refusing to move it. The
+  node is still answering, so it can hand the disk over: park it on the control plane, release the
+  placement, let the destination fetch it. The **stranded** path is unchanged and must stay that
+  way - a node that stopped answering cannot be asked for anything.
+- **`desired = stopped` was being used as "not wanted anywhere", and a migrating instance is very
+  much wanted somewhere.** Stopping it for the move made it vanish from `listRunningOn` (so the
+  drain declared the node empty and finished with a disk still on it) and from
+  `listPendingPlacement` (so once released, nothing ever picked it up). Both queries needed
+  `OR migrating = 1`. This is one root cause that produced two different silent failures, found
+  live one after the other.
+- **The node that parked a disk must not be allowed to take it back.** It is still the assigned node
+  until the scheduler releases the placement, so it wins that race every time - the first live run
+  ended the move on the node being drained, looking like a success. `disk_from` records who handed
+  it over and serving it back to them is refused.
+- The scheduler cannot see which runtimes implement `DiskCarrier`, so `carriesItsDisk` names the
+  isolations explicitly. Without it a fifth isolation added later would be stopped and then wait
+  forever for a hand-over nobody makes - worse than the old honest `drain_blocked`.
+- Deleting an instance mid-move left its parked disk on the control plane forever. The cleanup has
+  to sit **before** `delete`'s early return on a nil networks module, because that return skips
+  everything after it.
+- A migration test cannot share an app with a running scheduler: the scheduler releases the
+  placement the moment the disk is parked, so any test that parks and then does something with the
+  source node races it. `steadyMigration` builds an app with no scheduler and calls
+  `BeginMigration` directly; the drain-driven path has its own tests.
+- `efivars.fd` is **not** carried, only `disk.qcow2` and `rootfs.ext4`. The destination rebuilds UEFI
+  variables, which booted cleanly in the live run, but a guest that depends on a custom boot entry
+  would not survive the move.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

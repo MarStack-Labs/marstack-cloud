@@ -1,6 +1,7 @@
 package instance
 
 import (
+	"io"
 	"net/http"
 	"time"
 
@@ -70,6 +71,8 @@ type response struct {
 	Observed        string            `json:"observed_state"`
 	ObservedMessage string            `json:"observed_message,omitempty"`
 	ExitCode        *int              `json:"exit_code,omitempty"`
+	Migrating       bool              `json:"migrating,omitempty"`
+	DiskParked      bool              `json:"disk_parked,omitempty"`
 	NodeID          string            `json:"node_id,omitempty"`
 	CreatedAt       string            `json:"created_at"`
 	UpdatedAt       string            `json:"updated_at"`
@@ -107,6 +110,8 @@ func toResponse(in Instance) response {
 		Observed:        string(in.Observed),
 		ObservedMessage: in.ObservedMessage,
 		ExitCode:        in.ExitCode,
+		Migrating:       in.Migrating,
+		DiskParked:      in.DiskParked,
 		NodeID:          in.NodeID,
 		CreatedAt:       in.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt:       in.UpdatedAt.Format(time.RFC3339Nano),
@@ -184,6 +189,41 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	httpx.Write(w, http.StatusOK, body)
+	return nil
+}
+
+func (h *handler) parkDisk(w http.ResponseWriter, r *http.Request) error {
+	defer r.Body.Close()
+
+	if err := h.svc.parkDisk(r.Context(), r.PathValue("nodeID"),
+		r.PathValue("instanceID"), r.Body); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (h *handler) takeDisk(w http.ResponseWriter, r *http.Request) error {
+	file, err := h.svc.parkedDisk(r.Context(), r.PathValue("nodeID"),
+		r.PathValue("instanceID"))
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.Copy(w, file)
+	return nil
+}
+
+func (h *handler) landed(w http.ResponseWriter, r *http.Request) error {
+	in, err := h.svc.finishMigration(r.Context(), r.PathValue("nodeID"),
+		r.PathValue("instanceID"))
+	if err != nil {
+		return err
+	}
+	httpx.Write(w, http.StatusOK, toResponse(in))
 	return nil
 }
 

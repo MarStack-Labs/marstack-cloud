@@ -30,6 +30,7 @@ type service struct {
 	events    events.Recorder
 	firewalls Firewalls
 	sealing   *sealed.Keyring
+	dataDir   string
 }
 
 func newService(repo *repository, now clock) *service {
@@ -286,6 +287,7 @@ func (s *service) delete(ctx context.Context, ref, projectID string) error {
 	if err := s.repo.delete(ctx, id); err != nil {
 		return translate(err)
 	}
+	s.forgetParked(id)
 	if s.networks == nil {
 		return nil
 	}

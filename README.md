@@ -1307,6 +1307,61 @@ the server, so they are separate maps now, and only `/healthz` is in both.
 > hold exactly one session: the second login returned 409, the test ignored both
 > status codes, and an empty token was duly refused. One live command found it.
 
+## Taking a node out with a vm on it
+
+`movableIsolation = "container"` meant one vm pinned a node forever: cordon and
+drain never finished, so the node could never be taken out for maintenance.
+
+A drain carries the disk now. The node is still answering — that is the whole
+difference from a node that died — so it hands the disk to the control plane, the
+placement is released, and the destination fetches it.
+
+```
+node mvckcq62  desired stopped  observed stopped  migrating True  parked False
+node 7x5k56ta  desired running  observed stopped  migrating False parked False
+node 7x5k56ta  desired running  observed running  migrating False parked False
+```
+
+```
+$ # after: three workloads moved off bm-1, drain finished
+mv-b     microvm   node 7x5k56ta  running  migrating False
+mv-c     microvm   node 7x5k56ta  running  migrating False
+movevm   vm        node 7x5k56ta  running  migrating False
+
+$ ls /var/lib/marstack/vms/i-r1sqb0nc9hhtw/disk.qcow2   # bm-1
+gone from marstack-dev
+$ ls -la .../microvms/i-ph8ena2e704bw/rootfs.ext4       # bm-2
+-rw------- 1 root root 76611584 Sep  2 22:14
+$ ls .../marstack-data/migrations/ | wc -l
+0
+```
+
+The **stranded** path is untouched and must stay that way: a node that stopped
+answering cannot be asked for its disk, so that case still says so and stops.
+
+Three bugs, each found by the live run after the tests were green:
+
+> **`desired = stopped` was standing in for "not wanted anywhere".** Stopping an
+> instance for the move made it vanish from the list of what a node is still
+> running — so the drain declared the node empty and *finished, with the disk
+> still on it* — and from the list of things waiting for a node, so once released
+> nothing ever picked it up. One root cause, two silent failures, found one after
+> the other.
+
+> **The node that parked the disk took it straight back.** It is still the
+> assigned node until the scheduler releases the placement, so it wins that race
+> every time: the first live run ended the move on the node being drained and
+> looked like a success.
+
+> **A microvm was marked as moving with no runtime able to carry it**, and hung
+> forever — worse than the old honest refusal. The scheduler cannot see which
+> runtimes implement the capability, so the isolations that can are now named
+> explicitly, and anything else still blocks out loud.
+
+Only `disk.qcow2` and `rootfs.ext4` travel. `efivars.fd` is rebuilt at the
+destination, which booted cleanly here, but a guest depending on a custom UEFI
+boot entry would not survive the move.
+
 ## A snapshot that becomes a volume
 
 Restoring rolled a volume back and threw away what came after, so a snapshot
@@ -2841,6 +2896,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 66  calling an instance by its name                   done
 67  paging the audit trail and the event log          done
 68  a snapshot that becomes a volume of its own       done
+69  taking a node out with a vm on it                 done
 ```
 
 ## License

@@ -95,6 +95,9 @@ type Instance struct {
 	Observed        ObservedState
 	ObservedMessage string
 	ExitCode        *int
+	Migrating       bool
+	DiskParked      bool
+	DiskFrom        string
 	NodeID          string
 	Group           string
 	Strict          bool

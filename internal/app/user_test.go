@@ -1,10 +1,19 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/logging"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/user"
 )
 
 const goodPassword = "correct horse battery staple"
@@ -269,23 +278,54 @@ func TestSomethingThatIsNotAnAddressIsRefused(t *testing.T) {
 	}
 }
 
+func newFrozenApp(t *testing.T) *testApp {
+	t.Helper()
+
+	dir := t.TempDir()
+	at := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
+
+	built, err := New(context.Background(), Config{
+		DataDir:       dir,
+		RatePerSecond: &unlimited,
+		Now:           func() time.Time { return at },
+	}, logging.New("error", io.Discard))
+	if err != nil {
+		t.Fatalf("new app: %v", err)
+	}
+	t.Cleanup(func() { built.Close() })
+
+	raw, err := os.ReadFile(filepath.Join(dir, token.BootstrapFileName))
+	if err != nil {
+		t.Fatalf("read the bootstrap token: %v", err)
+	}
+	return &testApp{App: built, secret: strings.TrimSpace(string(raw))}
+}
+
 func TestGuessingPasswordsIsThrottled(t *testing.T) {
-	a, _ := newBalancingApp(t)
+	a := newFrozenApp(t)
 	someone(t, a, "ada@example.test", "member")
 
-	refused := 0
-	for range 40 {
+	allowed, refused := 0, 0
+	for range 12 {
 		rec := do(t, a, http.MethodPost, "/v1/login",
 			strings.NewReader(`{"email":"ada@example.test","password":"guess"}`))
 		if rec.Code == http.StatusTooManyRequests {
 			refused++
+			continue
 		}
+		allowed++
 	}
 
 	if refused == 0 {
-		t.Fatal("forty guesses in a row all got a real answer. The login is the one route " +
+		t.Fatal("twelve guesses in a row all got a real answer. The login is the one route " +
 			"that must be reachable without a token, which makes it the one that most " +
 			"needs a limit")
+	}
+	if allowed > user.LoginBurst {
+		t.Fatalf("%d guesses got through against a burst of %d. The clock is frozen here "+
+			"on purpose: against the wall clock a slow machine refills the bucket between "+
+			"attempts and every guess is answered, which is how this test passed for "+
+			"months and then failed once the machine was busy", allowed, user.LoginBurst)
 	}
 }
 
