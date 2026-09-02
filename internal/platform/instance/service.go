@@ -27,6 +27,7 @@ type service struct {
 	forwards  Forwards
 	balancers Balancers
 	logs      Logs
+	execs     Execs
 	events    events.Recorder
 	firewalls Firewalls
 	sealing   *sealed.Keyring
@@ -288,6 +289,12 @@ func (s *service) delete(ctx context.Context, ref, projectID string) error {
 		return translate(err)
 	}
 	s.forgetParked(id)
+	if s.execs != nil {
+		if err := s.execs.ReleaseInstance(ctx, id); err != nil {
+			return fault.Internal(fmt.Errorf(
+				"instance %s was deleted but its commands were kept: %w", id, err))
+		}
+	}
 	if s.networks == nil {
 		return nil
 	}

@@ -43,6 +43,10 @@ type Logs interface {
 	ReleaseInstance(ctx context.Context, instanceID string) error
 }
 
+type Execs interface {
+	ReleaseInstance(ctx context.Context, instanceID string) error
+}
+
 type Keys interface {
 	Resolve(ctx context.Context, projectID string, names []string) ([]string, error)
 }
@@ -76,6 +80,10 @@ func (m *Module) UseForwards(forwards Forwards) {
 
 func (m *Module) UseLogs(logs Logs) {
 	m.svc.logs = logs
+}
+
+func (m *Module) UseExecs(execs Execs) {
+	m.svc.execs = execs
 }
 
 func (m *Module) UseBalancers(balancers Balancers) {

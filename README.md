@@ -1307,6 +1307,65 @@ the server, so they are separate maps now, and only `/healthz` is in both.
 > hold exactly one session: the second login returned 409, the test ignored both
 > status codes, and an empty token was duly refused. One live command found it.
 
+## Getting inside a running container
+
+Logs said what a workload printed. Nothing let you look inside one.
+
+```
+$ marstack exec execbox -- cat /marker.txt
+started
+
+$ marstack exec execbox -- sh -c 'echo host=$(hostname); echo uid=$(id -u); echo pid1=$(cat /proc/1/comm)'
+host=execbox
+uid=0
+pid1=sleep
+```
+
+`pid1=sleep` is the proof: that is the container's own pid namespace, where pid 1
+is the workload itself.
+
+**This is deliberately not a shell.** No stdin, no terminal — one command, its
+output, its exit code. An interactive session needs a channel that stays open
+between the client and the node, and the node only ever calls out, so that is a
+different piece of work rather than a flag on this one. Only a container can be
+entered:
+
+```
+$ marstack exec i-7dn7y7vsn7218 -- ls
+error: no_way_in: only a container can be entered from the node. A vm, microvm
+or sandbox runs its own kernel, so getting inside needs something running in the
+guest: use marstack console on the node instead
+```
+
+Three things the live run found that the tests could not:
+
+> **A slow command ran inside the reconcile pass.** A five minute timeout would
+> have stalled every workload on that node for five minutes — the same shape as
+> the registry pull. Commands are served by their own two second loop now, which
+> also cut the round trip from a whole pass to under three seconds.
+
+> **A 3 second timeout took 70 seconds.** `exec.CommandContext` kills `nsenter`,
+> but the process it started keeps the output pipes open and `Run` waits for
+> them. `Setpgid`, a `Cancel` that kills the group, and `WaitDelay` bring it to
+> 4 seconds.
+
+> **The timeout said nothing.** A SIGKILL makes `Run` return an `*exec.ExitError`,
+> so checking for that first always matched and the caller was told "exited with
+> -1". The timeout has to be checked first:
+>
+> ```
+> the command ran out of time
+> error: the command exited with -1
+> ```
+
+Handing a command out is two steps — read the waiting row, mark it taken — so the
+**update** decides, with `state = 'waiting'` in its WHERE. Eight concurrent
+takers proved why: without the condition, four of them ran the same command.
+
+Also fixed here: the migration disk routes were missing from `streamingPaths`, so
+a real vm disk would have been cut off by the 30 second request timeout. That
+live run only passed because the disk was 25 MB.
+
 ## Taking a node out with a vm on it
 
 `movableIsolation = "container"` meant one vm pinned a node forever: cordon and
@@ -2897,6 +2956,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 67  paging the audit trail and the event log          done
 68  a snapshot that becomes a volume of its own       done
 69  taking a node out with a vm on it                 done
+70  getting inside a running container                done
 ```
 
 ## License

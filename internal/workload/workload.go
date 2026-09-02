@@ -196,6 +196,18 @@ type DiskCarrier interface {
 	Forget(instanceID string) error
 }
 
+type Entered struct {
+	Output    string
+	Truncated bool
+	ExitCode  int
+	Message   string
+}
+
+type Enterable interface {
+	Enter(ctx context.Context, instanceID string, command []string,
+		limit int) (Entered, error)
+}
+
 type Runtime interface {
 	Name() string
 	List(ctx context.Context) ([]string, error)

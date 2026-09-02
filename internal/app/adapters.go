@@ -9,6 +9,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/balancer"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/dns"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/event"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/exec"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/forward"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/instance"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/job"
@@ -315,6 +316,24 @@ func (l instanceLoad) SamplesOf(ctx context.Context) (map[string]autoscale.Sampl
 		held[sample.InstanceID] = one
 	}
 	return held, nil
+}
+
+type execInstances struct {
+	instances *instance.Module
+}
+
+func (e execInstances) TargetFor(ctx context.Context, ref,
+	projectID string) (exec.Target, error) {
+	found, err := e.instances.ResolveIn(ctx, ref, projectID)
+	if err != nil {
+		return exec.Target{}, err
+	}
+	return exec.Target{
+		InstanceID: found.ID,
+		NodeID:     found.NodeID,
+		Isolation:  string(found.Isolation),
+		Observed:   string(found.Observed),
+	}, nil
 }
 
 type jobWorkloads struct {

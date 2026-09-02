@@ -132,6 +132,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	go a.heartbeatLoop(ctx)
+	go a.ServeCommands(ctx)
 	defer a.tls.Close()
 
 	ticker := time.NewTicker(a.cfg.Interval)

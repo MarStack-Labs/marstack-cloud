@@ -53,6 +53,8 @@ var nodePaths = []string{
 	"PUT /v1/nodes/{id}/volumes",
 	"PUT /v1/nodes/{id}/images",
 	"PUT /v1/nodes/{id}/usage",
+	"GET /v1/nodes/{id}/exec",
+	"POST /v1/nodes/{id}/execs/{execID}/result",
 	"PUT /v1/nodes/{id}/instances/{instanceID}/logs",
 	"PUT /v1/nodes/{id}/instances/{instanceID}/disk",
 	"GET /v1/nodes/{id}/instances/{instanceID}/disk",
@@ -72,6 +74,8 @@ var nodePaths = []string{
 var streamingPaths = []string{
 	"PUT /v1/nodes/{id}/backups/{backupID}/content",
 	"GET /v1/nodes/{id}/backups/{backupID}/content",
+	"PUT /v1/nodes/{id}/instances/{instanceID}/disk",
+	"GET /v1/nodes/{id}/instances/{instanceID}/disk",
 }
 
 var memberPaths = []string{
@@ -125,6 +129,9 @@ var memberPaths = []string{
 	"POST /v1/instances/{id}/resize",
 	"GET /v1/instances/{id}",
 	"GET /v1/instances/{id}/logs",
+	"POST /v1/instances/{id}/exec",
+	"GET /v1/execs",
+	"GET /v1/execs/{id}",
 	"DELETE /v1/instances/{id}",
 	"POST /v1/instances/{id}/start",
 	"POST /v1/instances/{id}/stop",

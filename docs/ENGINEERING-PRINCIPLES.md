@@ -930,6 +930,33 @@ make check      # vet + test + security scans
 - `efivars.fd` is **not** carried, only `disk.qcow2` and `rootfs.ext4`. The destination rebuilds UEFI
   variables, which booted cleanly in the live run, but a guest that depends on a custom boot entry
   would not survive the move.
+- `marstack exec` runs **one command** in a container and hands back its output and exit code. It
+  is deliberately **not a shell**: no stdin, no terminal. An interactive session needs a channel
+  that stays open between the client and the node, and the node only ever calls out, so that is a
+  different piece of work rather than a flag on this one.
+- Only a **container** can be entered. A vm, microvm or sandbox runs its own kernel, so getting
+  inside needs an agent in the guest; the refusal points at `marstack console` instead of handing
+  back an empty answer.
+- Entering is `nsenter --target <init pid> --mount --uts --ipc --net --pid`. Go cannot `setns` into
+  a mount namespace from its own process: by the time `init()` runs the runtime is already
+  multithreaded and the call fails with EINVAL.
+- **A slow command must not run inside the reconcile pass.** A five minute timeout would stall
+  every workload on the node for five minutes - the same shape as the registry pull. Commands are
+  served by their own two second loop, which also cut the round trip from a whole pass to under
+  three seconds.
+- `exec.CommandContext` alone does not end a timed-out command: killing `nsenter` leaves the
+  process it started holding the output pipes, so `Run` waits for them. A 3 second timeout took
+  **70 seconds**. `Setpgid` plus a `Cancel` that kills the group plus `WaitDelay` brings it to 4.
+- **The timeout has to be checked before the exit error, not after.** A SIGKILL makes `Run` return
+  an `*exec.ExitError`, so a check for that first always matches and the caller is told
+  "exited with -1" instead of "ran out of time". Swapping the two is a mutation test.
+- Handing a command out is two steps - read the waiting row, mark it taken - so the **update** has
+  to be the one that decides, with `state = 'waiting'` in its WHERE. Eight concurrent takers proved
+  it: without the condition four of them ran the same command.
+- Output is capped keeping the **end**, like a log: what a command was going to tell you is at the
+  end.
+- The migration disk routes were missing from `streamingPaths`, so a real vm disk would have been
+  cut off by the 30 second request timeout. The live run only passed because the disk was 25 MB.
 - `instanceNodeID` now fails on any status but 200. It used to unmarshal whatever came back into
   `{node_id}`, so a 429 read as "not placed yet" - the same misreading any client polling faster
   than the limit would make, and the reason the failure looked like a scheduler bug.

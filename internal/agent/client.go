@@ -591,6 +591,41 @@ func (c *client) diskLanded(ctx context.Context, nodeID, instanceID string) erro
 		"/v1/nodes/"+nodeID+"/instances/"+instanceID+"/landed", nil, nil)
 }
 
+const maxCommandOutput = 256 << 10
+
+type commandView struct {
+	ID             string   `json:"id"`
+	InstanceID     string   `json:"instance_id"`
+	Command        []string `json:"command"`
+	Isolation      string   `json:"isolation"`
+	TimeoutSeconds int      `json:"timeout_seconds"`
+}
+
+type commandResult struct {
+	Output    string `json:"output"`
+	Truncated bool   `json:"truncated,omitempty"`
+	ExitCode  *int   `json:"exit_code,omitempty"`
+	Message   string `json:"message,omitempty"`
+}
+
+func (c *client) takeCommand(ctx context.Context, nodeID string) (commandView, bool, error) {
+	var out commandView
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/exec", nil, &out)
+	if err != nil {
+		return commandView{}, false, err
+	}
+	if out.ID == "" {
+		return commandView{}, false, nil
+	}
+	return out, true, nil
+}
+
+func (c *client) finishCommand(ctx context.Context, nodeID, execID string,
+	result commandResult) error {
+	return c.do(ctx, http.MethodPost,
+		"/v1/nodes/"+nodeID+"/execs/"+execID+"/result", result, nil)
+}
+
 type volumeKeyBody struct {
 	VolumeID string `json:"volume_id"`
 	Key      string `json:"key"`

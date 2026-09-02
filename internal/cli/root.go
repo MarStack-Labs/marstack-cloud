@@ -115,6 +115,7 @@ func newRootCmd() *cobra.Command {
 		newWebhookCmd(g),
 		newServiceCmd(g),
 		newLogsCmd(g),
+		newExecCmd(g),
 		newJobCmd(g),
 		newUserCmd(g),
 		newLoginCmd(g),
