@@ -454,7 +454,7 @@ func (c *client) do(ctx context.Context, method, path string, in, out any) error
 	if res.StatusCode >= http.StatusBadRequest {
 		return &statusError{Status: res.StatusCode, Code: errorCode(res.Body)}
 	}
-	if out == nil {
+	if out == nil || res.StatusCode == http.StatusNoContent {
 		return nil
 	}
 	if err := json.NewDecoder(res.Body).Decode(out); err != nil {

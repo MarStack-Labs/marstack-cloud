@@ -1008,3 +1008,11 @@ make check      # vet + test + security scans
 - Alpine's busybox has **no `httpd` applet** (it lives in `busybox-extras`), so the obvious way to
   make a container serve HTTP for a live test fails and the service quietly churns replicas. A
   `nc -l -p 80` loop dropped in with `--file` works and needs no image build.
+- The agent's `do` decoded the body on **every** status below 400, so a `204 No Content` came back
+  as `decode response: EOF`. `GET /v1/nodes/{id}/exec` answers 204 whenever nothing is waiting,
+  which is the steady state, so every idle node logged a warning every two seconds. The CLI client
+  already had the guard; the agent's copy did not. A 204 means there is nothing to decode - but
+  widening that to any 2xx makes the agent stop reading real answers, and both directions are
+  mutation tests.
+- No test caught it because the exec tests all had a command waiting. The absence of work is a
+  case, and for a poll loop it is the case that runs 99% of the time.
