@@ -1007,6 +1007,58 @@ that does not exist is refused rather than becoming a 404 nobody can explain.
 Websockets pass through, because `httputil.ReverseProxy` handles `Upgrade` and
 the standard library is the whole dependency.
 
+## A start that failed, and a start that will never work
+
+A workload that crashes has always been restarted with a backoff, 1s doubling to
+60s, reset once it has stayed up a minute. A workload that **failed to start**
+had none of that: the reconcile pass called `Start` again every ten seconds, for
+as long as the node ran. A start that failed is a restart, so it now goes through
+the same backoff:
+
+```
+00:42:00  registry returned 404 for .../alpine/manifests/does-not-exist-9
+00:42:11  registry returned 404 ...
+00:42:20  registry returned 404 ...
+00:42:40  registry returned 404 ...      # 20s
+00:43:20  registry returned 404 ...      # 40s
+00:44:34  registry returned 404 ...      # 74s, at the ceiling
+```
+
+```
+NAME          IMAGE                     DESIRED   OBSERVED   RESTARTS   MESSAGE
+nosuchimage   alpine:does-not-exist-9   running   failed     5          registry returned 404 ...
+```
+
+While it waits, the reported message says so - `..., trying again in 32s
+(attempt 6)` - because a workload that is waiting and says nothing looks exactly
+like one nobody is looking after.
+
+**Some failures are not worth waiting on.** No amount of retrying adds a command
+to an image that declares none, and that instance had been logging a warning
+every ten seconds since some earlier session. A runtime that is certain says so
+by wrapping `workload.ErrUnstartable`, and the node then reports `failed` with
+the reason and stops calling `Start`:
+
+```
+00:40:11  WARN giving up on a workload that cannot start
+          error="this workload can never start as it is configured:
+                 the image declares no command and none was given"
+```
+
+One line, where there had been one every ten seconds. The refusal is held in the
+agent's memory, so a new agent tries once more - the same shape as probe
+verdicts, and the right answer, because the binary that refused may not be the
+binary running now. Everything else stays transient: an image that is not on the
+node yet, a busy disk, a network that is not up. Only what cannot be fixed by
+waiting is permanent, and the decision belongs to the runtime, because nothing
+above it can see the image.
+
+For a service replica the two compose with the reaper: a replica that can never
+start is reported `failed`, replaced, and the replacement fails the same way,
+until `MaxReapAttempts` stops the churn and puts the reason on the service. That
+bound already existed; this is what makes it fire on a template that is broken
+rather than unlucky.
+
 ## Terminating TLS at the balancer
 
 A balancer was an nftables rule: the kernel rewrites the destination and never
@@ -3046,6 +3098,7 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 69  taking a node out with a vm on it                 done
 70  getting inside a running container                done
 71  one port serving many applications                done
+72  a start that can never work, said once            done
 ```
 
 ## License

@@ -23,6 +23,7 @@ type fakeRuntime struct {
 	started  []workload.Spec
 	stopped  []string
 	removed  []string
+	attempts int
 	startErr error
 	stopErr  error
 	statErr  error
@@ -37,10 +38,17 @@ func (f *fakeRuntime) List(context.Context) ([]string, error) {
 
 func (f *fakeRuntime) Name() string { return "fake" }
 
+func (f *fakeRuntime) startAttempts() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.attempts
+}
+
 func (f *fakeRuntime) Start(_ context.Context, spec workload.Spec) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	f.attempts++
 	if f.startErr != nil {
 		return f.startErr
 	}

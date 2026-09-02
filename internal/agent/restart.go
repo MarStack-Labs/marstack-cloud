@@ -16,6 +16,7 @@ type restartState struct {
 	startedAt    time.Time
 	haltedByUser bool
 	startFailure string
+	unstartable  string
 }
 
 func (a *Agent) restartStateOf(instanceID string) *restartState {
@@ -70,6 +71,42 @@ func (a *Agent) noteStartFailure(instanceID, reason string) {
 	defer a.restartsMu.Unlock()
 
 	state.startFailure = reason
+}
+
+func (a *Agent) noteUnstartable(instanceID, reason string) bool {
+	state := a.restartStateOf(instanceID)
+
+	a.restartsMu.Lock()
+	defer a.restartsMu.Unlock()
+
+	first := state.unstartable == ""
+	state.unstartable = reason
+	return first
+}
+
+func (a *Agent) unstartable(instanceID string) (string, bool) {
+	state := a.restartStateOf(instanceID)
+
+	a.restartsMu.Lock()
+	defer a.restartsMu.Unlock()
+
+	return state.unstartable, state.unstartable != ""
+}
+
+func (a *Agent) forgetRestarts(assigned []instanceView) {
+	keep := make(map[string]bool, len(assigned))
+	for _, in := range assigned {
+		keep[in.ID] = true
+	}
+
+	a.restartsMu.Lock()
+	defer a.restartsMu.Unlock()
+
+	for id := range a.restarts {
+		if !keep[id] {
+			delete(a.restarts, id)
+		}
+	}
 }
 
 func (a *Agent) lastStartFailure(instanceID string) string {

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/netip"
 	"slices"
@@ -130,6 +131,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 		a.reportUsage(ctx, state.Instances)
 		a.shipLogs(ctx, state.Instances)
 		a.forgetLogs(state.Instances)
+		a.forgetRestarts(state.Instances)
 		a.runProbes(ctx, state.Balancers, state.Instances)
 	}
 	a.serveDNS(ctx, state.Networks, state.Records)
@@ -831,7 +833,20 @@ func (a *Agent) ensureRunning(
 		return a.handleExit(ctx, runtime, spec, state, policy)
 
 	default:
-		return a.start(ctx, runtime, spec, "")
+		if reason, refused := a.unstartable(spec.InstanceID); refused {
+			return observedFailed, reason
+		}
+		if allowed, wait := a.restartAllowed(spec.InstanceID); !allowed {
+			return observedFailed, fmt.Sprintf("%s, trying again in %s (attempt %d)",
+				a.lastStartFailure(spec.InstanceID), wait.Round(time.Second),
+				a.restartAttempts(spec.InstanceID)+1)
+		}
+
+		observed, message := a.start(ctx, runtime, spec, "")
+		if observed == observedFailed {
+			a.noteRestart(spec.InstanceID)
+		}
+		return observed, message
 	}
 }
 
@@ -888,8 +903,17 @@ func (a *Agent) start(
 		note = "restarted after this node was fenced for " + silence.Round(time.Second).String()
 	}
 	if err := runtime.Start(ctx, spec); err != nil {
-		a.log.Warn("could not start workload", "instance", spec.InstanceID, "error", err)
 		a.noteStartFailure(spec.InstanceID, err.Error())
+
+		if errors.Is(err, workload.ErrUnstartable) {
+			if a.noteUnstartable(spec.InstanceID, err.Error()) {
+				a.log.Warn("giving up on a workload that cannot start",
+					"instance", spec.InstanceID, "error", err)
+			}
+			return observedFailed, err.Error()
+		}
+
+		a.log.Warn("could not start workload", "instance", spec.InstanceID, "error", err)
 		return observedFailed, err.Error()
 	}
 

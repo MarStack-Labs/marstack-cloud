@@ -2,8 +2,11 @@ package workload
 
 import (
 	"context"
+	"errors"
 	"io"
 )
+
+var ErrUnstartable = errors.New("this workload can never start as it is configured")
 
 type Phase string
 

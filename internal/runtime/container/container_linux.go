@@ -89,12 +89,9 @@ func (r *Runtime) Start(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
-	command := spec.Command
-	if len(command) == 0 {
-		command = imageConfig.Command()
-	}
-	if len(command) == 0 {
-		return errors.New("the image declares no command and none was given")
+	command, err := guest.CommandFor(spec.Command, imageConfig.Command())
+	if err != nil {
+		return err
 	}
 
 	if err := r.prepareNetwork(spec); err != nil {

@@ -1016,3 +1016,26 @@ make check      # vet + test + security scans
   mutation tests.
 - No test caught it because the exec tests all had a command waiting. The absence of work is a
   case, and for a poll loop it is the case that runs 99% of the time.
+- A crash had a backoff and a **failed start did not**: `ensureRunning`'s default branch called
+  `Start` on every pass, so an instance that could not start logged a warning every ten seconds for
+  as long as the node ran. A failed start is a restart attempt; it goes through `restartAllowed`
+  and `noteRestart` now. Counting the attempt inside `start`'s failure branch rather than before
+  the call is deliberate - a successful first start must not be charged one, or the first crash
+  would begin at attempt 2.
+- Waiting is reported, not silent: the message carries the last reason plus `trying again in Xs
+  (attempt N)`. A workload that is waiting and says nothing looks the same as one nobody is
+  looking after.
+- **A permanent failure is not a slow retry.** `workload.ErrUnstartable` is what a runtime wraps
+  when no amount of waiting can help - today only "the image declares no command and none was
+  given". The agent reports `failed` with the reason, logs once, and stops calling `Start`. Only
+  the runtime can make that call, because nothing above it can see the image.
+- The refusal lives in the agent's memory, keyed on the instance id, so a new agent tries once
+  more. That is right rather than sloppy: the binary that refused may not be the binary running
+  now, and the only fix for this class of failure is delete-and-recreate, which gives a new id.
+- The mark has to be a **wrap**, and removing it compiles. That is why the command decision moved
+  into `guest.CommandFor` - one place produces the refusal, and `internal/runtime/guest` is
+  untagged so a test on macOS can assert `errors.Is(err, workload.ErrUnstartable)`. Left in the two
+  `_linux.go` files it was two copies of one error string that no test could reach.
+- `a.restarts` was never pruned - one entry per instance the node ever held. `forgetRestarts` runs
+  beside `forgetLogs` on every reporting pass, and it matters more now that the map holds the
+  give-up decision: state that outlives its instance is a verdict waiting to be inherited.

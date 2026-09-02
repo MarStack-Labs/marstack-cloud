@@ -96,12 +96,9 @@ func (r *Runtime) prepareRootfs(ctx context.Context, spec workload.Spec) error {
 		return err
 	}
 
-	command := spec.Command
-	if len(command) == 0 {
-		command = config.Command()
-	}
-	if len(command) == 0 {
-		return fmt.Errorf("the image declares no command and none was given")
+	command, err := guest.CommandFor(spec.Command, config.Command())
+	if err != nil {
+		return err
 	}
 
 	if err := writeGuestFiles(staging, spec, command, guest.MergeEnv(config.Env, spec.Env)); err != nil {
