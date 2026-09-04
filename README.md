@@ -1667,6 +1667,13 @@ namedbox   i-n3jv7q3xjdd8w   alpine:3.20   2cpu/512Mi   stopped   running
 The id is tried first, so a name that looks like an id cannot shadow the instance
 it identifies.
 
+`volume attach --instance` takes a name too. The volume module cannot import the
+instance module, so the resolution happens where the dependency already was:
+`Instances.Placement` takes a ref and a project and hands back the id it
+resolved, and `attach` stores that. The composition root is the only place that
+knows how to resolve a name, which is the same shape as every other cross-module
+lookup here.
+
 **Resolving in one place was not enough.** `setDesired`, `resize` and `delete`
 each took the resolved instance for the permission check and then passed the
 *typed* string to the database. For delete that is the dangerous one: it releases
