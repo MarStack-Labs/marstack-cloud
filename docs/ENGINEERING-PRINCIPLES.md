@@ -1049,3 +1049,16 @@ make check      # vet + test + security scans
 - `a.restarts` was never pruned - one entry per instance the node ever held. `forgetRestarts` runs
   beside `forgetLogs` on every reporting pass, and it matters more now that the map holds the
   give-up decision: state that outlives its instance is a verdict waiting to be inherited.
+- `PUT /v1/balancers/{id}/routes` **replaces** the whole table, the same choice as
+  `PUT /v1/nodes/{id}/labels` and for the same reasons: merging leaves no way to remove one route
+  without inventing a delete route and a null-means-delete convention, and it makes the call
+  non-idempotent.
+- The replace path calls `normalizeRoutes` and `checkRoutes` too. A second way in that skips the
+  rules is the way round every one of them, and each is a mutation test on this route as well.
+- An **empty** table is refused: a routing balancer with no routes is a bound port that answers
+  every request with a 404, which is not a state anybody asks for on purpose. Deleting the
+  balancer is how you stop routing.
+- A balancer created without routes cannot grow them, and one with routes cannot drop to none.
+  Either direction is a **mode change** - nftables rule versus userspace listener - and doing that
+  through a route that looks like an edit would move the port from the kernel to the agent behind
+  the operator's back.

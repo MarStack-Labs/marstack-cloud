@@ -159,6 +159,8 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("DELETE /v1/balancers/{id}/backends/{instanceID}",
 		httpx.Wrap(m.log, m.handler.removeBackend))
 
+	mux.Handle("PUT /v1/balancers/{id}/routes", httpx.Wrap(m.log, m.handler.setRoutes))
+
 	mux.Handle("PUT /v1/balancers/{id}/certificate", httpx.Wrap(m.log, m.handler.setCertificate))
 	mux.Handle("DELETE /v1/balancers/{id}/certificate",
 		httpx.Wrap(m.log, m.handler.removeCertificate))

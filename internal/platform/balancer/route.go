@@ -172,3 +172,46 @@ func (s *service) everyBackend(ctx context.Context, b Balancer) ([]Backend, erro
 	}
 	return backends, nil
 }
+
+func (s *service) setRoutes(
+	ctx context.Context, id, projectID string, asked []RouteParams,
+) (Balancer, error) {
+	b, err := s.get(ctx, projectID, id)
+	if err != nil {
+		return Balancer{}, err
+	}
+	if len(b.Routes) == 0 {
+		return Balancer{}, fault.Invalid("not_a_routing_balancer",
+			"this balancer sends everything on its port to one set of backends, and turning "+
+				"that into routing would change what the port answers with no way back")
+	}
+
+	routes, err := normalizeRoutes(asked)
+	if err != nil {
+		return Balancer{}, err
+	}
+	if len(routes) == 0 {
+		return Balancer{}, fault.Invalid("no_routes",
+			"a routing balancer with no routes is a port that answers every request with a "+
+				"404: delete it instead")
+	}
+	if err := s.checkRoutes(ctx, projectID, routes); err != nil {
+		return Balancer{}, err
+	}
+
+	replaced := make([]Route, 0, len(routes))
+	for _, one := range routes {
+		replaced = append(replaced, Route{
+			Host:      one.Host,
+			Path:      one.Path,
+			ServiceID: one.Service,
+		})
+	}
+
+	if err := s.repo.replaceRoutes(ctx, b.ID, replaced); err != nil {
+		return Balancer{}, translate(err)
+	}
+
+	b.Routes = replaced
+	return s.resolve(ctx, b)
+}

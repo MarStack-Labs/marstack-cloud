@@ -336,3 +336,133 @@ func TestANodeReportsHealthForARouteBackend(t *testing.T) {
 		}
 	}
 }
+
+func setRoutes(t *testing.T, a *testApp, secret, id, routes string) (int, balancerBody) {
+	t.Helper()
+
+	rec := doAs(t, a, secret, http.MethodPut, "/v1/balancers/"+id+"/routes",
+		strings.NewReader(`{"routes":`+routes+`}`))
+
+	var updated balancerBody
+	_ = json.Unmarshal(rec.Body.Bytes(), &updated)
+	return rec.Code, updated
+}
+
+func TestRoutesCanBeReplacedWithoutLosingThePort(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+	runningService(t, a, nodeID, "web", 1)
+	runningService(t, a, nodeID, "api", 1)
+
+	created := createBalancer(t, a, a.secret, `{"name":"edge","target_port":80,
+		"listen_port":8443,"routes":[{"host":"app.test","service":"web"}]}`)
+
+	code, updated := setRoutes(t, a, a.secret, created.ID,
+		`[{"host":"app.test","service":"web"},{"host":"api.test","service":"api"}]`)
+	if code != http.StatusOK {
+		t.Fatalf("set: %d", code)
+	}
+	if len(updated.Routes) != 2 {
+		t.Fatalf("routes = %+v, want both", updated.Routes)
+	}
+
+	code, shrunk := setRoutes(t, a, a.secret, created.ID,
+		`[{"host":"api.test","service":"api"}]`)
+	if code != http.StatusOK {
+		t.Fatalf("shrink: %d", code)
+	}
+	if len(shrunk.Routes) != 1 || shrunk.Routes[0].Host != "api.test" {
+		t.Fatalf("routes = %+v, want the whole table replaced rather than merged: merging "+
+			"leaves no way to remove one route without inventing a delete route",
+			shrunk.Routes)
+	}
+
+	for _, b := range nodeBalancers(t, a, nodeID) {
+		if b.ID != created.ID {
+			continue
+		}
+		if len(b.Routes) != 1 {
+			t.Fatalf("the node still sees %+v", b.Routes)
+		}
+		if b.ListenPort != 8443 {
+			t.Fatalf("listen port = %d, want it kept: changing a route must not cost the "+
+				"port claim or the certificate", b.ListenPort)
+		}
+		return
+	}
+	t.Fatal("the balancer left the node view")
+}
+
+func TestReplacingRoutesKeepsEveryRule(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+	runningService(t, a, nodeID, "web", 1)
+
+	created := createBalancer(t, a, a.secret, `{"name":"edge","target_port":80,
+		"listen_port":8443,"routes":[{"host":"app.test","service":"web"}]}`)
+
+	for _, one := range []struct{ name, routes, want string }{
+		{"nothing at all", `[]`, "404"},
+		{"a service that does not exist", `[{"host":"a.test","service":"nope"}]`, "404"},
+		{"two answers for one request", `[{"host":"a.test","service":"web"},
+			{"host":"A.TEST","service":"web"}]`, "two answers"},
+		{"a path that is not a path", `[{"host":"a.test","path":"api","service":"web"}]`,
+			"starts with a slash"},
+	} {
+		code, _ := setRoutes(t, a, a.secret, created.ID, one.routes)
+		if code != http.StatusBadRequest {
+			t.Errorf("%s: status = %d, want %d: the rules that hold at create hold here too, "+
+				"or this route is the way round every one of them", one.name, code,
+				http.StatusBadRequest)
+		}
+	}
+
+	if _, held := setRoutes(t, a, a.secret, created.ID,
+		`[{"host":"app.test","service":"web"}]`); len(held.Routes) != 1 {
+		t.Fatal("a refused replacement left the balancer without its routes")
+	}
+}
+
+func TestABalancerWithoutRoutesCannotGrowThem(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+	runningService(t, a, nodeID, "web", 1)
+
+	created := createBalancer(t, a, a.secret, `{"name":"plain","target_port":80,
+		"listen_port":8444,"service":"web"}`)
+
+	code, _ := setRoutes(t, a, a.secret, created.ID,
+		`[{"host":"app.test","service":"web"}]`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d: a plain balancer is an nftables rule and a routing "+
+			"one is a userspace listener, so this would move the port from the kernel to "+
+			"the agent behind the operator's back", code, http.StatusBadRequest)
+	}
+}
+
+func TestAnotherProjectCannotReplaceRoutes(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+	runningService(t, a, nodeID, "web", 1)
+
+	created := createBalancer(t, a, a.secret, `{"name":"edge","target_port":80,
+		"listen_port":8443,"routes":[{"host":"app.test","service":"web"}]}`)
+
+	outsider := tokenIn(t, a, "outsider", newProject(t, a, "other"))
+	if code, _ := setRoutes(t, a, outsider, created.ID,
+		`[{"host":"theirs.test","service":"web"}]`); code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", code, http.StatusNotFound)
+	}
+}
+
+func TestAMemberCanReplaceRoutes(t *testing.T) {
+	a, nodeID := newBalancingApp(t)
+	runningService(t, a, nodeID, "web", 1)
+
+	created := createBalancer(t, a, a.secret, `{"name":"edge","target_port":80,
+		"listen_port":8443,"routes":[{"host":"app.test","service":"web"}]}`)
+
+	member := memberToken(t, a)
+	if code, _ := setRoutes(t, a, member, created.ID,
+		`[{"host":"other.test","service":"web"}]`); code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: a new route is invisible to a member until it is in "+
+			"memberPaths, and the failure is a 403 at runtime rather than at compile time",
+			code, http.StatusOK)
+	}
+}

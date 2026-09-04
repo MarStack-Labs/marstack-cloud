@@ -232,6 +232,7 @@ func newBalancerCmd(g *globals) *cobra.Command {
 		newBalancerRemoveCmd(g),
 		newBalancerDeleteCmd(g),
 		newBalancerCertificateCmd(g),
+		newBalancerRouteCmd(g),
 	)
 	return cmd
 }
@@ -546,4 +547,58 @@ func parseRoutes(asked []string) ([]routeBody, error) {
 		})
 	}
 	return routes, nil
+}
+
+func newBalancerRouteCmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "route",
+		Short: "Change which host and path each service answers",
+		Long: "Change which host and path each service answers.\n\n" +
+			"Only a balancer that was created with routes can be changed this way. A balancer\n" +
+			"that sends everything on its port to one set of backends stays that way, because\n" +
+			"turning one into the other changes what the port answers with no way back.\n\n" +
+			"The node picks the new table up on its next pass, and it does so without\n" +
+			"restarting the listener, so live connections are not dropped.",
+	}
+	cmd.AddCommand(newBalancerRouteSetCmd(g))
+	return cmd
+}
+
+func newBalancerRouteSetCmd(g *globals) *cobra.Command {
+	var routes []string
+
+	cmd := &cobra.Command{
+		Use:   "set <name|id>",
+		Short: "Replace every route on a balancer",
+		Long: "Replace every route on a balancer.\n\n" +
+			"This replaces the whole table rather than merging, so what you pass is what the\n" +
+			"balancer has afterwards. Merging would leave no way to remove one route without\n" +
+			"inventing a delete route, and would make the call non-idempotent.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			parsed, err := parseRoutes(routes)
+			if err != nil {
+				return err
+			}
+
+			body := struct {
+				Routes []routeBody `json:"routes"`
+			}{Routes: parsed}
+
+			var updated balancerView
+			if err := g.client().do(
+				cmd.Context(), "PUT", "/v1/balancers/"+args[0]+"/routes", body, &updated,
+			); err != nil {
+				return err
+			}
+			cmd.PrintErrln("the node picks the new routes up on its next pass")
+			return renderRoutes(cmd, g, updated)
+		},
+	}
+
+	cmd.Flags().StringArrayVar(&routes, "route", nil,
+		"send one host and path prefix to one service, as host[/path]=service. "+
+			"Repeatable, and a rule starting with / matches any host")
+	must(cmd.MarkFlagRequired("route"))
+	return cmd
 }

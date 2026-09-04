@@ -87,6 +87,10 @@ type tlsResponse struct {
 	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
+type routesRequest struct {
+	Routes []routeRequest `json:"routes"`
+}
+
 type certificateRequest struct {
 	Certificate string `json:"certificate"`
 	PrivateKey  string `json:"private_key"`
@@ -243,6 +247,22 @@ func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 	}
 
 	httpx.Write(w, http.StatusOK, body)
+	return nil
+}
+
+func (h *handler) setRoutes(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[routesRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	b, err := h.svc.setRoutes(r.Context(), r.PathValue("id"),
+		scope.From(r.Context()).ProjectID, toRouteParams(req.Routes))
+	if err != nil {
+		return err
+	}
+
+	httpx.Write(w, http.StatusOK, toResponse(b))
 	return nil
 }
 

@@ -999,6 +999,35 @@ api.test/      api       -                 -            down    the service hold
 app.test/      web       i-s6rwa4rftb2da   10.20.0.65   up      -
 ```
 
+Routes can be changed without losing the port or the certificate:
+
+```sh
+marstack balancer route set edge \
+  --route app.test=web --route app.test/api=api --route api.test=api
+```
+
+That **replaces** the whole table rather than merging, the same choice as node
+labels: merging leaves no way to remove one route without inventing a delete
+route, and makes the call non-idempotent. Every rule that holds at create holds
+here - an empty table is refused rather than leaving a port that 404s
+everything, and a balancer that was not created with routes cannot grow them,
+because that would move its port from the kernel to the agent behind the
+operator's back.
+
+Live, the node took the new table on its next pass and the listener count stayed
+at one:
+
+```
+$ grep -c 'routing listener started' ms-agent.log
+1
+$ grep -c 'proxy listener stopped' ms-agent.log
+0
+```
+
+Nothing was restarted, so live connections were not dropped - the table is
+swapped behind an atomic pointer and only the port, the certificate, or whether
+there are routes at all restarts a listener.
+
 The backend sees the host the client asked for and the whole path, plus
 `X-Forwarded-For`. Nothing is rewritten: a route decides *where* a request goes,
 not *what* it says. Two routes matching the same host and path are refused at
