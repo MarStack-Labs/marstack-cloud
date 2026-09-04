@@ -76,8 +76,9 @@ type CreateParams struct {
 }
 
 type Placement struct {
-	ProjectID string
-	NodeID    string
-	Isolation string
-	Running   bool
+	InstanceID string
+	ProjectID  string
+	NodeID     string
+	Isolation  string
+	Running    bool
 }

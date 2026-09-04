@@ -901,8 +901,18 @@ make check      # vet + test + security scans
 - **`qemu-img convert -s` does not exist any more.** qemu 8.2 wants
   `-l snapshot.name=<name>`. Nothing but a live run finds a wrong command-line flag: the unit tests
   never execute `qemu-img`.
-- `volume attach --instance` still takes an instance id rather than a name. The volume module does
-  its own lookup and did not gain the resolver, so that inconsistency is still open.
+- `volume attach --instance` takes a name or an id now. The volume module cannot import the instance
+  module, so the resolution happens where the dependency already is: `Instances.Placement` takes
+  `(ref, projectID)` and returns the resolved `InstanceID`, and `attach` stores **that**, never the
+  string the caller typed. `volumeInstances.Placement` in the composition root switched from `Get`
+  to `ResolveIn`; reverting either half is a mutation test.
+- Resolving first also fixed idempotency: attaching to the instance a volume is already on used to
+  compare the typed string, so re-attaching by name got "the volume is attached to i-1" instead of
+  the same volume back.
+- The two-writers refusal in the service is **not** what enforces the invariant - the UPDATE does,
+  through `WHERE instance_id = ''`, which is also the only race-safe half. The service guard earns
+  its place by naming the instance holding the disk instead of "someone else", so that is what the
+  test asserts. Asserting only the 409 passes with the guard deleted.
 - A drain now **carries the disk** of a vm, microvm or sandbox instead of refusing to move it. The
   node is still answering, so it can hand the disk over: park it on the control plane, release the
   placement, let the destination fetch it. The **stranded** path is unchanged and must stay that

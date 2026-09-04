@@ -148,16 +148,19 @@ type volumeInstances struct {
 	instances *instance.Module
 }
 
-func (s volumeInstances) Placement(ctx context.Context, instanceID string) (volume.Placement, error) {
-	in, err := s.instances.Get(ctx, instanceID)
+func (s volumeInstances) Placement(
+	ctx context.Context, ref, projectID string,
+) (volume.Placement, error) {
+	in, err := s.instances.ResolveIn(ctx, ref, projectID)
 	if err != nil {
 		return volume.Placement{}, err
 	}
 	return volume.Placement{
-		ProjectID: in.ProjectID,
-		NodeID:    in.NodeID,
-		Isolation: string(in.Isolation),
-		Running:   in.Desired == instance.DesiredRunning,
+		InstanceID: in.ID,
+		ProjectID:  in.ProjectID,
+		NodeID:     in.NodeID,
+		Isolation:  string(in.Isolation),
+		Running:    in.Desired == instance.DesiredRunning,
 	}, nil
 }
 

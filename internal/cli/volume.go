@@ -139,7 +139,8 @@ func newVolumeAttachCmd(g *globals) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&body.InstanceID, "instance", "", "instance id the volume attaches to")
+	cmd.Flags().StringVar(&body.InstanceID, "instance", "",
+		"name or id of the instance the volume attaches to")
 	must(cmd.MarkFlagRequired("instance"))
 
 	return cmd

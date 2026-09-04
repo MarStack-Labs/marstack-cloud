@@ -19,13 +19,21 @@ import (
 
 type fakeInstances struct {
 	placements map[string]Placement
+	names      map[string]string
 }
 
-func (f fakeInstances) Placement(_ context.Context, instanceID string) (Placement, error) {
-	placed, known := f.placements[instanceID]
-	if !known {
-		return Placement{}, fault.NotFound("instance_not_found", "no instance with that id exists")
+func (f fakeInstances) Placement(_ context.Context, ref, _ string) (Placement, error) {
+	id := ref
+	if resolved, named := f.names[ref]; named {
+		id = resolved
 	}
+
+	placed, known := f.placements[id]
+	if !known {
+		return Placement{}, fault.NotFound("instance_not_found",
+			"no instance with that name or id exists")
+	}
+	placed.InstanceID = id
 	return placed, nil
 }
 
@@ -83,13 +91,16 @@ func create(t *testing.T, h http.Handler, body string) response {
 }
 
 func placedVM(nodeID string) fakeInstances {
-	return fakeInstances{placements: map[string]Placement{
-		"i-1":         {NodeID: nodeID, Isolation: "vm"},
-		"i-2":         {NodeID: nodeID, Isolation: "vm"},
-		"i-elsewhere": {NodeID: "n-other", Isolation: "vm"},
-		"i-container": {NodeID: nodeID, Isolation: "container"},
-		"i-unplaced":  {NodeID: "", Isolation: "vm"},
-	}}
+	return fakeInstances{
+		placements: map[string]Placement{
+			"i-1":         {NodeID: nodeID, Isolation: "vm"},
+			"i-2":         {NodeID: nodeID, Isolation: "vm"},
+			"i-elsewhere": {NodeID: "n-other", Isolation: "vm"},
+			"i-container": {NodeID: nodeID, Isolation: "container"},
+			"i-unplaced":  {NodeID: "", Isolation: "vm"},
+		},
+		names: map[string]string{"db": "i-1", "web": "i-2"},
+	}
 }
 
 func TestAVolumeIsFreeUntilItIsAttached(t *testing.T) {
@@ -758,4 +769,73 @@ func (refusingQuota) AdmitVolume(context.Context, string, int) error { return ni
 
 func (refusingQuota) AdmitVolumeGrowth(context.Context, string, int) error {
 	return fault.Conflict("quota_exceeded", "no room to grow")
+}
+
+func TestAVolumeAttachesByInstanceName(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data","size_gib":1}`)
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach",
+		`{"instance_id":"db"}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("attach: %d %s", rec.Code, rec.Body.String())
+	}
+
+	var attached response
+	if err := json.Unmarshal(rec.Body.Bytes(), &attached); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if attached.InstanceID != "i-1" {
+		t.Fatalf("instance = %q, want the id the name resolved to: the agent matches its "+
+			"disks by id, so a name stored here is a volume no node ever attaches",
+			attached.InstanceID)
+	}
+	if attached.NodeID != "n-1" {
+		t.Fatalf("node = %q, want the node the instance is on", attached.NodeID)
+	}
+}
+
+func TestAttachingTwiceByEitherNameOrIdChangesNothing(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data","size_gib":1}`)
+
+	for _, ref := range []string{"i-1", "db", "i-1"} {
+		rec := request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach",
+			`{"instance_id":"`+ref+`"}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("attach %s: %d %s, want attaching to the instance it is already on to "+
+				"be the same call twice, whichever way it is named", ref, rec.Code,
+				rec.Body.String())
+		}
+	}
+}
+
+func TestAttachingAVolumeToASecondInstanceNamedDifferentlyIsRefused(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data","size_gib":1}`)
+
+	request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach", `{"instance_id":"i-1"}`)
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach",
+		`{"instance_id":"web"}`)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d: a disk cannot have two writers, and a name must not "+
+			"be a way round that", rec.Code, http.StatusConflict)
+	}
+	if !strings.Contains(rec.Body.String(), "i-1") {
+		t.Fatalf("refusal = %s, want the instance holding it named. The UPDATE refuses this "+
+			"anyway through WHERE instance_id = '', so the guard in the service earns its "+
+			"place by saying who has the disk rather than 'someone else'", rec.Body.String())
+	}
+}
+
+func TestAnUnknownInstanceNameIsRefused(t *testing.T) {
+	h, _ := newTestModule(t, placedVM("n-1"))
+	created := create(t, h, `{"name":"data","size_gib":1}`)
+
+	rec := request(t, h, http.MethodPost, "/v1/volumes/"+created.ID+"/attach",
+		`{"instance_id":"nothing"}`)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+	}
 }

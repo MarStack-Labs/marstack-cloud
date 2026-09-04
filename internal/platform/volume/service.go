@@ -16,7 +16,7 @@ import (
 )
 
 type Instances interface {
-	Placement(ctx context.Context, instanceID string) (Placement, error)
+	Placement(ctx context.Context, ref, projectID string) (Placement, error)
 }
 
 type Quota interface {
@@ -189,12 +189,23 @@ func (s *service) onNode(ctx context.Context, nodeID string) ([]Volume, error) {
 }
 
 func (s *service) attach(
-	ctx context.Context, nameOrID, projectID, instanceID string,
+	ctx context.Context, nameOrID, projectID, instanceRef string,
 ) (Volume, error) {
 	v, err := s.resolveIn(ctx, nameOrID, projectID)
 	if err != nil {
 		return Volume{}, err
 	}
+	if s.instances == nil {
+		return Volume{}, fault.Unavailable("instances_unavailable",
+			"the platform cannot look up where an instance runs")
+	}
+
+	placed, err := s.instances.Placement(ctx, instanceRef, projectID)
+	if err != nil {
+		return Volume{}, err
+	}
+	instanceID := placed.InstanceID
+
 	if v.InstanceID == instanceID {
 		return v, nil
 	}
@@ -202,17 +213,9 @@ func (s *service) attach(
 		return Volume{}, fault.Conflict("volume_attached",
 			"the volume is attached to "+v.InstanceID+", and a disk cannot have two writers")
 	}
-	if s.instances == nil {
-		return Volume{}, fault.Unavailable("instances_unavailable",
-			"the platform cannot look up where an instance runs")
-	}
-
-	placed, err := s.instances.Placement(ctx, instanceID)
-	if err != nil {
-		return Volume{}, err
-	}
 	if placed.ProjectID != projectID {
-		return Volume{}, fault.NotFound("instance_not_found", "no instance with that id exists")
+		return Volume{}, fault.NotFound("instance_not_found",
+			"no instance with that name or id exists")
 	}
 	if placed.NodeID == "" {
 		return Volume{}, fault.Conflict("instance_unplaced",
@@ -274,7 +277,7 @@ func (s *service) idle(ctx context.Context, v Volume, action string) error {
 		return nil
 	}
 
-	placed, err := s.instances.Placement(ctx, v.InstanceID)
+	placed, err := s.instances.Placement(ctx, v.InstanceID, v.ProjectID)
 	if err != nil {
 		return err
 	}
