@@ -59,22 +59,23 @@ type SnapshotFile struct {
 }
 
 type Spec struct {
-	InstanceID string
-	Name       string
-	Isolation  string
-	Image      string
-	ISO        string
-	Kernel     string
-	DiskGiB    int
-	Volumes    []Disk
-	Command    []string
-	VCPU       int
-	MemoryMiB  int
-	SSHKeys    []string
-	Env        map[string]string
-	Files      []FileDrop
-	Network    *NetworkConfig
-	Extra      []NetworkConfig
+	DeviceAddress string
+	InstanceID    string
+	Name          string
+	Isolation     string
+	Image         string
+	ISO           string
+	Kernel        string
+	DiskGiB       int
+	Volumes       []Disk
+	Command       []string
+	VCPU          int
+	MemoryMiB     int
+	SSHKeys       []string
+	Env           map[string]string
+	Files         []FileDrop
+	Network       *NetworkConfig
+	Extra         []NetworkConfig
 }
 
 type FileDrop struct {

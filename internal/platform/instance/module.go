@@ -51,6 +51,11 @@ type Alerts interface {
 	ReleaseInstance(ctx context.Context, instanceID string) error
 }
 
+type Devices interface {
+	ReleaseInstance(ctx context.Context, instanceID string) error
+	AddressOf(ctx context.Context, instanceID string) (string, error)
+}
+
 type Keys interface {
 	Resolve(ctx context.Context, projectID string, names []string) ([]string, error)
 }
@@ -84,6 +89,10 @@ func (m *Module) UseForwards(forwards Forwards) {
 
 func (m *Module) UseLogs(logs Logs) {
 	m.svc.logs = logs
+}
+
+func (m *Module) UseDevices(devices Devices) {
+	m.svc.devices = devices
 }
 
 func (m *Module) UseAlerts(alerts Alerts) {
@@ -345,6 +354,11 @@ func (m *Module) Migrations() []store.Migration {
 			Module: "instance",
 			Index:  30,
 			SQL:    `ALTER TABLE instances ADD COLUMN disk_from TEXT NOT NULL DEFAULT ''`,
+		},
+		{
+			Module: "instance",
+			Index:  31,
+			SQL:    `ALTER TABLE instances ADD COLUMN device TEXT NOT NULL DEFAULT ''`,
 		},
 	}
 }

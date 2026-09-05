@@ -140,6 +140,21 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  7,
 			SQL:    `CREATE INDEX node_labels_lookup ON node_labels (key, value)`,
 		},
+		{
+			Module: "node",
+			Index:  8,
+			SQL: `CREATE TABLE node_devices (
+				node_id     TEXT NOT NULL,
+				address     TEXT NOT NULL,
+				kind        TEXT NOT NULL,
+				vendor      TEXT NOT NULL DEFAULT '',
+				product     TEXT NOT NULL DEFAULT '',
+				driver      TEXT NOT NULL DEFAULT '',
+				ready       INTEGER NOT NULL DEFAULT 0,
+				instance_id TEXT NOT NULL DEFAULT '',
+				PRIMARY KEY (node_id, address)
+			)`,
+		},
 	}
 }
 
@@ -152,4 +167,34 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/nodes/{id}/uncordon", httpx.Wrap(m.log, m.handler.uncordon))
 	mux.Handle("POST /v1/nodes/{id}/drain", httpx.Wrap(m.log, m.handler.drain))
 	mux.Handle("PUT /v1/nodes/{id}/labels", httpx.Wrap(m.log, m.handler.setLabels))
+	mux.Handle("PUT /v1/nodes/{id}/devices", httpx.Wrap(m.log, m.handler.setDevices))
+	mux.Handle("GET /v1/devices", httpx.Wrap(m.log, m.handler.listDevices))
+}
+
+func (m *Module) FreeDevice(
+	ctx context.Context, nodeID, kind string,
+) (string, bool, error) {
+	return m.svc.FreeDevice(ctx, nodeID, kind)
+}
+
+func (m *Module) ClaimDevice(
+	ctx context.Context, nodeID, kind, instanceID string,
+) (string, error) {
+	return m.svc.ClaimDevice(ctx, nodeID, kind, instanceID)
+}
+
+func (m *Module) ReleaseInstance(ctx context.Context, instanceID string) error {
+	return m.svc.ReleaseInstance(ctx, instanceID)
+}
+
+func (m *Module) AddressOf(ctx context.Context, instanceID string) (string, error) {
+	held, err := m.svc.DevicesOf(ctx, instanceID)
+	if err != nil || len(held) == 0 {
+		return "", err
+	}
+	return held[0].Address, nil
+}
+
+func (m *Module) DevicesOf(ctx context.Context, instanceID string) ([]Device, error) {
+	return m.svc.DevicesOf(ctx, instanceID)
 }

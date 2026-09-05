@@ -96,6 +96,7 @@ func (s instanceSource) PendingPlacement(ctx context.Context) ([]scheduler.Pendi
 			Strict:    in.Strict,
 			Selector:  in.NodeSelector,
 			Extra:     in.ExtraNetworks,
+			Device:    in.Device,
 		})
 	}
 	return pending, nil

@@ -39,6 +39,7 @@ func (a *Agent) reconcile(ctx context.Context) {
 	a.refreshCatalog(ctx)
 	a.refreshRegistries(ctx)
 	a.refreshChallenges(ctx)
+	a.reportDevices(ctx)
 
 	state, err := a.readDesired(ctx)
 	if err != nil {
@@ -749,22 +750,23 @@ func (a *Agent) reconcileOne(
 	}
 
 	spec := workload.Spec{
-		InstanceID: in.ID,
-		Name:       in.Name,
-		Isolation:  in.Isolation,
-		Image:      in.Image,
-		ISO:        in.ISO,
-		Kernel:     in.Kernel,
-		DiskGiB:    in.DiskGiB,
-		Volumes:    disks,
-		Command:    in.Command,
-		VCPU:       in.VCPU,
-		MemoryMiB:  in.MemoryMiB,
-		SSHKeys:    in.SSHKeys,
-		Env:        in.Env,
-		Files:      drops,
-		Network:    primary(nics),
-		Extra:      extras(nics),
+		DeviceAddress: in.DeviceAddress,
+		InstanceID:    in.ID,
+		Name:          in.Name,
+		Isolation:     in.Isolation,
+		Image:         in.Image,
+		ISO:           in.ISO,
+		Kernel:        in.Kernel,
+		DiskGiB:       in.DiskGiB,
+		Volumes:       disks,
+		Command:       in.Command,
+		VCPU:          in.VCPU,
+		MemoryMiB:     in.MemoryMiB,
+		SSHKeys:       in.SSHKeys,
+		Env:           in.Env,
+		Files:         drops,
+		Network:       primary(nics),
+		Extra:         extras(nics),
 	}
 
 	state, err := runtime.Status(ctx, in.ID)

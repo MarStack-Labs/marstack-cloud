@@ -129,6 +129,7 @@ func newRootCmd() *cobra.Command {
 		newRegistryCmd(g),
 		newAlertCmd(g),
 		newShellCmd(g),
+		newDeviceCmd(g),
 		newNodeCmd(g),
 	)
 	return root

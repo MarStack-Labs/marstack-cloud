@@ -31,6 +31,7 @@ type nodeListBody struct {
 }
 
 type instanceView struct {
+	DeviceAddress   string            `json:"device_address,omitempty"`
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Isolation       string            `json:"isolation"`
@@ -717,6 +718,26 @@ func (c *client) shellOutput(
 
 	_, _ = io.Copy(io.Discard, res.Body)
 	return nil
+}
+
+type deviceBody struct {
+	Address string `json:"address"`
+	Kind    string `json:"kind"`
+	Vendor  string `json:"vendor,omitempty"`
+	Product string `json:"product,omitempty"`
+	Driver  string `json:"driver,omitempty"`
+	Ready   bool   `json:"ready,omitempty"`
+}
+
+type devicesBody struct {
+	Devices []deviceBody `json:"devices"`
+}
+
+func (c *client) reportDevices(
+	ctx context.Context, nodeID string, held []deviceBody,
+) error {
+	return c.do(ctx, http.MethodPut, "/v1/nodes/"+nodeID+"/devices",
+		devicesBody{Devices: held}, nil)
 }
 
 func (c *client) takeCommand(ctx context.Context, nodeID string) (commandView, bool, error) {

@@ -12,6 +12,7 @@ import (
 )
 
 type createRequest struct {
+	Device        string            `json:"device,omitempty"`
 	Name          string            `json:"name"`
 	Isolation     string            `json:"isolation"`
 	Image         string            `json:"image"`
@@ -46,6 +47,7 @@ type statusRequest struct {
 }
 
 type response struct {
+	Device          string            `json:"device,omitempty"`
 	ID              string            `json:"id"`
 	Name            string            `json:"name"`
 	Isolation       string            `json:"isolation"`
@@ -87,6 +89,7 @@ func toResponse(in Instance) response {
 	return response{
 		ID:              in.ID,
 		Name:            in.Name,
+		Device:          in.Device,
 		Isolation:       string(in.Isolation),
 		Image:           in.Image,
 		ISO:             in.ISO,
@@ -120,8 +123,9 @@ func toResponse(in Instance) response {
 
 type nodeResponse struct {
 	response
-	Env   map[string]string `json:"env,omitempty"`
-	Files []File            `json:"files,omitempty"`
+	Env           map[string]string `json:"env,omitempty"`
+	Files         []File            `json:"files,omitempty"`
+	DeviceAddress string            `json:"device_address,omitempty"`
 }
 
 type nodeListResponse struct {
@@ -140,6 +144,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) error {
 
 	in, err := h.svc.create(r.Context(), CreateParams{
 		ProjectID:     scope.From(r.Context()).ProjectID,
+		Device:        req.Device,
 		Group:         req.Group,
 		Strict:        req.Strict,
 		NodeSelector:  req.NodeSelector,
@@ -288,10 +293,16 @@ func (h *handler) listForNode(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 
+		address := ""
+		if in.Device != "" {
+			address = h.svc.deviceAddress(r.Context(), in.ID)
+		}
+
 		body.Instances = append(body.Instances, nodeResponse{
-			response: toResponse(in),
-			Env:      env,
-			Files:    files,
+			response:      toResponse(in),
+			Env:           env,
+			Files:         files,
+			DeviceAddress: address,
 		})
 	}
 

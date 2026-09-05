@@ -195,3 +195,81 @@ func selectorFrom(r *http.Request) (map[string]string, error) {
 	}
 	return selector, nil
 }
+
+type deviceRequest struct {
+	Devices []deviceEntry `json:"devices"`
+}
+
+type deviceEntry struct {
+	Address string `json:"address"`
+	Kind    string `json:"kind"`
+	Vendor  string `json:"vendor,omitempty"`
+	Product string `json:"product,omitempty"`
+	Driver  string `json:"driver,omitempty"`
+	Ready   bool   `json:"ready,omitempty"`
+}
+
+type deviceResponse struct {
+	NodeID     string `json:"node_id"`
+	Address    string `json:"address"`
+	Kind       string `json:"kind"`
+	Vendor     string `json:"vendor,omitempty"`
+	Product    string `json:"product,omitempty"`
+	Driver     string `json:"driver,omitempty"`
+	Ready      bool   `json:"ready"`
+	InstanceID string `json:"instance_id,omitempty"`
+}
+
+type deviceListResponse struct {
+	Devices []deviceResponse `json:"devices"`
+}
+
+func (h *handler) setDevices(w http.ResponseWriter, r *http.Request) error {
+	req, err := httpx.Decode[deviceRequest](w, r)
+	if err != nil {
+		return err
+	}
+
+	held := make([]Device, 0, len(req.Devices))
+	for _, one := range req.Devices {
+		held = append(held, Device{
+			Address: one.Address,
+			Kind:    one.Kind,
+			Vendor:  one.Vendor,
+			Product: one.Product,
+			Driver:  one.Driver,
+			Ready:   one.Ready,
+		})
+	}
+
+	if err := h.svc.setDevices(r.Context(), r.PathValue("id"), held); err != nil {
+		return err
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+func (h *handler) listDevices(w http.ResponseWriter, r *http.Request) error {
+	held, err := h.svc.devices(r.Context())
+	if err != nil {
+		return err
+	}
+
+	body := deviceListResponse{Devices: make([]deviceResponse, 0, len(held))}
+	for _, one := range held {
+		body.Devices = append(body.Devices, deviceResponse{
+			NodeID:     one.NodeID,
+			Address:    one.Address,
+			Kind:       one.Kind,
+			Vendor:     one.Vendor,
+			Product:    one.Product,
+			Driver:     one.Driver,
+			Ready:      one.Ready,
+			InstanceID: one.InstanceID,
+		})
+	}
+
+	httpx.Write(w, http.StatusOK, body)
+	return nil
+}

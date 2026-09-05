@@ -269,6 +269,11 @@ func (r *Runtime) arguments(
 		"-device", "virtio-blk-pci,drive=root,bootindex=1",
 	}
 
+	if spec.DeviceAddress != "" {
+		args = append(args,
+			"-device", "vfio-pci,host="+spec.DeviceAddress+",id=passthru")
+	}
+
 	for port := range hotplugPorts {
 		args = append(args, "-device",
 			"pcie-root-port,id="+portID(port)+",chassis="+strconv.Itoa(port+1))

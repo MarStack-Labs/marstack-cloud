@@ -81,6 +81,7 @@ func newInstanceCmd(g *globals) *cobra.Command {
 func newInstanceCreateCmd(g *globals) *cobra.Command {
 	var req struct {
 		Name          string            `json:"name"`
+		Device        string            `json:"device,omitempty"`
 		Isolation     string            `json:"isolation"`
 		Image         string            `json:"image"`
 		ISO           string            `json:"iso,omitempty"`
@@ -161,6 +162,9 @@ func newInstanceCreateCmd(g *globals) *cobra.Command {
 	cmd.Flags().StringVar(&req.Name, "name", "", "instance name, unique within the platform")
 	cmd.Flags().StringVar(&req.Isolation, "isolation", "container",
 		"isolation: container, vm, microvm or sandbox")
+	cmd.Flags().StringVar(&req.Device, "device", "",
+		"gpu or accelerator to hand to the guest; only a vm can be given one, and only a "+
+			"card already bound to vfio-pci counts")
 	cmd.Flags().StringVar(&req.Image, "image", "",
 		"image the instance boots from: an OCI reference for container, microvm and sandbox, "+
 			"or a registered disk image for vm")

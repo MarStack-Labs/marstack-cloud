@@ -229,6 +229,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	alerts.UseWorkloads(alertWorkloads{instances: instances})
 	alerts.UseEvents(events)
 	instances.UseAlerts(alerts)
+	instances.UseDevices(nodes)
 	shells.UseInstances(shellInstances{instances: instances})
 	if cfg.Now != nil {
 		shells.UseClock(cfg.Now)
@@ -334,6 +335,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	)
 
 	a.scheduler.UseLoad(nodeLoad{usage: usages, now: time.Now})
+	a.scheduler.UseDevices(nodes)
 	a.scheduler.UseEvents(events)
 
 	if err := a.migrate(ctx); err != nil {

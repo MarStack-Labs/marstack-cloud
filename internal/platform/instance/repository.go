@@ -27,7 +27,7 @@ var errNotFound = errors.New("instance not found")
 
 var errAlreadyPlaced = errors.New("instance is already placed on a node")
 
-const columns = `id, project_id, placement_group, placement_strict, ssh_keys, node_selector, env, env_key_id, env_names, files, file_paths, extra_networks, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, exit_code, migrating, disk_parked, disk_from, node_id,
+const columns = `id, project_id, placement_group, placement_strict, ssh_keys, node_selector, env, env_key_id, env_names, files, file_paths, extra_networks, name, isolation, image, iso, kernel, disk_gib, firewall_id, command, network_id, restart_policy, restart_count, vcpu, memory_mib, desired_state, observed_state, observed_message, exit_code, migrating, disk_parked, disk_from, node_id, device,
 	created_at, updated_at`
 
 func (r *repository) insert(ctx context.Context, in Instance) error {
@@ -71,13 +71,13 @@ func (r *repository) insert(ctx context.Context, in Instance) error {
 
 	_, err = r.db.ExecContext(ctx,
 		`INSERT INTO instances (`+columns+`) VALUES `+
-			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		in.ID, in.ProjectID, in.Group, in.Strict, string(keys), string(selector),
 		in.EnvSealed, in.SealKeyID, string(envNames), in.FilesSealed, string(filePaths), string(extra), in.Name, string(in.Isolation), in.Image, in.ISO, in.Kernel, in.DiskGiB,
 		in.FirewallID, string(command), in.NetworkID,
 		string(in.RestartPolicy), in.RestartCount, in.VCPU, in.MemoryMiB,
 		string(in.Desired), string(in.Observed), in.ObservedMessage, in.ExitCode,
-		in.Migrating, in.DiskParked, in.DiskFrom, in.NodeID,
+		in.Migrating, in.DiskParked, in.DiskFrom, in.NodeID, in.Device,
 		in.CreatedAt.Format(time.RFC3339Nano), in.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -454,7 +454,8 @@ func scanInstance(row scanner) (Instance, error) {
 		&in.FirewallID, &command, &in.NetworkID,
 		&policy, &in.RestartCount, &in.VCPU, &in.MemoryMiB,
 		&desired, &observed, &in.ObservedMessage, &in.ExitCode,
-		&in.Migrating, &in.DiskParked, &in.DiskFrom, &nodeID, &createdRaw, &updatedRaw,
+		&in.Migrating, &in.DiskParked, &in.DiskFrom, &nodeID, &in.Device,
+		&createdRaw, &updatedRaw,
 	); err != nil {
 		return Instance{}, err
 	}

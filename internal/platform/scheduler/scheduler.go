@@ -35,6 +35,11 @@ func (c Candidate) matches(selector map[string]string) bool {
 	return true
 }
 
+type DeviceSource interface {
+	FreeDevice(ctx context.Context, nodeID, kind string) (string, bool, error)
+	ClaimDevice(ctx context.Context, nodeID, kind, instanceID string) (string, error)
+}
+
 type Pending struct {
 	ID        string
 	ProjectID string
@@ -44,6 +49,7 @@ type Pending struct {
 	Strict    bool
 	Selector  map[string]string
 	Extra     []string
+	Device    string
 }
 
 type Stranded struct {
@@ -92,6 +98,7 @@ type Scheduler struct {
 	instances InstanceSource
 	addresses AddressSource
 	loads     LoadSource
+	devices   DeviceSource
 	events    events.Recorder
 	log       *slog.Logger
 	interval  time.Duration
@@ -131,6 +138,10 @@ func (s *Scheduler) note(ctx context.Context, entry events.Entry) {
 		return
 	}
 	s.events.Record(ctx, entry)
+}
+
+func (s *Scheduler) UseDevices(devices DeviceSource) {
+	s.devices = devices
 }
 
 func (s *Scheduler) UseLoad(loads LoadSource) {
@@ -210,10 +221,27 @@ func (s *Scheduler) Tick(ctx context.Context) error {
 			continue
 		}
 
+		if p.Device != "" {
+			eligible = s.carrying(ctx, eligible, p.Device)
+			if len(eligible) == 0 {
+				s.holdWithout(ctx, p)
+				continue
+			}
+		}
+
 		target, room := bestFor(eligible, counts, load, members)
 		if p.Strict && p.Group != "" && !room {
 			s.hold(ctx, p)
 			continue
+		}
+
+		if p.Device != "" && s.devices != nil {
+			if _, err := s.devices.ClaimDevice(
+				ctx, target.ID, p.Device, p.ID); err != nil {
+				s.log.Warn("could not claim a device", "instance", p.ID,
+					"node", target.ID, "error", err)
+				continue
+			}
 		}
 
 		if err := s.instances.Assign(ctx, p.ID, target.ID); err != nil {
@@ -575,4 +603,34 @@ func (s *Scheduler) hold(ctx context.Context, p Pending) {
 		s.log.Warn("could not record why a placement was held",
 			"instance", p.ID, "error", err)
 	}
+}
+
+func (s *Scheduler) carrying(
+	ctx context.Context, nodes []Candidate, kind string,
+) []Candidate {
+	if s.devices == nil {
+		return nil
+	}
+
+	held := make([]Candidate, 0, len(nodes))
+	for _, one := range nodes {
+		free, found, err := s.devices.FreeDevice(ctx, one.ID, kind)
+		if err != nil {
+			s.log.Warn("could not read the devices of a node", "node", one.ID, "error", err)
+			continue
+		}
+		if found && free != "" {
+			held = append(held, one)
+		}
+	}
+	return held
+}
+
+func (s *Scheduler) holdWithout(ctx context.Context, p Pending) {
+	reason := "no ready node has a free " + p.Device
+	if err := s.instances.HoldPlacement(ctx, p.ID, reason); err != nil {
+		s.log.Warn("could not hold an instance", "instance", p.ID, "error", err)
+		return
+	}
+	s.log.Info("instance held", "instance", p.ID, "name", p.Name, "device", p.Device)
 }

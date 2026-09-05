@@ -1206,3 +1206,23 @@ make check      # vet + test + security scans
   connection the first update usually lands before the others read. The repository test reads the
   row eight times **first** and then takes eight times, which is the interleaving that actually
   happens across nodes.
+- A node **reports** the devices it carries on every pass; nobody registers them. Only display and
+  processing classes are listed - a bridge or a network card is not something anybody asks to be
+  given - and a card only counts as available once it is bound to **vfio-pci**. While a host driver
+  holds it, qemu cannot open it, so offering it places a workload that then fails to boot.
+- One card goes to one workload. `FreeDevice` is the scheduler's filter and `ClaimDevice` is the
+  decision, and the **update** is what decides, with `instance_id = ''` in its WHERE - the same
+  rule as taking an exec or a shell. Weakening `FreeDevice` alone changes nothing observable
+  because the claim refuses anyway, so the test that catches it asserts the **held reason**: a
+  workload the scheduler silently keeps skipping looks exactly like a broken scheduler.
+- A device the node stops reporting is deleted **unless a workload holds it**. Those are kept and
+  marked `ready = 0, driver = 'missing'`, or a card unbound from vfio while a guest has it just
+  disappears and the workload is holding something nothing can account for. Found live: the agent
+  truthfully reports no gpu, which wiped an injected one within a pass.
+- Only a **vm** may be given a device, because passthrough goes through vfio into a guest kernel.
+  A container shares the host kernel and would need a device node instead, which is a different
+  feature with different rules.
+- **The passthrough itself is unverified.** There is no gpu in the development fleet, so the live
+  run proves the inventory, the hold reason, the claim and the address reaching the node view; the
+  `vfio-pci,host=...` argument is covered by a unit test on the command line and by nothing else.
+  Do not describe this as working on real hardware until it has run on some.

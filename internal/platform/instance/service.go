@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
@@ -29,6 +30,7 @@ type service struct {
 	logs      Logs
 	execs     Execs
 	alerts    Alerts
+	devices   Devices
 	events    events.Recorder
 	firewalls Firewalls
 	sealing   *sealed.Keyring
@@ -48,6 +50,35 @@ func (s *service) envOf(in Instance) (map[string]string, error) {
 
 func (s *service) filesOf(in Instance) ([]File, error) {
 	return openFiles(in.FilesSealed, in.SealKeyID, s.sealing)
+}
+
+func (s *service) deviceAddress(ctx context.Context, instanceID string) string {
+	if s.devices == nil {
+		return ""
+	}
+
+	address, err := s.devices.AddressOf(ctx, instanceID)
+	if err != nil {
+		return ""
+	}
+	return address
+}
+
+func checkDevice(kind, isolation string) (string, error) {
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		return "", nil
+	}
+	if kind != "gpu" && kind != "accelerator" {
+		return "", fault.Invalid("invalid_device",
+			"a workload may ask for a gpu or an accelerator, not "+kind)
+	}
+	if isolation != "vm" {
+		return "", fault.Invalid("device_needs_a_vm",
+			"a device is handed to a guest through vfio, which needs its own kernel: only "+
+				"isolation vm can be given one")
+	}
+	return kind, nil
 }
 
 func (s *service) create(ctx context.Context, params CreateParams) (Instance, error) {
@@ -113,6 +144,7 @@ func (s *service) create(ctx context.Context, params CreateParams) (Instance, er
 		Group:         normalized.Group,
 		Strict:        params.Strict,
 		NodeSelector:  normalized.NodeSelector,
+		Device:        normalized.Device,
 		EnvSealed:     envSealed,
 		SealKeyID:     sealKeyID,
 		EnvNames:      namesOf(normalized.Env),
@@ -290,6 +322,12 @@ func (s *service) delete(ctx context.Context, ref, projectID string) error {
 		return translate(err)
 	}
 	s.forgetParked(id)
+	if s.devices != nil {
+		if err := s.devices.ReleaseInstance(ctx, id); err != nil {
+			return fault.Internal(fmt.Errorf(
+				"instance %s was deleted but its device was kept: %w", id, err))
+		}
+	}
 	if s.alerts != nil {
 		if err := s.alerts.ReleaseInstance(ctx, id); err != nil {
 			return fault.Internal(fmt.Errorf(
@@ -533,6 +571,12 @@ func normalize(params CreateParams) (CreateParams, error) {
 		return params, fault.Invalid("invalid_disk",
 			"only isolation vm has a disk of its own to size")
 	}
+
+	device, err := checkDevice(params.Device, params.Isolation)
+	if err != nil {
+		return params, err
+	}
+	params.Device = device
 	if params.Image == "" && params.DiskGiB == 0 {
 		params.DiskGiB = DefaultDiskGiB
 	}

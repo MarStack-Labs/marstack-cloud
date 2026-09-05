@@ -98,6 +98,7 @@ type Instance struct {
 	Migrating       bool
 	DiskParked      bool
 	DiskFrom        string
+	Device          string
 	NodeID          string
 	Group           string
 	Strict          bool
@@ -126,6 +127,7 @@ type Footprint struct {
 }
 
 type CreateParams struct {
+	Device        string
 	ProjectID     string
 	Name          string
 	Group         string
