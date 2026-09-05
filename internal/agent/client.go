@@ -329,6 +329,15 @@ type registryView struct {
 	Password string `json:"password"`
 }
 
+type acmeChallengeView struct {
+	Token         string `json:"token"`
+	Authorization string `json:"authorization"`
+}
+
+type acmeChallengesBody struct {
+	Challenges []acmeChallengeView `json:"challenges"`
+}
+
 type registriesBody struct {
 	Credentials []registryView `json:"credentials"`
 }
@@ -636,6 +645,12 @@ func (c *client) registries(ctx context.Context, nodeID string) ([]registryView,
 	var out registriesBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/registries", nil, &out)
 	return out.Credentials, err
+}
+
+func (c *client) challenges(ctx context.Context, nodeID string) ([]acmeChallengeView, error) {
+	var out acmeChallengesBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/acme-challenges", nil, &out)
+	return out.Challenges, err
 }
 
 func (c *client) takeCommand(ctx context.Context, nodeID string) (commandView, bool, error) {

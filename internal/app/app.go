@@ -13,6 +13,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ratelimit"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/s3"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/acme"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/autoscale"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
@@ -63,6 +64,8 @@ type Config struct {
 	RateBurst         int
 	ProjectPerSecond  *int
 	ProjectBurst      int
+	ACMEDirectory     string
+	ACMEContact       string
 }
 
 func (c Config) projectPerSecond() int {
@@ -114,29 +117,30 @@ func (c Config) withDefaults() Config {
 }
 
 type App struct {
-	cfg       Config
-	log       *slog.Logger
-	store     *store.Store
-	modules   []Module
-	networks  *network.Module
-	projects  *project.Module
-	backups   *backup.Module
-	volumes   *volume.Module
-	instances *instance.Module
-	jobs      *job.Module
-	commands  *exec.Module
-	scalers   *autoscale.Module
-	services  *service.Module
-	webhooks  *webhook.Module
-	balancers *balancer.Module
-	forwards  *forward.Module
-	tokens    *token.Module
-	trail     *audit.Module
-	scheduler *scheduler.Scheduler
-	limiter   *ratelimit.Limiter
-	tenants   *ratelimit.Limiter
-	router    http.Handler
-	http      *http.Server
+	cfg          Config
+	log          *slog.Logger
+	store        *store.Store
+	modules      []Module
+	networks     *network.Module
+	projects     *project.Module
+	backups      *backup.Module
+	volumes      *volume.Module
+	instances    *instance.Module
+	jobs         *job.Module
+	commands     *exec.Module
+	scalers      *autoscale.Module
+	services     *service.Module
+	webhooks     *webhook.Module
+	balancers    *balancer.Module
+	certificates *acme.Module
+	forwards     *forward.Module
+	tokens       *token.Module
+	trail        *audit.Module
+	scheduler    *scheduler.Scheduler
+	limiter      *ratelimit.Limiter
+	tenants      *ratelimit.Limiter
+	router       http.Handler
+	http         *http.Server
 }
 
 func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
@@ -162,6 +166,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	forwards := forward.New(st, forwardAddresses{networks: networks, instances: instances}, log)
 	balancers := balancer.New(st, log)
 	registries := registry.New(st, log)
+	certificates := acme.New(st, log)
 	firewalls := firewall.New(st, log)
 	keys := keypair.New(st, log)
 	events := event.New(st, log)
@@ -193,6 +198,14 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	instances.UseKeys(keys)
 	forwards.UseEvents(events)
 	balancers.UseEvents(events)
+	certificates.UseBalancers(balancers)
+	certificates.UseEvents(events)
+	if cfg.ACMEDirectory != "" {
+		certificates.UseDirectory(cfg.ACMEDirectory, cfg.ACMEContact)
+	}
+	if cfg.Now != nil {
+		certificates.UseClock(cfg.Now)
+	}
 	balancers.UseMembers(balancerMembers{networks: networks, instances: instances})
 	balancers.UsePorts(forwards)
 	forwards.UseBalancers(balancers)
@@ -238,6 +251,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.services = services
 	a.webhooks = webhooks
 	a.balancers = balancers
+	a.certificates = certificates
 	a.forwards = forwards
 
 	a.modules = []Module{
@@ -248,6 +262,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		dns.New(log, dnsInstances{instances: instances}, networks),
 		image.New(st, log),
 		registries,
+		certificates,
 		volumes,
 		backups,
 		forwards,
@@ -433,6 +448,7 @@ func (a *App) Run(ctx context.Context) error {
 	go a.webhooks.Run(ctx)
 	go a.balancers.Run(ctx)
 	go a.forwards.Run(ctx)
+	go a.certificates.Run(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

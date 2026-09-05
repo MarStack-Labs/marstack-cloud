@@ -1133,3 +1133,31 @@ make check      # vet + test + security scans
 - `Placement.Observed` was added because `Running` is the **desired** state. Asking a guest that is
   not running to release a disk waits for an answer that will never come, so detach from anything
   not observed running finishes at once.
+- ACME lives in two places for the usual reason. `kernel/acme` is the protocol - JWS, nonces,
+  orders, challenges - and knows nothing about balancers, the same shape as `kernel/s3`.
+  `platform/acme` owns the resource and drives one step per sweep.
+- The **first** request carries `jwk` and every later one carries `kid`. Sending both, or sending
+  the jwk after the account exists, is refused by a real directory. Both directions are mutation
+  tests against a fake CA that also refuses a **reused nonce**, which is the other thing a real
+  directory checks and a hand-written client gets wrong.
+- Only `http-01` is answered. The challenge is served by the node's userspace listener on the
+  balancer's own listen port, before route matching, and `/.well-known/acme-challenge/` is
+  **terminal**: an unknown token is a 404, never proxied to a backend. Forwarding it would let a
+  workload answer a challenge on the platform's behalf.
+- That means the authority must be able to reach the balancer on the name it is validating - port
+  80 for a public CA. That is how HTTP-01 works, not a limitation this platform invented, and the
+  CLI says so.
+- The order is a state machine driven one step per sweep, so a pass never blocks on a CA: open,
+  wait a grace period for the nodes to pick the token up, accept, poll, finalize, download,
+  attach. The grace is why the tests need a movable clock.
+- Renewal is `certs.Life` again, asked thirty days early. Stopping the renewal leaves the
+  certificate that is already attached alone - a port that stopped answering https the moment you
+  said "stop renewing" is not what anybody means by that.
+- The account key is generated once and kept. Registering a new account per renewal is how a rate
+  limit is reached, and there is a test that a second client reusing the stored account registers
+  nothing.
+- A stub CA that hands back a self-signed certificate proves nothing: the key will not match the
+  CSR and `certs.Inspect` refuses it. The test CA parses the CSR, checks its self-signature, and
+  signs **that** public key. Live, a small ACME server on the node actually fetched
+  `http://127.0.0.1:8600/.well-known/acme-challenge/<token>` and compared it byte for byte before
+  issuing - which is the only way to know the responder is wired to the right port.

@@ -38,6 +38,7 @@ func (a *Agent) reconcile(ctx context.Context) {
 
 	a.refreshCatalog(ctx)
 	a.refreshRegistries(ctx)
+	a.refreshChallenges(ctx)
 
 	state, err := a.readDesired(ctx)
 	if err != nil {
@@ -1044,4 +1045,27 @@ func (a *Agent) refreshRegistries(ctx context.Context) {
 			authority.UseRegistryCredentials(logins)
 		}
 	}
+}
+
+func (a *Agent) refreshChallenges(ctx context.Context) {
+	if a.tls == nil {
+		return
+	}
+
+	nodeID := a.currentNodeID()
+	if nodeID == "" {
+		return
+	}
+
+	held, err := a.client.challenges(ctx, nodeID)
+	if err != nil {
+		a.log.Warn("could not read the certificate challenges", "error", err)
+		return
+	}
+
+	answers := make(map[string]string, len(held))
+	for _, one := range held {
+		answers[one.Token] = one.Authorization
+	}
+	a.tls.UseChallenges(answers)
 }

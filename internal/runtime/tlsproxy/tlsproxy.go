@@ -54,10 +54,14 @@ type Manager struct {
 
 	mu      sync.Mutex
 	running map[string]*listener
+
+	challengeMu sync.Mutex
+	challenges  map[string]string
 }
 
 func New(log *slog.Logger) *Manager {
-	return &Manager{log: log, running: map[string]*listener{}}
+	return &Manager{log: log, running: map[string]*listener{},
+		challenges: map[string]string{}}
 }
 
 func (m *Manager) Apply(ctx context.Context, wanted []Endpoint) error {

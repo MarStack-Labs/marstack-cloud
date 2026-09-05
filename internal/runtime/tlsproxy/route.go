@@ -18,6 +18,8 @@ import (
 const (
 	readHeaderTimeout = 10 * time.Second
 	idleTimeout       = 60 * time.Second
+
+	challengePrefix = "/.well-known/acme-challenge/"
 )
 
 type EndpointRoute struct {
@@ -134,6 +136,17 @@ func (m *Manager) router(id string, l *listener) http.Handler {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, challengePrefix) {
+			answer, held := m.challenge(r.URL.Path)
+			if !held {
+				http.Error(w, "this node holds no such challenge", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "text/plain")
+			_, _ = w.Write([]byte(answer))
+			return
+		}
+
 		table := l.table.Load()
 		if table == nil {
 			http.Error(w, "this balancer has no routes", http.StatusServiceUnavailable)
@@ -164,4 +177,23 @@ func (m *Manager) serveRoutes(id string, l *listener) {
 	if err := l.server.Serve(l.net); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		m.log.Warn("routing listener stopped accepting", "balancer", id, "error", err)
 	}
+}
+
+func (m *Manager) UseChallenges(answers map[string]string) {
+	held := make(map[string]string, len(answers))
+	for token, answer := range answers {
+		held[token] = answer
+	}
+
+	m.challengeMu.Lock()
+	defer m.challengeMu.Unlock()
+	m.challenges = held
+}
+
+func (m *Manager) challenge(path string) (string, bool) {
+	m.challengeMu.Lock()
+	defer m.challengeMu.Unlock()
+
+	answer, held := m.challenges[strings.TrimPrefix(path, challengePrefix)]
+	return answer, held
 }

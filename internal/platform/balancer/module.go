@@ -170,6 +170,17 @@ func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("PUT /v1/nodes/{nodeID}/balancers/health", httpx.Wrap(m.log, m.handler.reportHealth))
 }
 
+func (m *Module) HostsOf(ctx context.Context, id, projectID string) ([]string, error) {
+	return m.svc.hostsOf(ctx, id, projectID)
+}
+
+func (m *Module) AttachCertificate(
+	ctx context.Context, id, projectID, certPEM, keyPEM string,
+) error {
+	_, err := m.svc.setCertificate(ctx, id, projectID, certPEM, keyPEM)
+	return err
+}
+
 func (m *Module) UseSealing(ring *sealed.Keyring) {
 	m.svc.sealing = ring
 }

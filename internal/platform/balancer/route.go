@@ -215,3 +215,27 @@ func (s *service) setRoutes(
 	b.Routes = replaced
 	return s.resolve(ctx, b)
 }
+
+func (s *service) hostsOf(ctx context.Context, id, projectID string) ([]string, error) {
+	b, err := s.get(ctx, projectID, id)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := map[string]bool{}
+	hosts := make([]string, 0, len(b.Routes))
+	for _, route := range b.Routes {
+		if route.Host == "" || seen[route.Host] {
+			continue
+		}
+		seen[route.Host] = true
+		hosts = append(hosts, route.Host)
+	}
+
+	if len(hosts) == 0 {
+		return nil, fault.Invalid("no_hosts",
+			"this balancer names no host, so there is nothing to get a certificate for: "+
+				"give it routes with a host, or name the hosts yourself")
+	}
+	return hosts, nil
+}

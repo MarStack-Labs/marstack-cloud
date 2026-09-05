@@ -443,3 +443,50 @@ func TestGivingABalancerRoutesRestartsTheListener(t *testing.T) {
 			"so every request goes to a round robin backend and no host is ever read")
 	}
 }
+
+func TestTheChallengeIsAnsweredBeforeAnyRoute(t *testing.T) {
+	address, targetPort := httpBackend(t, "web")
+	port := freePort(t)
+
+	m := routing(t, Endpoint{
+		ID:         "lb-1",
+		ListenPort: port,
+		TargetPort: targetPort,
+		Routes: []EndpointRoute{
+			{Host: "app.test", Targets: []string{address}},
+		},
+	})
+	m.UseChallenges(map[string]string{"tok3n": "tok3n.thumbprint"})
+
+	code, body := ask(t, port, "app.test", "/.well-known/acme-challenge/tok3n")
+	if code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: the authority fetches this over plain http on the "+
+			"listen port, and a route sending it to a backend answers with whatever that "+
+			"backend says", code, http.StatusOK)
+	}
+	if body != "tok3n.thumbprint" {
+		t.Fatalf("body = %q, want the key authorization exactly. The authority compares it "+
+			"byte for byte", body)
+	}
+}
+
+func TestAnUnknownChallengeTokenIsNotAnswered(t *testing.T) {
+	address, targetPort := httpBackend(t, "web")
+	port := freePort(t)
+
+	m := routing(t, Endpoint{
+		ID:         "lb-1",
+		ListenPort: port,
+		TargetPort: targetPort,
+		Routes: []EndpointRoute{
+			{Host: "app.test", Targets: []string{address}},
+		},
+	})
+	m.UseChallenges(map[string]string{"mine": "mine.thumbprint"})
+
+	code, _ := ask(t, port, "app.test", "/.well-known/acme-challenge/somebody-elses")
+	if code == http.StatusOK {
+		t.Fatal("a token this node was never given was answered, which would let anybody " +
+			"who can guess a path prove they own the name")
+	}
+}

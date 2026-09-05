@@ -269,7 +269,8 @@ func newBalancerCertificateCmd(g *globals) *cobra.Command {
 			"opens a plain one to the backend.\n\n" +
 			"The private key is sealed with the operator key and served only to nodes.",
 	}
-	cmd.AddCommand(newBalancerSetCertificateCmd(g), newBalancerClearCertificateCmd(g))
+	cmd.AddCommand(newBalancerSetCertificateCmd(g), newBalancerClearCertificateCmd(g),
+		newBalancerACMECmd(g))
 	return cmd
 }
 
@@ -615,4 +616,130 @@ func newBalancerRouteSetCmd(g *globals) *cobra.Command {
 			"Repeatable, and a rule starting with / matches any host")
 	must(cmd.MarkFlagRequired("route"))
 	return cmd
+}
+
+type acmeView struct {
+	BalancerID string   `json:"balancer_id"`
+	Names      []string `json:"names"`
+	State      string   `json:"state"`
+	Message    string   `json:"message"`
+	ExpiresAt  string   `json:"expires_at"`
+	IssuedAt   string   `json:"issued_at"`
+}
+
+var acmeHeaders = []string{"BALANCER", "NAMES", "STATE", "EXPIRES", "WHY"}
+
+func acmeRow(one acmeView) []string {
+	return []string{
+		one.BalancerID,
+		strings.Join(one.Names, ", "),
+		one.State,
+		one.ExpiresAt[:min(len(one.ExpiresAt), 10)],
+		shortenLine(one.Message, 44),
+	}
+}
+
+func newBalancerACMECmd(g *globals) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "auto",
+		Short: "Let a certificate authority issue and renew the certificate",
+		Long: "Let a certificate authority issue and renew the certificate.\n\n" +
+			"The authority proves the name belongs to you by fetching\n" +
+			"http://<name>/.well-known/acme-challenge/<token>, which the node answers on the\n" +
+			"balancer's own listen port. That only works if the authority can reach it, so a\n" +
+			"public authority needs the balancer listening on port 80 and the name pointing\n" +
+			"at a node.\n\n" +
+			"Renewal happens on its own thirty days before expiry. Nothing is uploaded and\n" +
+			"no private key ever leaves the platform.",
+	}
+	cmd.AddCommand(newACMEStartCmd(g), newACMEStatusCmd(g), newACMEStopCmd(g),
+		newACMEListCmd(g))
+	return cmd
+}
+
+func newACMEStartCmd(g *globals) *cobra.Command {
+	var names []string
+
+	cmd := &cobra.Command{
+		Use:   "start <balancer>",
+		Short: "Ask for a certificate and keep it renewed",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body := struct {
+				Names []string `json:"names,omitempty"`
+			}{Names: names}
+
+			var started acmeView
+			if err := g.client().do(cmd.Context(), "POST",
+				"/v1/balancers/"+args[0]+"/certificate/acme", body, &started); err != nil {
+				return err
+			}
+
+			cmd.PrintErrln("the authority is asked on the next pass; watch it with " +
+				"marstack balancer certificate auto status " + args[0])
+			return render(cmd.OutOrStdout(), g.output, started,
+				table{headers: acmeHeaders, rows: [][]string{acmeRow(started)}})
+		},
+	}
+
+	cmd.Flags().StringSliceVar(&names, "name", nil,
+		"host to cover, repeatable; defaults to every host the balancer routes")
+	return cmd
+}
+
+func newACMEStatusCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status <balancer>",
+		Short: "Show where the certificate order got to",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			var held acmeView
+			if err := g.client().do(cmd.Context(), "GET",
+				"/v1/balancers/"+args[0]+"/certificate/acme", nil, &held); err != nil {
+				return err
+			}
+			return render(cmd.OutOrStdout(), g.output, held,
+				table{headers: acmeHeaders, rows: [][]string{acmeRow(held)}})
+		},
+	}
+}
+
+func newACMEStopCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop <balancer>",
+		Short: "Stop renewing; the certificate already attached stays",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := g.client().do(cmd.Context(), "DELETE",
+				"/v1/balancers/"+args[0]+"/certificate/acme", nil, nil); err != nil {
+				return err
+			}
+			cmd.Printf("stopped renewing %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func newACMEListCmd(g *globals) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List every certificate this platform keeps renewed",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			var list struct {
+				Certificates []acmeView `json:"certificates"`
+			}
+			if err := g.client().do(cmd.Context(), "GET", "/v1/certificates",
+				nil, &list); err != nil {
+				return err
+			}
+
+			rows := make([][]string, 0, len(list.Certificates))
+			for _, one := range list.Certificates {
+				rows = append(rows, acmeRow(one))
+			}
+			return render(cmd.OutOrStdout(), g.output, list,
+				table{headers: acmeHeaders, rows: rows})
+		},
+	}
 }

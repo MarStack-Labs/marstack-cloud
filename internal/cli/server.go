@@ -19,12 +19,14 @@ import (
 
 func newServerCmd() *cobra.Command {
 	var (
-		listen   string
-		dataDir  string
-		logLevel string
-		tlsCert  string
-		tlsKey   string
-		keyFiles []string
+		acmeDirectory string
+		acmeContact   string
+		listen        string
+		dataDir       string
+		logLevel      string
+		tlsCert       string
+		tlsKey        string
+		keyFiles      []string
 
 		ratePerSecond int
 		rateBurst     int
@@ -85,6 +87,8 @@ func newServerCmd() *cobra.Command {
 				RateBurst:        rateBurst,
 				ProjectPerSecond: &projectPerSecond,
 				ProjectBurst:     projectBurst,
+				ACMEDirectory:    acmeDirectory,
+				ACMEContact:      acmeContact,
 			}, log)
 			if err != nil {
 				return err
@@ -113,6 +117,11 @@ func newServerCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&keyFiles, "backup-key-file", nil,
 		"file holding 64 hex characters; repeat to keep reading older backups, "+
 			"the first seals new ones")
+	cmd.Flags().StringVar(&acmeDirectory, "acme-directory", "",
+		"ACME directory URL to get certificates from, such as "+
+			"https://acme-v02.api.letsencrypt.org/directory")
+	cmd.Flags().StringVar(&acmeContact, "acme-contact", "",
+		"email the certificate authority writes to about expiry and problems")
 	cmd.Flags().StringVar(&objectEndpoint, "object-store-endpoint", "",
 		"S3 endpoint holding backups, such as http://minio.internal:9000")
 	cmd.Flags().StringVar(&objectBucket, "object-store-bucket", "",
