@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
@@ -35,6 +36,9 @@ type service struct {
 	ports    Ports
 	services Services
 	events   events.Recorder
+
+	expiryMu sync.Mutex
+	expiry   map[string]string
 	sealing  *sealed.Keyring
 	now      clock
 }
@@ -68,7 +72,8 @@ func newService(repo *repository, members Members, ports Ports, now clock) *serv
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &service{repo: repo, members: members, ports: ports, now: now}
+	return &service{repo: repo, members: members, ports: ports, now: now,
+		expiry: map[string]string{}}
 }
 
 func (s *service) create(ctx context.Context, params CreateParams) (Balancer, error) {

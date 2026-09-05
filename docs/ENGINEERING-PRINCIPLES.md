@@ -1087,3 +1087,21 @@ make check      # vet + test + security scans
   for the same reason there is no skip-verify flag. A self-hosted registry needs a certificate
   from a CA the node trusts - which is how the live test was done: a CA installed into the node's
   trust store, and the agent restarted so Go re-reads it.
+- A certificate's `expires_at` was stored and served and **nothing looked at it**. TLS simply
+  stopped working one day, on a port that had been fine for a year, with no event and no log line.
+  Both `balancer` and `forward` sweep their own certificates every ten minutes now.
+- The event is keyed on a **transition**, not a condition - the `instance.stranded` trap again. A
+  sweep that emits while a certificate is expiring writes one event every ten minutes forever, so
+  the service remembers the last state it reported per id.
+- That memory must be **cleared while the certificate is healthy**, or a renewal followed later by
+  a second approach to expiry never warns again. A test that only checks "a renewal goes quiet"
+  passes without the clearing; the test has to renew, then approach expiry a second time.
+- Remaining time is **floored**, never rounded up: 2d23h reads "2 days". A warning that claims
+  more time than there is, is worse than no warning. That is why the test uses 3d12h - a life of
+  exactly 3 days floors to 2 the instant the sweep runs.
+- `certs.Life` and `interval.Human` live in the kernel because `balancer` and `forward` both need
+  them and neither may import the other. The rule is shared mechanism; the message is not - each
+  module says "balancer web on port 8443" or "published port 9443" in its own words.
+- The memory is in the service, not a column, so a restart re-warns once. That is the same choice
+  as probe verdicts, and it is the right one here: the alternative is a schema change to store
+  something that is only ever an anti-spam counter.

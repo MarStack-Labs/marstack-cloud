@@ -1,9 +1,12 @@
 package forward
 
 import (
+	"sync"
+
 	"context"
 	"errors"
 	"fmt"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"strconv"
 	"time"
 
@@ -28,14 +31,19 @@ type service struct {
 	addresses Addresses
 	sealing   *sealed.Keyring
 	balancers Balancers
+	events    events.Recorder
 	now       clock
+
+	expiryMu sync.Mutex
+	expiry   map[string]string
 }
 
 func newService(repo *repository, addresses Addresses, now clock) *service {
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &service{repo: repo, addresses: addresses, now: now}
+	return &service{repo: repo, addresses: addresses, now: now,
+		expiry: map[string]string{}}
 }
 
 func (s *service) create(ctx context.Context, params CreateParams) (Forward, error) {

@@ -1,7 +1,11 @@
 package cli
 
 import (
+	"time"
+
 	"fmt"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/certs"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/interval"
 	"os"
 	"strconv"
 	"strings"
@@ -63,10 +67,20 @@ func tlsText(b balancerView) string {
 	if b.TLS == nil {
 		return "-"
 	}
-	if b.TLS.Subject == "" {
-		return "terminated"
+
+	name := b.TLS.Subject
+	if name == "" {
+		name = "terminated"
 	}
-	return b.TLS.Subject
+
+	state, left, readable := certs.Life(b.TLS.ExpiresAt, time.Now())
+	if !readable || state == certs.Fresh {
+		return name
+	}
+	if state == certs.Expired {
+		return name + " (expired)"
+	}
+	return name + " (" + interval.Human(left) + " left)"
 }
 
 func balancerRow(b balancerView) []string {

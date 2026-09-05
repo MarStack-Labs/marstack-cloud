@@ -35,3 +35,27 @@ func Parse(text string) (time.Duration, error) {
 	}
 	return parsed, nil
 }
+
+func Human(d time.Duration) string {
+	if d < 0 {
+		d = -d
+	}
+
+	switch {
+	case d < time.Minute:
+		return plural(int(d/time.Second), "second")
+	case d < time.Hour:
+		return plural(int(d/time.Minute), "minute")
+	case d < 24*time.Hour:
+		return plural(int(d/time.Hour), "hour")
+	default:
+		return plural(int(d/(24*time.Hour)), "day")
+	}
+}
+
+func plural(count int, unit string) string {
+	if count == 1 {
+		return "1 " + unit
+	}
+	return strconv.Itoa(count) + " " + unit + "s"
+}

@@ -105,3 +105,35 @@ func Split(bundled string) (string, string) {
 	}
 	return chain.String(), key.String()
 }
+
+const (
+	Expiring = "expiring"
+	Expired  = "expired"
+	Fresh    = "fresh"
+
+	ExpiryWarning = 14 * 24 * time.Hour
+)
+
+func Life(expiresAt string, now time.Time) (string, time.Duration, bool) {
+	if expiresAt == "" {
+		return Fresh, 0, false
+	}
+
+	at, err := time.Parse(time.RFC3339Nano, expiresAt)
+	if err != nil {
+		at, err = time.Parse(time.RFC3339, expiresAt)
+	}
+	if err != nil {
+		return Fresh, 0, false
+	}
+
+	left := at.Sub(now)
+	switch {
+	case left <= 0:
+		return Expired, left, true
+	case left <= ExpiryWarning:
+		return Expiring, left, true
+	default:
+		return Fresh, left, true
+	}
+}

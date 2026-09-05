@@ -128,6 +128,8 @@ type App struct {
 	scalers   *autoscale.Module
 	services  *service.Module
 	webhooks  *webhook.Module
+	balancers *balancer.Module
+	forwards  *forward.Module
 	tokens    *token.Module
 	trail     *audit.Module
 	scheduler *scheduler.Scheduler
@@ -189,6 +191,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	quotas.UseUsage(projectUsage{instances: instances, volumes: volumes})
 	instances.UseQuota(instanceQuota{quotas: quotas})
 	instances.UseKeys(keys)
+	forwards.UseEvents(events)
+	balancers.UseEvents(events)
 	balancers.UseMembers(balancerMembers{networks: networks, instances: instances})
 	balancers.UsePorts(forwards)
 	forwards.UseBalancers(balancers)
@@ -233,6 +237,8 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.instances = instances
 	a.services = services
 	a.webhooks = webhooks
+	a.balancers = balancers
+	a.forwards = forwards
 
 	a.modules = []Module{
 		system.New(st, log),
@@ -272,7 +278,6 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	scalers.UseEvents(events)
 	people.UseEvents(events)
 	instances.UseEvents(events)
-	balancers.UseEvents(events)
 	services.UseWorkloads(serviceWorkloads{instances: instances})
 	services.UseNetworks(networks)
 	services.UseFirewalls(firewalls)
@@ -426,6 +431,8 @@ func (a *App) Run(ctx context.Context) error {
 	go a.scalers.Run(ctx)
 	go a.services.Run(ctx)
 	go a.webhooks.Run(ctx)
+	go a.balancers.Run(ctx)
+	go a.forwards.Run(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

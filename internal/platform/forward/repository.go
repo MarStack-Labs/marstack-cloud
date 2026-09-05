@@ -49,6 +49,10 @@ func (r *repository) listIn(ctx context.Context, projectID string) ([]Forward, e
 		`SELECT `+columns+` FROM forwards WHERE project_id = ? ORDER BY node_port`, projectID)
 }
 
+func (r *repository) all(ctx context.Context) ([]Forward, error) {
+	return r.query(ctx, `SELECT `+columns+` FROM forwards ORDER BY node_port`)
+}
+
 func (r *repository) byID(ctx context.Context, id string) (Forward, error) {
 	found, err := r.query(ctx, `SELECT `+columns+` FROM forwards WHERE id = ?`, id)
 	if err != nil {

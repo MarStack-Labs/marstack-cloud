@@ -2,8 +2,10 @@ package forward
 
 import (
 	"context"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
@@ -86,6 +88,35 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  9,
 			SQL:    `ALTER TABLE forwards ADD COLUMN tls_expires_at TEXT NOT NULL DEFAULT ''`,
 		},
+	}
+}
+
+func (m *Module) UseEvents(recorder events.Recorder) {
+	m.svc.events = recorder
+}
+
+func (m *Module) Run(ctx context.Context) {
+	ticker := time.NewTicker(CertificateSweep)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.Sweep(ctx)
+		}
+	}
+}
+
+func (m *Module) Sweep(ctx context.Context) {
+	told, err := m.svc.sweepCertificates(ctx)
+	if err != nil {
+		m.log.Warn("could not check the published port certificates", "error", err)
+		return
+	}
+	if told > 0 {
+		m.log.Info("certificates need attention", "forwards", told)
 	}
 }
 

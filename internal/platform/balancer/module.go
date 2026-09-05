@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/events"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
@@ -183,6 +184,31 @@ func (m *Module) UsePorts(ports Ports) {
 
 func (m *Module) UseServices(services Services) {
 	m.svc.services = services
+}
+
+func (m *Module) Run(ctx context.Context) {
+	ticker := time.NewTicker(CertificateSweep)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.Sweep(ctx)
+		}
+	}
+}
+
+func (m *Module) Sweep(ctx context.Context) {
+	told, err := m.svc.sweepCertificates(ctx)
+	if err != nil {
+		m.log.Warn("could not check the balancer certificates", "error", err)
+		return
+	}
+	if told > 0 {
+		m.log.Info("certificates need attention", "balancers", told)
+	}
 }
 
 func (m *Module) UseEvents(recorder events.Recorder) {
