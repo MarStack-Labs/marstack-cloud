@@ -19,6 +19,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/quota"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/service"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/shell"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/volume"
@@ -699,4 +700,24 @@ func (w alertWorkloads) ResolveIn(
 		return "", err
 	}
 	return found.ID, nil
+}
+
+type shellInstances struct {
+	instances *instance.Module
+}
+
+func (s shellInstances) TargetFor(
+	ctx context.Context, ref, projectID string,
+) (shell.Target, error) {
+	found, err := s.instances.ResolveIn(ctx, ref, projectID)
+	if err != nil {
+		return shell.Target{}, err
+	}
+
+	return shell.Target{
+		InstanceID: found.ID,
+		NodeID:     found.NodeID,
+		Isolation:  string(found.Isolation),
+		Observed:   string(found.Observed),
+	}, nil
 }

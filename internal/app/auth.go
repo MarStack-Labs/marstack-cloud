@@ -62,6 +62,9 @@ var nodePaths = []string{
 	"GET /v1/nodes/{id}/images",
 	"GET /v1/nodes/{id}/registries",
 	"GET /v1/nodes/{id}/acme-challenges",
+	"GET /v1/nodes/{id}/shell",
+	"POST /v1/nodes/{id}/shells/{execID}/output",
+	"GET /v1/nodes/{id}/shells/{execID}/input",
 	"GET /v1/nodes/{id}/firewalls",
 	"GET /v1/nodes/{id}/backups",
 	"PUT /v1/nodes/{id}/backups/{backupID}/content",
@@ -74,6 +77,10 @@ var nodePaths = []string{
 }
 
 var streamingPaths = []string{
+	"GET /v1/shells/{id}/output",
+	"POST /v1/shells/{id}/input",
+	"POST /v1/nodes/{id}/shells/{execID}/output",
+	"GET /v1/nodes/{id}/shells/{execID}/input",
 	"PUT /v1/nodes/{id}/backups/{backupID}/content",
 	"GET /v1/nodes/{id}/backups/{backupID}/content",
 	"PUT /v1/nodes/{id}/instances/{instanceID}/disk",
@@ -201,6 +208,12 @@ var memberPaths = []string{
 	"GET /v1/alerts",
 	"GET /v1/alerts/{id}",
 	"DELETE /v1/alerts/{id}",
+	"POST /v1/instances/{id}/shell",
+	"GET /v1/shells",
+	"GET /v1/shells/{id}",
+	"DELETE /v1/shells/{id}",
+	"GET /v1/shells/{id}/output",
+	"POST /v1/shells/{id}/input",
 	"PUT /v1/balancers/{id}/certificate",
 	"DELETE /v1/balancers/{id}/certificate",
 	"DELETE /v1/balancers/{id}",

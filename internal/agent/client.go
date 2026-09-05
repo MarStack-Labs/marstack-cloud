@@ -119,6 +119,7 @@ type client struct {
 	secret   string
 	http     *http.Client
 	transfer *http.Client
+	stream   *http.Client
 }
 
 func newClient(endpoint, secret string, trusted *tls.Config) *client {
@@ -134,6 +135,7 @@ func newClient(endpoint, secret string, trusted *tls.Config) *client {
 		secret:   secret,
 		http:     &http.Client{Timeout: callTimeout, Transport: transport},
 		transfer: &http.Client{Timeout: transferTimeout, Transport: transport},
+		stream:   &http.Client{Transport: transport},
 	}
 }
 
@@ -651,6 +653,70 @@ func (c *client) challenges(ctx context.Context, nodeID string) ([]acmeChallenge
 	var out acmeChallengesBody
 	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/acme-challenges", nil, &out)
 	return out.Challenges, err
+}
+
+type shellView struct {
+	ID         string   `json:"id"`
+	InstanceID string   `json:"instance_id"`
+	Isolation  string   `json:"isolation"`
+	Command    []string `json:"command"`
+	State      string   `json:"state"`
+}
+
+func (c *client) takeShell(ctx context.Context, nodeID string) (shellView, bool, error) {
+	var out shellView
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/shell", nil, &out)
+	if err != nil {
+		return shellView{}, false, err
+	}
+	return out, out.ID != "", nil
+}
+
+func (c *client) shellInput(
+	ctx context.Context, nodeID, sessionID string,
+) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		c.endpoint+"/v1/nodes/"+nodeID+"/shells/"+sessionID+"/input", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build the input request: %w", err)
+	}
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+
+	res, err := c.stream.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("open the input stream: %w", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		res.Body.Close()
+		return nil, fmt.Errorf("the control plane answered %d for the input stream",
+			res.StatusCode)
+	}
+	return res.Body, nil
+}
+
+func (c *client) shellOutput(
+	ctx context.Context, nodeID, sessionID string, body io.Reader,
+) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.endpoint+"/v1/nodes/"+nodeID+"/shells/"+sessionID+"/output", body)
+	if err != nil {
+		return fmt.Errorf("build the output request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+
+	res, err := c.stream.Do(req)
+	if err != nil {
+		return fmt.Errorf("open the output stream: %w", err)
+	}
+	defer res.Body.Close()
+
+	_, _ = io.Copy(io.Discard, res.Body)
+	return nil
 }
 
 func (c *client) takeCommand(ctx context.Context, nodeID string) (commandView, bool, error) {

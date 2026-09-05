@@ -27,6 +27,7 @@ type client struct {
 	endpoint string
 	secret   string
 	http     *http.Client
+	stream   *http.Client
 }
 
 func newClient(endpoint, secret string, trusted *tls.Config) *client {
@@ -41,7 +42,33 @@ func newClient(endpoint, secret string, trusted *tls.Config) *client {
 		endpoint: strings.TrimRight(endpoint, "/"),
 		secret:   secret,
 		http:     &http.Client{Timeout: requestTimeout, Transport: transport},
+		stream:   &http.Client{Transport: transport},
 	}
+}
+
+func (c *client) open(
+	ctx context.Context, method, path string, body io.Reader,
+) (io.ReadCloser, error) {
+	req, err := http.NewRequestWithContext(ctx, method, c.endpoint+path, body)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/octet-stream")
+	}
+	if c.secret != "" {
+		req.Header.Set("Authorization", "Bearer "+c.secret)
+	}
+
+	res, err := c.stream.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if res.StatusCode >= http.StatusBadRequest {
+		defer res.Body.Close()
+		return nil, decodeAPIError(res)
+	}
+	return res.Body, nil
 }
 
 type apiError struct {

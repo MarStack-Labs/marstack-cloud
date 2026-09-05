@@ -128,6 +128,7 @@ func newRootCmd() *cobra.Command {
 		newKeyCmd(g),
 		newRegistryCmd(g),
 		newAlertCmd(g),
+		newShellCmd(g),
 		newNodeCmd(g),
 	)
 	return root

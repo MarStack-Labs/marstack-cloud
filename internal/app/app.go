@@ -36,6 +36,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/registry"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/service"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/shell"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/token"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/usage"
@@ -135,6 +136,7 @@ type App struct {
 	balancers    *balancer.Module
 	certificates *acme.Module
 	alerts       *alert.Module
+	shells       *shell.Module
 	forwards     *forward.Module
 	tokens       *token.Module
 	trail        *audit.Module
@@ -170,6 +172,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	registries := registry.New(st, log)
 	certificates := acme.New(st, log)
 	alerts := alert.New(st, log)
+	shells := shell.New(st, log)
 	firewalls := firewall.New(st, log)
 	keys := keypair.New(st, log)
 	events := event.New(st, log)
@@ -226,6 +229,10 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	alerts.UseWorkloads(alertWorkloads{instances: instances})
 	alerts.UseEvents(events)
 	instances.UseAlerts(alerts)
+	shells.UseInstances(shellInstances{instances: instances})
+	if cfg.Now != nil {
+		shells.UseClock(cfg.Now)
+	}
 	if cfg.Now != nil {
 		alerts.UseClock(cfg.Now)
 	}
@@ -267,6 +274,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.balancers = balancers
 	a.certificates = certificates
 	a.alerts = alerts
+	a.shells = shells
 	a.forwards = forwards
 
 	a.modules = []Module{
@@ -279,6 +287,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		registries,
 		certificates,
 		alerts,
+		shells,
 		volumes,
 		backups,
 		forwards,
@@ -466,6 +475,7 @@ func (a *App) Run(ctx context.Context) error {
 	go a.forwards.Run(ctx)
 	go a.certificates.Run(ctx)
 	go a.alerts.Run(ctx)
+	go a.shells.Run(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

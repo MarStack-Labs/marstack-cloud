@@ -235,3 +235,8 @@ type Released struct {
 type DiskReleaser interface {
 	ReleaseDisks(instanceID string, keep, known []Disk) ([]Released, error)
 }
+
+type Sheller interface {
+	Shell(ctx context.Context, instanceID string, command []string,
+		in io.Reader, out io.Writer) error
+}

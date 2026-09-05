@@ -1182,3 +1182,27 @@ make check      # vet + test + security scans
 - `usage` never took the app's clock, so a frozen-clock test read every sample as sixteen hours
   stale. Any module that stamps a time has to take `cfg.Now`, or the app disagrees with itself
   about what time it is.
+- `marstack shell` is the interactive half `exec` deliberately was not. The agent still has no
+  listener, so **the node dials out twice**: one GET whose response body carries keystrokes down,
+  one POST whose request body carries output up. The control plane joins the two with a pair of
+  `io.Pipe`s held in memory, and both routes are in `streamingPaths` or `http.TimeoutHandler`
+  buffers the whole thing and nothing arrives until the shell exits.
+- **Flush through the wrapper, not past it.** `w.(http.Flusher)` does not follow `Unwrap`, so with
+  `statusRecorder` in the chain the assertion silently yields nothing and the response headers
+  never leave. `http.NewResponseController(w).Flush()` is the one that works - the same trap
+  `statusRecorder.Unwrap` was written for, one level up.
+- A blocked `stream` has to be woken when its request dies, or a client that walks away leaves a
+  goroutine reading a pipe forever. The context watcher closes the pipe reader, which is what makes
+  the blocked `Read` return. `httptest.Server.Close` hanging is how this was found.
+- There is **no pty**. The shell gets pipes, so there is no prompt, no line editing and no ctrl-c;
+  a command runs and its output comes back. A pty needs `/dev/ptmx` ioctls through `unsafe` or a
+  new dependency on an agent that runs as root on customer metal, and neither is worth it for
+  prompt echo. The CLI says so in its help rather than letting somebody discover it.
+- Stdin ending is not the session ending. Piping commands in closes stdin immediately, and
+  cancelling on that killed the output stream before a single line came back. Only a real error or
+  ctrl-] ends the session; EOF just stops the input pump.
+- Handing a session out is two steps, so the **update** decides, with `state = 'waiting'` in its
+  WHERE - the same rule as `exec`. Eight concurrent takers do not prove it, because with one SQLite
+  connection the first update usually lands before the others read. The repository test reads the
+  row eight times **first** and then takes eight times, which is the interleaving that actually
+  happens across nodes.
