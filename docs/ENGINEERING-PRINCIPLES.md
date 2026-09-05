@@ -1161,3 +1161,24 @@ make check      # vet + test + security scans
   signs **that** public key. Live, a small ACME server on the node actually fetched
   `http://127.0.0.1:8600/.well-known/acme-challenge/<token>` and compared it byte for byte before
   issuing - which is the only way to know the responder is wired to the right port.
+- An alert closes the last link: usage history existed, webhooks existed, and nothing joined them.
+  It records an `alert.firing` or `alert.cleared` **event**, which the webhook module already fans
+  out, so there is no second delivery path to maintain.
+- It fires only after the reading **holds for the whole window**, which is why there are three
+  states rather than two: quiet, warming, firing. One high sample is a spike, and paging somebody
+  for a spike is how alerts get muted.
+- The event is written on a **change**, never on a condition - the same trap as `instance.stranded`
+  and the certificate sweep. A twenty second sweep that recorded a condition would wake every
+  webhook every twenty seconds.
+- **A missing reading is not zero, and a stale one is not now.** Both stop the alert rather than
+  deciding from them, and they are told apart in the message: a workload that never reported and
+  one that stopped reporting send an operator to different places. Testing this needs a `below`
+  alert - with `above`, a zero reading is quietly correct and the guard looks unnecessary.
+- Memory needs a limit to be a percentage, so an unknown limit stops the alert. Same reasoning as
+  autoscale, and the same test shape: only a `below` threshold exposes it.
+- The message is written on **every** pass; only the event is held back. An alert whose reason
+  changed but whose state did not still has to say the new reason, or the row keeps claiming
+  "nothing has been read yet" while the truth is "the reading is thirty minutes old".
+- `usage` never took the app's clock, so a frozen-clock test read every sample as sixteen hours
+  stale. Any module that stamps a time has to take `cfg.Now`, or the app disagrees with itself
+  about what time it is.

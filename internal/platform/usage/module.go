@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/httpx"
 	"github.com/marstack-labs/marstack-cloud/internal/store"
@@ -22,6 +23,13 @@ func New(st *store.Store, log *slog.Logger) *Module {
 		svc:     svc,
 		handler: &handler{svc: svc},
 	}
+}
+
+func (m *Module) UseClock(now func() time.Time) {
+	if now == nil {
+		return
+	}
+	m.svc.now = now
 }
 
 func (m *Module) Name() string {

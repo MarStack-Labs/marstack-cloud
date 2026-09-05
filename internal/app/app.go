@@ -14,6 +14,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/s3"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/sealed"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/acme"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/alert"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/audit"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/autoscale"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
@@ -133,6 +134,7 @@ type App struct {
 	webhooks     *webhook.Module
 	balancers    *balancer.Module
 	certificates *acme.Module
+	alerts       *alert.Module
 	forwards     *forward.Module
 	tokens       *token.Module
 	trail        *audit.Module
@@ -167,6 +169,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	balancers := balancer.New(st, log)
 	registries := registry.New(st, log)
 	certificates := acme.New(st, log)
+	alerts := alert.New(st, log)
 	firewalls := firewall.New(st, log)
 	keys := keypair.New(st, log)
 	events := event.New(st, log)
@@ -216,6 +219,17 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		volumes:   volumes,
 	})
 	usages := usage.New(st, log)
+	if cfg.Now != nil {
+		usages.UseClock(cfg.Now)
+	}
+	alerts.UseLoad(alertLoad{usage: usages, instances: instances})
+	alerts.UseWorkloads(alertWorkloads{instances: instances})
+	alerts.UseEvents(events)
+	instances.UseAlerts(alerts)
+	if cfg.Now != nil {
+		alerts.UseClock(cfg.Now)
+	}
+
 	usages.UseWorkloads(usageWorkloads{instances: instances})
 	people := user.New(st, log)
 	people.UseTokens(tokens)
@@ -252,6 +266,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	a.webhooks = webhooks
 	a.balancers = balancers
 	a.certificates = certificates
+	a.alerts = alerts
 	a.forwards = forwards
 
 	a.modules = []Module{
@@ -263,6 +278,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		image.New(st, log),
 		registries,
 		certificates,
+		alerts,
 		volumes,
 		backups,
 		forwards,
@@ -449,6 +465,7 @@ func (a *App) Run(ctx context.Context) error {
 	go a.balancers.Run(ctx)
 	go a.forwards.Run(ctx)
 	go a.certificates.Run(ctx)
+	go a.alerts.Run(ctx)
 
 	errc := make(chan error, 1)
 	go func() {

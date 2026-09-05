@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/marstack-labs/marstack-cloud/internal/platform/alert"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/autoscale"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/backup"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/balancer"
@@ -655,4 +656,47 @@ func (s instanceSource) GroupCounts(ctx context.Context, group string) (map[stri
 
 func (s instanceSource) HoldPlacement(ctx context.Context, instanceID, reason string) error {
 	return s.instances.HoldPlacement(ctx, instanceID, reason)
+}
+
+type alertLoad struct {
+	usage     *usage.Module
+	instances *instance.Module
+}
+
+func (l alertLoad) SamplesOf(ctx context.Context) (map[string]alert.Sample, error) {
+	samples, err := l.usage.Instances(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	held := make(map[string]alert.Sample, len(samples))
+	for _, sample := range samples {
+		one := alert.Sample{
+			CPUPercent: sample.CPUPercent,
+			ReportedAt: sample.ReportedAt,
+		}
+
+		if found, err := l.instances.Get(ctx, sample.InstanceID); err == nil &&
+			found.MemoryMiB > 0 {
+			one.MemoryPercent = float64(sample.MemoryUsedMiB) /
+				float64(found.MemoryMiB) * 100
+			one.MemoryKnown = true
+		}
+		held[sample.InstanceID] = one
+	}
+	return held, nil
+}
+
+type alertWorkloads struct {
+	instances *instance.Module
+}
+
+func (w alertWorkloads) ResolveIn(
+	ctx context.Context, ref, projectID string,
+) (string, error) {
+	found, err := w.instances.ResolveIn(ctx, ref, projectID)
+	if err != nil {
+		return "", err
+	}
+	return found.ID, nil
 }

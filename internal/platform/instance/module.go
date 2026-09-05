@@ -47,6 +47,10 @@ type Execs interface {
 	ReleaseInstance(ctx context.Context, instanceID string) error
 }
 
+type Alerts interface {
+	ReleaseInstance(ctx context.Context, instanceID string) error
+}
+
 type Keys interface {
 	Resolve(ctx context.Context, projectID string, names []string) ([]string, error)
 }
@@ -80,6 +84,10 @@ func (m *Module) UseForwards(forwards Forwards) {
 
 func (m *Module) UseLogs(logs Logs) {
 	m.svc.logs = logs
+}
+
+func (m *Module) UseAlerts(alerts Alerts) {
+	m.svc.alerts = alerts
 }
 
 func (m *Module) UseExecs(execs Execs) {
