@@ -1105,3 +1105,31 @@ make check      # vet + test + security scans
 - The memory is in the service, not a column, so a restart re-warns once. That is the same choice
   as probe verdicts, and it is the right one here: the alternative is a schema change to store
   something that is only ever an anti-spam counter.
+- Detach is a **state the node makes true**, not an action: `volumes.detaching` is set, the node
+  sees a disk it holds that is no longer wanted, asks the guest to release it, and reports back.
+  Clearing the row and calling it detached was a lie - the guest kept the disk and would have gone
+  on writing to it.
+- The volume keeps `instance_id` while detaching, because that is the truth and because the node
+  needs to know which guest to ask. `State()` reports `detaching`, and the node view carries the
+  flag so the agent can leave it out of the wanted set.
+- **Only positive evidence counts as released.** Absence from `query-block` does not mean gone: a
+  half-finished unplug leaves the block node behind, and an encrypted disk's node is not named the
+  way the drive is. The proof is `blockdev-del` succeeding - it fails with "in use" for exactly as
+  long as the device is attached, so polling it is both the wait and the evidence.
+- **A disk on `pcie.0` can never be hot-unplugged** - `device_del` answers "Bus 'pcie.0' does not
+  support hotplugging". Boot-time disks are placed behind a `pcie-root-port` now, the same as
+  hot-plugged ones, so attach and detach are symmetric. A guest started before that change must be
+  restarted before its disks can be released.
+- Unplug is a sequence - `device_del`, wait, `blockdev-del`, `object-del` - and any step can fail
+  midway. The leftovers block the next attach with "Duplicate nodes" or "duplicate property", so
+  `plug` heals both: it deletes the leftover and retries once. Without that, one failed detach
+  makes a volume permanently unattachable to that guest.
+- A guest that has the filesystem mounted **will not** release the disk, and that is the whole
+  point. The volume stays detaching and the message says to unmount it inside the guest or stop
+  the guest. Verified live both ways: a mounted volume refused, an untouched one released without
+  a restart.
+- Re-attaching to the same instance cancels a detach. Without it an operator who changes their
+  mind, or a volume whose node never answers, sits in detaching forever with no way out.
+- `Placement.Observed` was added because `Running` is the **desired** state. Asking a guest that is
+  not running to release a disk waits for an answer that will never come, so detach from anything
+  not observed running finishes at once.

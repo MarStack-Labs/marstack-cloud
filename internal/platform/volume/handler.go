@@ -31,6 +31,7 @@ type reportRequest struct {
 
 type reportedVolume struct {
 	VolumeID  string             `json:"volume_id"`
+	Detached  bool               `json:"detached,omitempty"`
 	Snapshots []reportedSnapshot `json:"snapshots"`
 	Restored  string             `json:"restored,omitempty"`
 	Error     string             `json:"error,omitempty"`
@@ -75,6 +76,7 @@ type response struct {
 	State       string             `json:"state"`
 	NodeID      string             `json:"node_id,omitempty"`
 	InstanceID  string             `json:"instance_id,omitempty"`
+	Detaching   bool               `json:"detaching,omitempty"`
 	RestoreFrom string             `json:"restore_from,omitempty"`
 	BackupID    string             `json:"backup_id,omitempty"`
 	CloneFrom   string             `json:"clone_from,omitempty"`
@@ -99,6 +101,7 @@ func toResponse(v Volume) response {
 		State:       v.State(),
 		NodeID:      v.NodeID,
 		InstanceID:  v.InstanceID,
+		Detaching:   v.Detaching,
 		RestoreFrom: v.RestoreFrom,
 		BackupID:    v.BackupID,
 		CloneFrom:   v.CloneFrom,
@@ -336,6 +339,7 @@ func (h *handler) report(w http.ResponseWriter, r *http.Request) error {
 		}
 		reports = append(reports, NodeReport{
 			VolumeID:  reported.VolumeID,
+			Detached:  reported.Detached,
 			Snapshots: snapshots,
 			Restored:  reported.Restored,
 			Error:     reported.Error,

@@ -225,3 +225,13 @@ type RegistryCredential struct {
 	Username string
 	Password string
 }
+
+type Released struct {
+	VolumeID string
+	Gone     bool
+	Reason   string
+}
+
+type DiskReleaser interface {
+	ReleaseDisks(instanceID string, keep, known []Disk) ([]Released, error)
+}

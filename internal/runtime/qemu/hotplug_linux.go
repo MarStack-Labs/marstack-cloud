@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/marstack-labs/marstack-cloud/internal/workload"
 )
@@ -68,13 +69,24 @@ func (r *Runtime) plug(monitor *qmpConn, id, file string, disk workload.Disk) er
 		if readErr != nil {
 			return fmt.Errorf("read the volume key: %w", readErr)
 		}
-		_, err = monitor.run("object-add", map[string]any{
+
+		secret := map[string]any{
 			"qom-type": "secret",
 			"id":       id + "key",
 			"data":     string(key),
-		})
-		if err != nil {
-			return err
+		}
+		if _, err = monitor.run("object-add", secret); err != nil {
+			if !strings.Contains(err.Error(), "duplicate") {
+				return err
+			}
+			if _, drop := monitor.run("object-del",
+				map[string]any{"id": id + "key"}); drop != nil {
+				return fmt.Errorf("%w, and the leftover secret could not be removed: %w",
+					err, drop)
+			}
+			if _, err = monitor.run("object-add", secret); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -99,7 +111,17 @@ func (r *Runtime) plug(monitor *qmpConn, id, file string, disk workload.Disk) er
 	}
 
 	if _, err := monitor.run("blockdev-add", node); err != nil {
-		return err
+		if !strings.Contains(err.Error(), "Duplicate") {
+			return err
+		}
+		if _, drop := monitor.run("blockdev-del",
+			map[string]any{"node-name": id}); drop != nil {
+			return fmt.Errorf("%w, and the leftover block node could not be removed: %w",
+				err, drop)
+		}
+		if _, err := monitor.run("blockdev-add", node); err != nil {
+			return err
+		}
 	}
 
 	_, err = monitor.run("device_add", map[string]any{

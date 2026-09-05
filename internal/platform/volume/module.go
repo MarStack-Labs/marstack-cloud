@@ -174,6 +174,12 @@ func (m *Module) Migrations() []store.Migration {
 			Index:  19,
 			SQL:    `ALTER TABLE volumes ADD COLUMN clone_snap TEXT NOT NULL DEFAULT ''`,
 		},
+		{
+			Module: "volume",
+			Index:  20,
+			SQL: `ALTER TABLE volumes
+				ADD COLUMN detaching INTEGER NOT NULL DEFAULT 0`,
+		},
 	}
 }
 

@@ -157,6 +157,7 @@ func (s volumeInstances) Placement(
 	}
 	return volume.Placement{
 		InstanceID: in.ID,
+		Observed:   string(in.Observed),
 		ProjectID:  in.ProjectID,
 		NodeID:     in.NodeID,
 		Isolation:  string(in.Isolation),

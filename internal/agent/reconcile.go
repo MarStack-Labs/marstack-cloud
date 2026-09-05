@@ -147,6 +147,7 @@ func (a *Agent) applyDesired(ctx context.Context, state cachedState, report bool
 
 	for _, in := range state.Instances {
 		a.plugDisks(ctx, in, disks[in.ID])
+		a.releaseDisks(ctx, in, disks[in.ID], state.Volumes, report)
 
 		observed, message, exitCode := a.reconcileOne(ctx, in, interfaces[in.ID], disks[in.ID])
 		restarts := a.restartAttempts(in.ID)
@@ -711,7 +712,7 @@ func (a *Agent) disksByInstance(
 ) map[string][]workload.Disk {
 	byInstance := map[string][]workload.Disk{}
 	for _, v := range volumes {
-		if v.InstanceID == "" {
+		if v.InstanceID == "" || v.Detaching {
 			continue
 		}
 

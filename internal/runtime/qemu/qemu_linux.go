@@ -289,7 +289,8 @@ func (r *Runtime) arguments(
 
 		args = append(args,
 			"-drive", drive,
-			"-device", "virtio-blk-pci,drive="+id+",serial="+disk.Name,
+			"-device", "virtio-blk-pci,id="+id+"dev,drive="+id+",serial="+disk.Name+
+				",bus="+portID(index),
 		)
 	}
 

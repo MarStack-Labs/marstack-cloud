@@ -207,6 +207,12 @@ func (s *service) attach(
 	instanceID := placed.InstanceID
 
 	if v.InstanceID == instanceID {
+		if v.Detaching {
+			if err := s.repo.clearDetaching(ctx, v.ID, s.now()); err != nil {
+				return Volume{}, translate(err)
+			}
+			v.Detaching = false
+		}
 		return v, nil
 	}
 	if v.InstanceID != "" {
@@ -249,12 +255,33 @@ func (s *service) detach(ctx context.Context, nameOrID, projectID string) (Volum
 		return v, nil
 	}
 
+	if s.holdsIt(ctx, v) {
+		if err := s.repo.setDetaching(ctx, v.ID, s.now()); err != nil {
+			return Volume{}, translate(err)
+		}
+		v.Detaching = true
+		return v, nil
+	}
+
 	if err := s.repo.detach(ctx, v.ID, s.now()); err != nil {
 		return Volume{}, translate(err)
 	}
 
 	v.InstanceID = ""
+	v.Detaching = false
 	return v, nil
+}
+
+func (s *service) holdsIt(ctx context.Context, v Volume) bool {
+	if s.instances == nil {
+		return false
+	}
+
+	placed, err := s.instances.Placement(ctx, v.InstanceID, v.ProjectID)
+	if err != nil {
+		return false
+	}
+	return placed.Observed == "running" && placed.NodeID != ""
 }
 
 func (s *service) releaseInstance(ctx context.Context, instanceID string) error {
@@ -406,6 +433,12 @@ func (s *service) report(ctx context.Context, nodeID string, reports []NodeRepor
 		}
 		if v.NodeID != nodeID {
 			continue
+		}
+
+		if reported.Detached && v.Detaching {
+			if err := s.repo.detach(ctx, v.ID, s.now()); err != nil {
+				return translate(err)
+			}
 		}
 
 		present := map[string]int64{}

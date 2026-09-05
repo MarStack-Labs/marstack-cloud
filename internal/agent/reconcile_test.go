@@ -224,11 +224,13 @@ type controlPlane struct {
 	nodes     []nodeView
 	records   []dnsRecordView
 	volumes   []volumeView
-	forwards  []forwardView
-	balancers []balancerView
-	firewalls []firewallView
-	health    []healthReportBody
-	reports   []report
+
+	volumesReported []reportedVolumeBody
+	forwards        []forwardView
+	balancers       []balancerView
+	firewalls       []firewallView
+	health          []healthReportBody
+	reports         []report
 }
 
 func (c *controlPlane) healthReports() []healthReportBody {
@@ -285,6 +287,16 @@ func (c *controlPlane) handler() http.Handler {
 		defer c.mu.Unlock()
 		json.NewEncoder(w).Encode(volumesBody{Volumes: c.volumes})
 	})
+	mux.HandleFunc("PUT /v1/nodes/{id}/volumes", func(w http.ResponseWriter, r *http.Request) {
+		var body reportVolumesBody
+		_ = json.NewDecoder(r.Body).Decode(&body)
+
+		c.mu.Lock()
+		c.volumesReported = append(c.volumesReported, body.Volumes...)
+		c.mu.Unlock()
+
+		w.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/dns/records", func(w http.ResponseWriter, _ *http.Request) {
 		c.mu.Lock()
 		defer c.mu.Unlock()
@@ -314,6 +326,12 @@ func (c *controlPlane) handler() http.Handler {
 		})
 
 	return mux
+}
+
+func (c *controlPlane) volumeReports() []reportedVolumeBody {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]reportedVolumeBody(nil), c.volumesReported...)
 }
 
 func (c *controlPlane) lastReport(t *testing.T) report {

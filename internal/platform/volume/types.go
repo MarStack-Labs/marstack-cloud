@@ -6,8 +6,9 @@ const (
 	MinSizeGiB = 1
 	MaxSizeGiB = 4096
 
-	StateFree     = "free"
-	StateAttached = "attached"
+	StateFree      = "free"
+	StateAttached  = "attached"
+	StateDetaching = "detaching"
 
 	SnapshotPending = "pending"
 	SnapshotReady   = "ready"
@@ -25,6 +26,7 @@ type Volume struct {
 	BackupID    string
 	CloneFrom   string
 	CloneSnap   string
+	Detaching   bool
 	Encrypted   bool
 	KeySealed   string
 	KeyID       string
@@ -49,6 +51,7 @@ type ReportedSnapshot struct {
 }
 
 type NodeReport struct {
+	Detached  bool
 	VolumeID  string
 	Snapshots []ReportedSnapshot
 	Restored  string
@@ -56,10 +59,14 @@ type NodeReport struct {
 }
 
 func (v Volume) State() string {
-	if v.InstanceID != "" {
+	switch {
+	case v.Detaching:
+		return StateDetaching
+	case v.InstanceID != "":
 		return StateAttached
+	default:
+		return StateFree
 	}
-	return StateFree
 }
 
 type Footprint struct {
@@ -76,6 +83,7 @@ type CreateParams struct {
 }
 
 type Placement struct {
+	Observed   string
 	InstanceID string
 	ProjectID  string
 	NodeID     string

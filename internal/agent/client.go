@@ -190,6 +190,7 @@ type volumeView struct {
 	BackupID    string         `json:"backup_id,omitempty"`
 	CloneFrom   string         `json:"clone_from,omitempty"`
 	CloneSnap   string         `json:"clone_snap,omitempty"`
+	Detaching   bool           `json:"detaching,omitempty"`
 	Encrypted   bool           `json:"encrypted,omitempty"`
 	Snapshots   []snapshotView `json:"snapshots,omitempty"`
 }
@@ -206,6 +207,7 @@ type reportedSnapshotBody struct {
 
 type reportedVolumeBody struct {
 	VolumeID  string                 `json:"volume_id"`
+	Detached  bool                   `json:"detached,omitempty"`
 	Snapshots []reportedSnapshotBody `json:"snapshots"`
 	Restored  string                 `json:"restored,omitempty"`
 	Error     string                 `json:"error,omitempty"`

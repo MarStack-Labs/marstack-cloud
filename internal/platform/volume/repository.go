@@ -20,7 +20,7 @@ var (
 
 const columns = `id, project_id, name, size_gib, node_id, instance_id, restore_from, ` +
 	`backup_id, clone_from, clone_snap, encrypted, key_sealed, key_id, ` +
-	`created_at, updated_at`
+	`detaching, created_at, updated_at`
 
 const snapshotColumns = `id, volume_id, name, state, message, size_bytes,
 	schedule_id, created_at`
@@ -36,9 +36,9 @@ func newRepository(st *store.Store) *repository {
 func (r *repository) insert(ctx context.Context, v Volume) error {
 	_, err := r.db.ExecContext(ctx,
 		`INSERT INTO volumes (`+columns+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		v.ID, v.ProjectID, v.Name, v.SizeGiB, v.NodeID, v.InstanceID, v.RestoreFrom, v.BackupID,
-		v.CloneFrom, v.CloneSnap, v.Encrypted, v.KeySealed, v.KeyID,
+		v.CloneFrom, v.CloneSnap, v.Encrypted, v.KeySealed, v.KeyID, v.Detaching,
 		v.CreatedAt.Format(time.RFC3339Nano), v.UpdatedAt.Format(time.RFC3339Nano),
 	)
 	if err != nil {
@@ -126,7 +126,7 @@ func (r *repository) attach(ctx context.Context, id, instanceID, nodeID string, 
 
 func (r *repository) detach(ctx context.Context, id string, at time.Time) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE volumes SET instance_id = '', updated_at = ? WHERE id = ?`,
+		`UPDATE volumes SET instance_id = '', detaching = 0, updated_at = ? WHERE id = ?`,
 		at.Format(time.RFC3339Nano), id,
 	)
 	if err != nil {
@@ -282,6 +282,26 @@ func scanSnapshot(row scanner) (Snapshot, error) {
 	return snap, nil
 }
 
+func (r *repository) setDetaching(ctx context.Context, id string, at time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE volumes SET detaching = 1, updated_at = ? WHERE id = ?`,
+		at.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("mark the volume detaching: %w", err)
+	}
+	return nil
+}
+
+func (r *repository) clearDetaching(ctx context.Context, id string, at time.Time) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE volumes SET detaching = 0, updated_at = ? WHERE id = ?`,
+		at.Format(time.RFC3339Nano), id)
+	if err != nil {
+		return fmt.Errorf("clear the detaching mark: %w", err)
+	}
+	return nil
+}
+
 func (r *repository) delete(ctx context.Context, id string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -326,7 +346,7 @@ func scan(row scanner) (Volume, error) {
 
 	if err := row.Scan(&v.ID, &v.ProjectID, &v.Name, &v.SizeGiB, &v.NodeID, &v.InstanceID,
 		&v.RestoreFrom, &v.BackupID, &v.CloneFrom, &v.CloneSnap,
-		&v.Encrypted, &v.KeySealed, &v.KeyID,
+		&v.Encrypted, &v.KeySealed, &v.KeyID, &v.Detaching,
 		&created, &updated); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Volume{}, err
