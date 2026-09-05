@@ -60,6 +60,7 @@ var nodePaths = []string{
 	"GET /v1/nodes/{id}/instances/{instanceID}/disk",
 	"POST /v1/nodes/{id}/instances/{instanceID}/landed",
 	"GET /v1/nodes/{id}/images",
+	"GET /v1/nodes/{id}/registries",
 	"GET /v1/nodes/{id}/firewalls",
 	"GET /v1/nodes/{id}/backups",
 	"PUT /v1/nodes/{id}/backups/{backupID}/content",

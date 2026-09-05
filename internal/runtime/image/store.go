@@ -40,6 +40,10 @@ func New(root string, log *slog.Logger) *Store {
 	}
 }
 
+func (s *Store) UseCredentials(held []Credential) {
+	s.registry.useCredentials(held)
+}
+
 func (s *Store) manifestDir() string {
 	return filepath.Join(s.root, "manifests")
 }

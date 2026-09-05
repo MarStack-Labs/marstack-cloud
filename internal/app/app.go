@@ -31,6 +31,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/platform/node"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/project"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/quota"
+	"github.com/marstack-labs/marstack-cloud/internal/platform/registry"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/scheduler"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/service"
 	"github.com/marstack-labs/marstack-cloud/internal/platform/system"
@@ -158,6 +159,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	}
 	forwards := forward.New(st, forwardAddresses{networks: networks, instances: instances}, log)
 	balancers := balancer.New(st, log)
+	registries := registry.New(st, log)
 	firewalls := firewall.New(st, log)
 	keys := keypair.New(st, log)
 	events := event.New(st, log)
@@ -178,6 +180,10 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 	balancers.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
 	services.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
 	forwards.UseSealing(sealed.NewKeyring(cfg.BackupKeys))
+	registries.UseKeys(sealed.NewKeyring(cfg.BackupKeys))
+	if cfg.Now != nil {
+		registries.UseClock(cfg.Now)
+	}
 	tokens.UseProjects(projects)
 	quotas.UseProjects(projects)
 	quotas.UseUsage(projectUsage{instances: instances, volumes: volumes})
@@ -235,6 +241,7 @@ func New(ctx context.Context, cfg Config, log *slog.Logger) (*App, error) {
 		instances,
 		dns.New(log, dnsInstances{instances: instances}, networks),
 		image.New(st, log),
+		registries,
 		volumes,
 		backups,
 		forwards,

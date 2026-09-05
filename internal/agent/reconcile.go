@@ -37,6 +37,7 @@ func (a *Agent) reconcile(ctx context.Context) {
 	}
 
 	a.refreshCatalog(ctx)
+	a.refreshRegistries(ctx)
 
 	state, err := a.readDesired(ctx)
 	if err != nil {
@@ -1010,4 +1011,36 @@ func endpointRoutes(routes []balancerRouteView) []tlsproxy.EndpointRoute {
 		})
 	}
 	return out
+}
+
+type registryAuthority interface {
+	UseRegistryCredentials(held []workload.RegistryCredential)
+}
+
+func (a *Agent) refreshRegistries(ctx context.Context) {
+	nodeID := a.currentNodeID()
+	if nodeID == "" {
+		return
+	}
+
+	held, err := a.client.registries(ctx, nodeID)
+	if err != nil {
+		a.log.Warn("could not read the registry credentials", "error", err)
+		return
+	}
+
+	logins := make([]workload.RegistryCredential, 0, len(held))
+	for _, one := range held {
+		logins = append(logins, workload.RegistryCredential{
+			Host:     one.Host,
+			Username: one.Username,
+			Password: one.Password,
+		})
+	}
+
+	for _, runtime := range a.runtimes {
+		if authority, able := runtime.(registryAuthority); able {
+			authority.UseRegistryCredentials(logins)
+		}
+	}
 }

@@ -126,6 +126,7 @@ func newRootCmd() *cobra.Command {
 		newProjectCmd(g),
 		newQuotaCmd(g),
 		newKeyCmd(g),
+		newRegistryCmd(g),
 		newNodeCmd(g),
 	)
 	return root

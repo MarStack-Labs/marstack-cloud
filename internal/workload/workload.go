@@ -219,3 +219,9 @@ type Runtime interface {
 	Status(ctx context.Context, instanceID string) (State, error)
 	Remove(ctx context.Context, instanceID string) error
 }
+
+type RegistryCredential struct {
+	Host     string
+	Username string
+	Password string
+}

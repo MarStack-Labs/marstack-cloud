@@ -65,6 +65,18 @@ func New(root string, log *slog.Logger, vmm VMM, kernels Images) *Runtime {
 	}
 }
 
+func (r *Runtime) UseRegistryCredentials(held []workload.RegistryCredential) {
+	logins := make([]image.Credential, 0, len(held))
+	for _, one := range held {
+		logins = append(logins, image.Credential{
+			Host:     one.Host,
+			Username: one.Username,
+			Password: one.Password,
+		})
+	}
+	r.images.UseCredentials(logins)
+}
+
 func (r *Runtime) Name() string {
 	return r.vmm.Name()
 }

@@ -321,6 +321,16 @@ type balancersBody struct {
 	Balancers []balancerView `json:"balancers"`
 }
 
+type registryView struct {
+	Host     string `json:"host"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type registriesBody struct {
+	Credentials []registryView `json:"credentials"`
+}
+
 type imagesBody struct {
 	Images []imageView `json:"images"`
 }
@@ -618,6 +628,12 @@ type commandResult struct {
 	Truncated bool   `json:"truncated,omitempty"`
 	ExitCode  *int   `json:"exit_code,omitempty"`
 	Message   string `json:"message,omitempty"`
+}
+
+func (c *client) registries(ctx context.Context, nodeID string) ([]registryView, error) {
+	var out registriesBody
+	err := c.do(ctx, http.MethodGet, "/v1/nodes/"+nodeID+"/registries", nil, &out)
+	return out.Credentials, err
 }
 
 func (c *client) takeCommand(ctx context.Context, nodeID string) (commandView, bool, error) {

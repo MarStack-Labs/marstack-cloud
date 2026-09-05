@@ -3,6 +3,7 @@ package image
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -44,19 +46,76 @@ type manifest struct {
 	Layers    []descriptor `json:"layers"`
 }
 
+type Credential struct {
+	Host     string
+	Username string
+	Password string
+}
+
 type registry struct {
 	http     *http.Client
 	insecure bool
 
-	tokens map[string]string
+	mu     sync.Mutex
+	logins map[string]Credential
+	auth   map[string]string
 }
 
 func newRegistry(insecure bool) *registry {
 	return &registry{
 		http:     &http.Client{Timeout: requestTimeout},
 		insecure: insecure,
-		tokens:   map[string]string{},
+		logins:   map[string]Credential{},
+		auth:     map[string]string{},
 	}
+}
+
+func (r *registry) useCredentials(held []Credential) {
+	logins := make(map[string]Credential, len(held))
+	for _, one := range held {
+		logins[strings.ToLower(one.Host)] = one
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if sameLogins(r.logins, logins) {
+		return
+	}
+	r.logins = logins
+	r.auth = map[string]string{}
+}
+
+func sameLogins(held, wanted map[string]Credential) bool {
+	if len(held) != len(wanted) {
+		return false
+	}
+	for host, one := range wanted {
+		if held[host] != one {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *registry) authorization(repository string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.auth[repository]
+}
+
+func (r *registry) setAuth(repository, header string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.auth[repository] = header
+}
+
+func (r *registry) login(host string) (Credential, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	one, found := r.logins[strings.ToLower(host)]
+	return one, found
 }
 
 func (r *registry) scheme() string {
@@ -77,8 +136,8 @@ func (r *registry) get(ctx context.Context, ref Reference, path string, accept [
 		for _, media := range accept {
 			req.Header.Add("Accept", media)
 		}
-		if token := r.tokens[ref.Repository]; token != "" {
-			req.Header.Set("Authorization", "Bearer "+token)
+		if header := r.authorization(ref.Repository); header != "" {
+			req.Header.Set("Authorization", header)
 		}
 
 		res, err := r.http.Do(req)
@@ -107,6 +166,16 @@ func (r *registry) get(ctx context.Context, ref Reference, path string, accept [
 }
 
 func (r *registry) authenticate(ctx context.Context, ref Reference, challenge string) error {
+	if strings.HasPrefix(strings.ToLower(challenge), "basic ") {
+		held, found := r.login(ref.Registry)
+		if !found {
+			return fmt.Errorf(
+				"%s asks for a username and password and this node holds none for it",
+				ref.Registry)
+		}
+		r.setAuth(ref.Repository, basicHeader(held))
+		return nil
+	}
 	if !strings.HasPrefix(strings.ToLower(challenge), "bearer ") {
 		return fmt.Errorf("registry asked for an unsupported authentication scheme: %q", challenge)
 	}
@@ -139,6 +208,9 @@ func (r *registry) authenticate(ctx context.Context, ref Reference, challenge st
 	if err != nil {
 		return fmt.Errorf("build token request: %w", err)
 	}
+	if held, found := r.login(ref.Registry); found {
+		req.SetBasicAuth(held.Username, held.Password)
+	}
 
 	res, err := r.http.Do(req)
 	if err != nil {
@@ -166,7 +238,7 @@ func (r *registry) authenticate(ctx context.Context, ref Reference, challenge st
 		return fmt.Errorf("token endpoint returned no token")
 	}
 
-	r.tokens[ref.Repository] = token
+	r.setAuth(ref.Repository, "Bearer "+token)
 	return nil
 }
 
@@ -266,4 +338,8 @@ func verifyDigest(data []byte, digest string) error {
 		return fmt.Errorf("blob digest mismatch: got sha256:%s, want %s", actual, digest)
 	}
 	return nil
+}
+
+func basicHeader(c Credential) string {
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(c.Username+":"+c.Password))
 }

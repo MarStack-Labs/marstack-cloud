@@ -1062,3 +1062,28 @@ make check      # vet + test + security scans
   Either direction is a **mode change** - nftables rule versus userspace listener - and doing that
   through a route that looks like an edit would move the port from the kernel to the agent behind
   the operator's back.
+- A node could only pull what a registry serves **anonymously**: `runtime/image` sent no
+  credentials at all. That is no private image ever, and a much lower rate limit on the public
+  ones - the 429s from Docker Hub in the live logs were exactly this.
+- A registry credential is **administrative, not project-scoped**, the same precedent as images
+  and firewalls: one host holds one login, and a tenant able to read it reads every other
+  tenant's pull credential too. The host is unique globally for the same reason - one pull cannot
+  be made with two logins.
+- The password is sealed with the operator key and served **only** on
+  `GET /v1/nodes/{id}/registries`. The operator response has no field for it, and the test asserts
+  the exact key set rather than the absence of one string, so any field added there fails.
+- The login goes on the **token request**, not on the API request. A bearer challenge means
+  fetching a scoped token from the realm, and an anonymous token request gets an anonymous token -
+  which is the pull that was already failing. A `Basic` challenge, which self-hosted registries
+  send, is now answered directly instead of being refused as "unsupported".
+- Changing a credential throws away the cached token for that repository, or a rotation changes
+  nothing until the process restarts. Handing down an **unchanged** credential must not throw it
+  away, or every reconcile pass costs a token round trip per pull - both directions are mutation
+  tests.
+- The agent hands credentials to any runtime implementing `UseRegistryCredentials`, type-asserted
+  the same way `Resize` is. Only container and microvm pull images; adding it to `Runtime` would
+  make three drivers accept a call two of them cannot use.
+- There is still **no way to reach a plain-HTTP registry**, and there must not be a flag for it,
+  for the same reason there is no skip-verify flag. A self-hosted registry needs a certificate
+  from a CA the node trusts - which is how the live test was done: a CA installed into the node's
+  trust store, and the agent restarted so Go re-reads it.
