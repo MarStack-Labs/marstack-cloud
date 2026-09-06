@@ -92,7 +92,7 @@ func TestAPublishedPortSummarisesItsCertificateAndServesItToTheNode(t *testing.T
 }
 
 func TestAForwardPrivateKeyIsNotOnDiskInTheClear(t *testing.T) {
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	a, _ := sealingAppIn(t, dir)
 
 	ctx, cancel := context.WithCancel(context.Background())

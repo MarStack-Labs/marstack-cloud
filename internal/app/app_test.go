@@ -26,7 +26,7 @@ var unlimited = 0
 func newTestApp(t *testing.T) *testApp {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	log := logging.New("error", io.Discard)
 	a, err := New(context.Background(), Config{DataDir: dir, RatePerSecond: &unlimited}, log)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestRequestIDHeaderIsSet(t *testing.T) {
 }
 
 func TestMigrationsAreIdempotent(t *testing.T) {
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	log := logging.New("error", io.Discard)
 
 	for range 3 {
@@ -161,7 +161,7 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 func newTickingApp(t *testing.T) (*testApp, *time.Time) {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	now := time.Now().UTC()
 
 	a, err := New(context.Background(),

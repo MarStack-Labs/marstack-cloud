@@ -281,7 +281,7 @@ func TestSomethingThatIsNotAnAddressIsRefused(t *testing.T) {
 func newFrozenApp(t *testing.T) *testApp {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	at := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 
 	built, err := New(context.Background(), Config{

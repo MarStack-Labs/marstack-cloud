@@ -220,7 +220,7 @@ func newACMEApp(t *testing.T, directory string) (*testApp, string, *movingClock)
 	t.Helper()
 
 	tick := &movingClock{at: time.Date(2026, 9, 6, 9, 0, 0, 0, time.UTC)}
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	k, _ := sealed.NewKey()
 	built, err := New(context.Background(),
 		Config{

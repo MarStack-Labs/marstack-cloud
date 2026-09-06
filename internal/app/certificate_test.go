@@ -87,7 +87,7 @@ type testResponse struct {
 func sealingBalancer(t *testing.T) (*testApp, string, string) {
 	t.Helper()
 
-	a, _ := sealingAppIn(t, t.TempDir())
+	a, _ := sealingAppIn(t, schemaDir(t))
 	nodeID := registerNode(t, a, "bm-1", "rack-a")
 
 	rec := do(t, a, http.MethodPost, "/v1/balancers",
@@ -137,7 +137,7 @@ func TestACertificateIsSummarisedForTheOperatorAndServedToTheNode(t *testing.T) 
 }
 
 func TestAPrivateKeyIsNotOnDiskInTheClear(t *testing.T) {
-	a, dir := sealingAppIn(t, t.TempDir())
+	a, dir := sealingAppIn(t, schemaDir(t))
 	registerNode(t, a, "bm-1", "rack-a")
 
 	rec := do(t, a, http.MethodPost, "/v1/balancers",

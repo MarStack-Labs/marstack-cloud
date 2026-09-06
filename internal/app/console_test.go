@@ -18,7 +18,7 @@ import (
 func newConsoleApp(t *testing.T) (*testApp, string) {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	console := t.TempDir()
 
 	write := func(name, body string) {

@@ -28,7 +28,7 @@ func newAlertingApp(t *testing.T) (*testApp, string, *movingClock) {
 	t.Helper()
 
 	tick := &movingClock{at: time.Date(2026, 9, 6, 10, 0, 0, 0, time.UTC)}
-	dir := t.TempDir()
+	dir := schemaDir(t)
 
 	built, err := New(context.Background(),
 		Config{

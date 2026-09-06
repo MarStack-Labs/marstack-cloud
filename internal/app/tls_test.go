@@ -82,7 +82,7 @@ func freeAddress(t *testing.T) string {
 func serveTLS(t *testing.T) (address, certPath string) {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	certPath, keyPath := selfSigned(t, dir)
 	address = freeAddress(t)
 
@@ -186,7 +186,7 @@ func TestPlainHTTPIsRefusedByAnHTTPSListener(t *testing.T) {
 }
 
 func TestABrokenCertificatePairIsRefusedAtStartup(t *testing.T) {
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	certPath, _ := selfSigned(t, dir)
 
 	wrongKey := filepath.Join(dir, "other.pem")

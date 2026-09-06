@@ -115,7 +115,7 @@ func TestABadFileIsRefused(t *testing.T) {
 }
 
 func TestFileContentIsNotOnDiskInTheClear(t *testing.T) {
-	a, dir := sealingAppIn(t, t.TempDir())
+	a, dir := sealingAppIn(t, schemaDir(t))
 	registerNode(t, a, "bm-1", "rack-a")
 
 	files := `[{"path":"/etc/app.conf","content":"` +

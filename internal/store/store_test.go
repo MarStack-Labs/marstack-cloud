@@ -93,3 +93,70 @@ func TestMigrateRollsBackFailedMigration(t *testing.T) {
 		t.Fatalf("recorded migrations = %d, want 0", recorded)
 	}
 }
+
+func TestABrokenMigrationTakesTheOnesBeforeItWithIt(t *testing.T) {
+	ctx := context.Background()
+
+	st, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	batch := []Migration{
+		{Module: "demo", Index: 1, SQL: `CREATE TABLE early (id TEXT PRIMARY KEY)`},
+		{Module: "demo", Index: 2, SQL: `CREATE TABLE ( invalid sql`},
+	}
+	if err := st.Migrate(ctx, batch); err == nil {
+		t.Fatal("a batch holding invalid sql was applied")
+	}
+
+	var tables int
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'early'`,
+	).Scan(&tables); err != nil {
+		t.Fatalf("look for the early table: %v", err)
+	}
+	if tables != 0 {
+		t.Fatal("the first migration survived a batch that failed, so an upgrade that " +
+			"stops halfway leaves a schema that is neither the old one nor the new one")
+	}
+
+	var recorded int
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations`).Scan(&recorded); err != nil {
+		t.Fatalf("count migrations: %v", err)
+	}
+	if recorded != 0 {
+		t.Fatalf("recorded migrations = %d, want 0", recorded)
+	}
+}
+
+func TestMigrateAppliesOnlyWhatIsMissing(t *testing.T) {
+	ctx := context.Background()
+
+	st, err := Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer st.Close()
+
+	first := []Migration{{Module: "demo", Index: 1, SQL: `CREATE TABLE one (id TEXT)`}}
+	if err := st.Migrate(ctx, first); err != nil {
+		t.Fatalf("first migrate: %v", err)
+	}
+
+	both := append(first, Migration{Module: "demo", Index: 2, SQL: `CREATE TABLE two (id TEXT)`})
+	if err := st.Migrate(ctx, both); err != nil {
+		t.Fatalf("second migrate: %v: an already applied migration must not be run again", err)
+	}
+
+	var recorded int
+	if err := st.DB().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM schema_migrations`).Scan(&recorded); err != nil {
+		t.Fatalf("count migrations: %v", err)
+	}
+	if recorded != 2 {
+		t.Fatalf("recorded migrations = %d, want 2", recorded)
+	}
+}

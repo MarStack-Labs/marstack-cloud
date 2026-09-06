@@ -16,7 +16,7 @@ import (
 func newLimitedApp(t *testing.T, perSecond, burst int) *testApp {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	built, err := New(context.Background(), Config{
 		DataDir:       dir,
 		RatePerSecond: &perSecond,

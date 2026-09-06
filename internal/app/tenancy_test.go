@@ -405,7 +405,7 @@ func TestAMemberMayBackUpButNotReachTheNodeTransfer(t *testing.T) {
 func newSlowApp(t *testing.T, timeout time.Duration) *testApp {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	a, err := New(context.Background(),
 		Config{DataDir: dir, RequestTimeout: timeout, RatePerSecond: &unlimited}, logging.New("error", io.Discard))
 	if err != nil {

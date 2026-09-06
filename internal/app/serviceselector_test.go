@@ -189,7 +189,7 @@ func TestAServiceEnvIsRefusedWithNoKeyToSealItWith(t *testing.T) {
 }
 
 func TestAServiceValueIsNotOnDiskInTheClear(t *testing.T) {
-	a, dir := sealingAppIn(t, t.TempDir())
+	a, dir := sealingAppIn(t, schemaDir(t))
 	registerNode(t, a, "bm-1", "rack-a")
 
 	body := `{"name":"pool","isolation":"container","image":"alpine:3.20","replicas":1,` +

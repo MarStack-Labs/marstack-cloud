@@ -19,7 +19,7 @@ import (
 func newSchedulingApp(t *testing.T) *testApp {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := schemaDir(t)
 	a, err := New(context.Background(), Config{
 		DataDir:           dir,
 		SchedulerInterval: 10 * time.Millisecond,

@@ -119,7 +119,7 @@ func TestAValueNeverAppearsInTheResponseBody(t *testing.T) {
 
 func newSealingApp(t *testing.T) (*testApp, string) {
 	t.Helper()
-	a, _ := sealingAppIn(t, t.TempDir())
+	a, _ := sealingAppIn(t, schemaDir(t))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -179,7 +179,7 @@ func TestAnInstanceWithNoEnvNeedsNoKey(t *testing.T) {
 }
 
 func TestAValueIsNotOnDiskInTheClear(t *testing.T) {
-	a, dir := sealingAppIn(t, t.TempDir())
+	a, dir := sealingAppIn(t, schemaDir(t))
 
 	registerNode(t, a, "bm-1", "rack-a")
 	createWithEnv(t, a, "web", `{"TOKEN":"hunter2-not-on-disk"}`)
