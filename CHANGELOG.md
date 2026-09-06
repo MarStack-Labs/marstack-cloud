@@ -7,6 +7,14 @@ on-disk state may change between minor versions.
 A release ships one binary, `marstack`, which is the control plane, the node agent and the client at
 once. The web console is not part of a release yet.
 
+To cut a release, rename `Unreleased` below to the version and the date, commit, then push the
+matching `v` tag. The release workflow takes its notes from the section named after the tag, so a
+tag with no section of its own falls back to a bare list of commits.
+
+## [Unreleased]
+
+Nothing yet.
+
 ## [0.1.0] - 2026-09-06
 
 The first release.
