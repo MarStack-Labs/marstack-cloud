@@ -1,0 +1,4553 @@
+<!doctype html>
+<html lang="en" data-surface="navy">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MarStack Console</title>
+<link rel="stylesheet" href="meridian.css">
+<style>
+:root {
+  color-scheme: dark light;
+
+  --bg: var(--ms-bg);
+  --surface: var(--ms-bg-raised);
+  --surface-2: var(--ms-bg-overlay);
+  --surface-3: var(--ms-bg-active);
+  --line: var(--ms-border);
+  --line-soft: var(--ms-border-subtle);
+
+  --fg: var(--ms-fg);
+  --fg-dim: var(--ms-fg-muted);
+  --fg-faint: var(--ms-fg-faint);
+
+  --primary: var(--ms-accent);
+  --primary-weak: var(--ms-accent-tint);
+  --accent: var(--ms-warn);
+  --ok: var(--ms-ok);
+  --warn: var(--ms-warn);
+  --bad: var(--ms-danger);
+  --violet: var(--ms-pending);
+
+  --sans: var(--ms-font);
+  --mono: var(--ms-font-mono);
+
+  --s1: var(--ms-sp-1); --s2: var(--ms-sp-2); --s3: var(--ms-sp-3);
+  --s4: var(--ms-sp-4); --s5: var(--ms-sp-5); --s6: var(--ms-sp-6);
+  --r: var(--ms-r);
+  --row: 34px;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--ms-focus); outline-offset: 1px; border-radius: 3px; }
+svg { display: block; }
+.mono { font-family: var(--mono); font-size: 12px; }
+.dim { color: var(--fg-dim); }
+.faint { color: var(--fg-faint); }
+.num { font-variant-numeric: tabular-nums; }
+
+#shell {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  grid-template-rows: 46px minmax(0, 1fr) auto;
+  grid-template-areas: "brand top" "side view" "log log";
+  height: 100vh;
+}
+
+.brand {
+  grid-area: brand;
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 0 var(--s4);
+  background: var(--ms-bg-sunken);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.brand .mark { color: var(--ms-cyan); }
+.brand b { display: block; font-size: 14px; }
+.brand span { display: block; font-size: 10px; }
+
+.top {
+  grid-area: top;
+  display: flex; align-items: center; gap: var(--s3);
+  padding: 0 var(--s4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+.top h1 { margin: 0; font-size: 13px; font-weight: 600; }
+.top .grow { flex: 1; }
+
+nav {
+  grid-area: side;
+  background: var(--ms-bg-sunken);
+  border-right: 1px solid var(--line);
+  padding: var(--s2) var(--s2) var(--s4);
+  overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+nav .group { margin: var(--s4) var(--s2) var(--s1);
+  font: 700 var(--ms-fs-xs)/1 var(--mono); letter-spacing: var(--ms-track-eyebrow);
+  text-transform: uppercase; color: var(--fg-faint); }
+nav a {
+  display: flex; align-items: center; gap: var(--s2);
+  height: 28px; padding: 0 var(--s2); margin-bottom: 1px;
+  border-radius: var(--r); color: var(--fg-dim); cursor: pointer;
+  text-decoration: none; transition: background .15s ease, color .15s ease;
+}
+nav a:hover { background: var(--surface-3); color: var(--fg); }
+nav a[aria-current="page"] {
+  background: var(--ms-bg-active); color: var(--fg); font-weight: 550;
+  box-shadow: inset 2px 0 0 var(--ms-focus);
+}
+nav a svg { flex: none; opacity: .9; }
+nav a .count {
+  margin-left: auto; font: 500 11px/1 var(--mono); color: var(--fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+nav .spacer { flex: 1; }
+nav .foot { padding: var(--s2); font-size: 11px; color: var(--fg-faint); border-top: 1px solid var(--line-soft); }
+
+main { grid-area: view; overflow: auto; padding: var(--s4); }
+.view { display: none; }
+.view.on { display: block; }
+.head { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s3); }
+.head p { margin: 0; font-size: 11.5px; color: var(--fg-faint); font-family: var(--mono); }
+.head .grow { flex: 1; }
+
+.panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  margin-bottom: var(--s3); overflow: hidden;
+}
+.panel > .bar {
+  display: flex; align-items: center; gap: var(--s2);
+  height: 34px; padding: 0 var(--s3);
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 11.5px; font-weight: 600; color: var(--fg-dim);
+}
+.panel > .bar .grow { flex: 1; }
+.panel .body { padding: var(--s3); }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--s2); margin-bottom: var(--s3); }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: var(--s3); }
+.tile .k { font-size: 10.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--fg-faint); }
+.tile .v { font: 600 22px/1.2 var(--sans); letter-spacing: -.4px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.tile .s { font-size: 11.5px; color: var(--fg-dim); }
+.tile .v.ok { color: var(--ok); }
+.tile .v.bad { color: var(--bad); }
+
+.scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  position: sticky; top: 0; z-index: 1; background: var(--ms-bg-sunken);
+  height: 30px; padding: 0 var(--s3); text-align: left; white-space: nowrap;
+  font: 700 var(--ms-fs-xs)/30px var(--mono); letter-spacing: var(--ms-track-eyebrow);
+  text-transform: uppercase;
+  color: var(--fg-faint); border-bottom: 1px solid var(--line);
+}
+tbody td {
+  height: var(--row); padding: 0 var(--s3); white-space: nowrap;
+  border-bottom: 1px solid var(--line-soft);
+}
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr[data-click] { cursor: pointer; }
+tbody tr:hover td { background: var(--surface-2); }
+th.r, td.r { text-align: right; }
+.strong { font-weight: 600; }
+.sub { display: block; font: 400 11px/1.3 var(--mono); color: var(--fg-faint); }
+td.two { padding-top: 4px; padding-bottom: 4px; height: auto; line-height: 1.35; }
+
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 20px; padding: 0 8px;
+  border-radius: var(--ms-r-full);
+  font: 700 var(--ms-fs-xs)/1 var(--mono); letter-spacing: .04em; text-transform: uppercase;
+  background: var(--ms-idle-tint); color: var(--ms-idle);
+}
+.pill i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+.pill.idle { color: var(--ms-idle); background: var(--ms-idle-tint); }
+.pill.ok { color: var(--ms-ok); background: var(--ms-ok-tint); }
+.pill.warn { color: var(--ms-warn); background: var(--ms-warn-tint); }
+.pill.bad { color: var(--ms-danger); background: var(--ms-danger-tint); }
+.pill.pending { color: var(--ms-pending); background: var(--ms-pending-tint); }
+.pill.pending i { animation: ms-pulse 1.6s ease-in-out infinite; }
+.pill.info { color: var(--ms-info); background: var(--ms-info-tint); }
+
+.tag { font: 500 11px/18px var(--mono); height: 18px; padding: 0 6px; border-radius: 4px;
+  background: var(--surface-3); border: 1px solid var(--line); color: var(--fg-dim); display: inline-block; }
+.tag.container { color: var(--ms-info); border-color: color-mix(in srgb, var(--ms-info) 32%, transparent); }
+.tag.microvm { color: var(--violet); border-color: color-mix(in srgb, var(--violet) 32%, transparent); }
+.tag.sandbox { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 32%, transparent); }
+.tag.vm { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+
+button.btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  background: var(--surface-3); border: 1px solid var(--line); border-radius: var(--r);
+  color: var(--fg-dim); cursor: pointer; white-space: nowrap;
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+button.btn:hover:not(:disabled) { color: var(--fg); border-color: var(--fg-faint); }
+button.btn:disabled { opacity: .45; cursor: not-allowed; }
+button.btn.primary {
+  background: var(--ms-accent-solid); border-color: var(--ms-accent-solid);
+  color: var(--ms-fg-on-accent); font-weight: 600;
+}
+button.btn.primary:hover:not(:disabled) {
+  background: var(--ms-accent-solid-hover); border-color: var(--ms-accent-solid-hover);
+  color: var(--ms-fg-on-accent);
+}
+button.btn.quiet { background: transparent; }
+button.btn.danger { color: var(--ms-danger); }
+.btn.danger:hover:not(:disabled) {
+  color: var(--ms-danger); border-color: var(--ms-danger);
+  background: var(--ms-danger-tint);
+}
+button.btn.sm { height: 22px; padding: 0 7px; font-size: 11.5px; }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+td .row { flex-wrap: nowrap; }
+.row.end { justify-content: flex-end; }
+
+.field { margin-bottom: var(--s3); }
+.field label { display: block; font-size: 11.5px; font-weight: 550; color: var(--fg-dim); margin-bottom: 3px; }
+.field .hint { margin-top: 3px; font-size: 11px; color: var(--fg-faint); }
+.field .hint.warn { color: var(--warn); }
+input[type=text], input[type=number], select, textarea {
+  width: 100%; height: 28px; padding: 0 8px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r);
+  transition: border-color .15s ease;
+}
+textarea { height: auto; min-height: 96px; padding: 6px 8px; font-family: var(--mono); font-size: 12px; resize: vertical; }
+input:hover, select:hover, textarea:hover { border-color: var(--fg-faint); }
+.pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0 var(--s3); }
+.head input.filter { width: 210px; height: 26px; flex: none; }
+.head select.pick { width: auto; height: 26px; }
+
+.switch { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--fg-dim); cursor: pointer; }
+.switch input { accent-color: var(--primary); width: auto; height: auto; }
+
+.veil { position: fixed; inset: 0; background: rgba(4, 6, 10, .6); opacity: 0; pointer-events: none;
+  transition: opacity .15s ease; z-index: 40; }
+.veil.on { opacity: 1; pointer-events: auto; }
+.side {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 94vw); z-index: 41;
+  background: var(--surface); border-left: 1px solid var(--line);
+  transform: translateX(100%); transition: transform .16s ease;
+  display: flex; flex-direction: column;
+}
+.side.on { transform: none; }
+.side header { display: flex; align-items: center; gap: var(--s2); height: 42px; padding: 0 var(--s4);
+  border-bottom: 1px solid var(--line); }
+.side header h2 { margin: 0; font-size: 13px; font-weight: 620; }
+.side header .grow { flex: 1; }
+.side .body { flex: 1; overflow-y: auto; padding: var(--s4); }
+.side .foot { display: flex; gap: var(--s2); padding: var(--s3) var(--s4); border-top: 1px solid var(--line); }
+
+.kv { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 5px var(--s3); font-size: 12px; }
+.kv dt { color: var(--fg-faint); }
+.kv dd { margin: 0; font-family: var(--mono); font-size: 11.5px; word-break: break-all; white-space: pre-wrap; }
+h3.section { margin: var(--s4) 0 var(--s2); font-size: 10.5px; letter-spacing: .8px;
+  text-transform: uppercase; color: var(--fg-faint); font-weight: 600; }
+pre.raw { margin: 0; padding: var(--s3); background: var(--bg); border: 1px solid var(--line-soft);
+  border-radius: var(--r); font-family: var(--mono); font-size: 11.5px; overflow: auto; max-height: 280px;
+  white-space: pre-wrap; word-break: break-all; }
+
+.ask { position: fixed; inset: 0; display: none; place-items: center; z-index: 50; background: rgba(4, 6, 10, .6); }
+.ask.on { display: grid; }
+.ask .box { width: min(400px, 92vw); background: var(--surface); border: 1px solid var(--line);
+  border-radius: 8px; padding: var(--s4); box-shadow: 0 16px 48px rgba(0,0,0,.4); }
+.ask h2 { margin: 0 0 6px; font-size: 14px; }
+.ask p { margin: 0 0 var(--s4); font-size: 12.5px; color: var(--fg-dim); }
+
+.log { grid-area: log; background: var(--surface); border-top: 1px solid var(--line);
+  display: flex; flex-direction: column; max-height: 40vh; }
+.log > header { display: flex; align-items: center; gap: var(--s2); height: 30px; padding: 0 var(--s3);
+  font-size: 11.5px; color: var(--fg-dim); cursor: pointer; }
+.log > header .grow { flex: 1; }
+.log .entries { overflow-y: auto; border-top: 1px solid var(--line-soft); }
+.log.shut .entries { display: none; }
+.entry { border-bottom: 1px solid var(--line-soft); }
+.entry summary { list-style: none; display: flex; align-items: center; gap: var(--s3);
+  height: 26px; padding: 0 var(--s3); font-family: var(--mono); font-size: 11.5px; cursor: pointer; }
+.entry summary::-webkit-details-marker { display: none; }
+.entry .m { width: 48px; color: var(--primary); font-weight: 600; }
+.entry .s { width: 30px; font-variant-numeric: tabular-nums; }
+.entry .s.s2 { color: var(--ok); } .entry .s.s4 { color: var(--warn); } .entry .s.s5, .entry .s.s0 { color: var(--bad); }
+.entry .p { flex: 1; overflow: hidden; text-overflow: ellipsis; color: var(--fg-dim); }
+.entry .t { color: var(--fg-faint); font-variant-numeric: tabular-nums; }
+.entry pre { margin: 0; padding: var(--s2) var(--s3) var(--s3) 84px; background: var(--bg);
+  font-family: var(--mono); font-size: 11.5px; overflow: auto; max-height: 260px; }
+
+.toasts { position: fixed; top: 54px; right: var(--s4); z-index: 60; display: flex; flex-direction: column; gap: 6px; }
+.toast { display: flex; gap: var(--s2); align-items: flex-start; max-width: 380px; padding: 8px 11px;
+  background: var(--surface); border: 1px solid var(--line); border-left: 2px solid var(--fg-faint);
+  border-radius: var(--r); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.toast.ok { border-left-color: var(--ok); }
+.toast.bad { border-left-color: var(--bad); }
+.toast b { display: block; font-size: 12px; font-weight: 600; }
+.toast span { font-size: 11.5px; color: var(--fg-dim); }
+
+.empty { padding: var(--s6) var(--s3); text-align: center; color: var(--fg-faint); font-size: 12px; }
+.empty b { display: block; color: var(--fg-dim); font-size: 12.5px; margin-bottom: 3px; }
+
+.mix { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-3); }
+.mix i { display: block; }
+.legend { display: flex; gap: var(--s4); flex-wrap: wrap; margin-top: var(--s2); font-size: 11.5px; color: var(--fg-dim); }
+.legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+
+.term-veil { position: fixed; inset: 0; background: rgba(3, 5, 8, .78); display: none; z-index: 55; padding: 3vh 3vw; }
+.term-veil.on { display: block; }
+.term-box { height: 100%; display: flex; flex-direction: column; background: #05070a;
+  border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.term-box header { display: flex; align-items: center; gap: var(--s3); height: 38px; padding: 0 var(--s4);
+  background: var(--surface); border-bottom: 1px solid var(--line); }
+.term-box header b { font-size: 12.5px; }
+.term-box header .grow { flex: 1; }
+#term { flex: 1; margin: 0; padding: var(--s3) var(--s4); overflow-y: auto; outline: none;
+  font-family: var(--mono); font-size: 12px; line-height: 1.45; color: #d5dbe4;
+  white-space: pre-wrap; word-break: break-word; }
+#term:focus { box-shadow: inset 0 0 0 1px var(--primary); }
+.term-box footer { display: flex; gap: var(--s4); flex-wrap: wrap; padding: 6px var(--s4);
+  background: var(--surface); border-top: 1px solid var(--line); font-size: 11px; color: var(--fg-faint); }
+
+@media (max-width: 900px) {
+  #shell { grid-template-columns: 1fr; grid-template-areas: "brand" "top" "view" "log";
+    grid-template-rows: 46px 46px minmax(0, 1fr) auto; }
+  nav { display: none; }
+}
+
+.signin { position: fixed; inset: 0; z-index: 90; display: none;
+  align-items: center; justify-content: center; background: var(--bg); }
+.signin.on { display: flex; }
+.signin .box { width: min(360px, calc(100vw - 2rem)); display: flex; flex-direction: column;
+  gap: var(--s2); padding: var(--s5); border: 1px solid var(--line);
+  border-radius: var(--r); background: var(--surface); }
+.signin .head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
+.signin h1 { margin: 0; font-size: 15px; letter-spacing: -.01em; }
+.signin .sub { margin: 0 0 var(--s3); color: var(--fg-dim); font-size: 12.5px; }
+.signin label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--fg-faint); }
+.signin input { height: var(--row); padding: 0 9px; border: 1px solid var(--line);
+  border-radius: 6px; background: var(--surface-2); color: var(--fg); }
+.signin .err { min-height: 1.15em; margin: 2px 0 0; color: var(--bad); font-size: 12px; }
+.signin .btn { margin-top: var(--s2); height: var(--row); justify-content: center; }
+</style>
+</head>
+<body class="ms-root">
+
+<div class="signin" id="signin" role="dialog" aria-modal="true" aria-labelledby="signin-title">
+  <form class="box" id="signin-form" autocomplete="on">
+    <div class="head">
+      <span class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" stroke-width="1.8"><path d="M4 7 12 3l8 4v10l-8 4-8-4z"/><path d="M4 7l8 4 8-4"/><path d="M12 11v10"/></svg></span>
+      <h1 id="signin-title">marstack cloud</h1>
+    </div>
+    <p class="sub">Sign in to reach this control plane.</p>
+    <label for="signin-email">Email</label>
+    <input id="signin-email" name="email" type="email" autocomplete="username" required>
+    <label for="signin-password">Password</label>
+    <input id="signin-password" name="password" type="password" autocomplete="current-password" required>
+    <p class="err" id="signin-error" role="alert"></p>
+    <button class="btn primary" id="signin-go" type="submit">Sign in</button>
+  </form>
+</div>
+
+<div id="shell">
+  <div class="brand">
+    <span class="mark" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+      stroke="currentColor" stroke-width="1.8"><path d="M4 7 12 3l8 4v10l-8 4-8-4z"/><path d="M4 7l8 4 8-4"/><path d="M12 11v10"/></svg></span>
+    <div>
+      <b class="ms-wordmark">marstack</b>
+      <span class="ms-eyebrow">cloud</span>
+    </div>
+  </div>
+
+  <div class="top">
+    <h1 id="title">Overview</h1>
+    <span class="grow"></span>
+    <span id="health" class="pill"><i></i>connecting</span>
+    <span id="version" class="tag">–</span>
+    <span id="stamp" class="faint mono"></span>
+    <label class="switch"><input type="checkbox" id="auto" checked>auto 5s</label>
+    <span id="who" class="tag" style="display:none"></span>
+    <button class="btn sm quiet" id="signout" style="display:none">Sign out</button>
+    <button class="btn" id="refresh">Refresh</button>
+  </div>
+
+  <nav id="nav">
+    <div class="group">Compute</div>
+    <a data-view="overview" aria-current="page"></a>
+    <a data-view="instances"></a>
+    <a data-view="services"></a>
+    <a data-view="nodes"></a>
+    <div class="group">Resources</div>
+    <a data-view="volumes"></a>
+    <a data-view="snapshots"></a>
+    <a data-view="backups"></a>
+    <a data-view="images"></a>
+    <div class="group">Network</div>
+    <a data-view="networks"></a>
+    <a data-view="ports"></a>
+    <a data-view="balancers"></a>
+    <a data-view="firewalls"></a>
+    <a data-view="dns"></a>
+    <div class="group">Automation</div>
+    <a data-view="jobs"></a>
+    <a data-view="autoscalers"></a>
+    <a data-view="schedules"></a>
+    <a data-view="webhooks"></a>
+    <a data-view="execs"></a>
+    <div class="group">Access</div>
+    <a data-view="users"></a>
+    <a data-view="sshkeys"></a>
+    <a data-view="registries"></a>
+    <a data-view="projects"></a>
+    <a data-view="quotas"></a>
+    <a data-view="tokens"></a>
+    <a data-view="events"></a>
+    <a data-view="audit"></a>
+    <div class="group">Tools</div>
+    <a data-view="request"></a>
+    <div class="spacer"></div>
+    <div class="foot" id="nav-foot"></div>
+  </nav>
+
+  <main>
+    <section class="view on" id="view-overview">
+      <div class="tiles" id="tiles"></div>
+
+      <div class="panel">
+        <div class="bar">Workload mix<span class="grow"></span><span class="faint" id="mix-total"></span></div>
+        <div class="body">
+          <div class="mix" id="mix"></div>
+          <div class="legend" id="legend"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="bar">Nodes<span class="grow"></span>
+          <button class="btn sm quiet" data-goto="nodes">View all</button></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Node</th><th>Status</th><th>Zone</th><th>Capacity</th>
+            <th class="r">Instances</th><th>Last seen</th></tr></thead>
+          <tbody id="t-overview-nodes"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <section class="view" id="view-instances">
+      <div class="head">
+        <p>GET /v1/instances</p>
+        <span class="grow"></span>
+        <input type="text" class="filter" id="q-instances" placeholder="filter name, image, node"
+          aria-label="Filter instances">
+        <select id="f-isolation" class="pick" aria-label="Filter by isolation">
+          <option value="">all isolations</option>
+          <option>container</option><option>microvm</option><option>sandbox</option><option>vm</option>
+        </select>
+        <button class="btn primary" id="new-instance">New instance</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Isolation</th><th>Image</th><th>Size</th><th>Desired</th>
+          <th>Observed</th><th>Message</th><th>Node</th><th class="r">Restarts</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-instances"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-services">
+      <div class="head">
+        <p>GET /v1/services · a loop holds the replica count, replacing what disappears</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-service">New service</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th class="r">Replicas</th><th>Isolation</th><th>Image</th>
+          <th>Held</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-services"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-nodes">
+      <div class="head"><p>GET /v1/nodes · GET /v1/nodes/{id}/network</p></div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Status</th><th>Scheduling</th><th>Zone</th>
+          <th class="r">CPU</th><th class="r">Memory</th><th class="r">Free</th>
+          <th>Labels</th><th>Last seen</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-nodes"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-volumes">
+      <div class="head">
+        <p>GET /v1/volumes · a volume lives on the node it is first attached to</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-volume">New volume</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th class="r">Size</th><th>State</th><th>Node</th><th>Instance</th>
+          <th class="r">Snapshots</th><th class="r">Backups</th><th>Restore</th>
+          <th class="r">Actions</th></tr></thead>
+        <tbody id="t-volumes"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-snapshots">
+      <div class="head"><p>GET /v1/snapshots · taken by the node, only while the guest is stopped</p></div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Volume</th><th>State</th><th class="r">Size</th>
+          <th>Message</th><th>Created</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-snapshots"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-backups">
+      <div class="head">
+        <p>GET /v1/backups · a copy held off the node, so a lost node keeps nothing hostage</p>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Volume</th><th>Taken by</th><th>State</th>
+          <th class="r">Size</th><th>Created</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-backups"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-images">
+      <div class="head">
+        <p>GET /v1/images · a node downloads one when a workload placed on it needs it</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-image">Register image</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Kind</th><th>Arch</th><th class="r">Size</th>
+          <th>Staged on</th><th>Source</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-images"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-networks">
+      <div class="head">
+        <p>GET /v1/networks · every node carves a /26 slice out of the range</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-network">New network</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>CIDR</th><th>Gateway</th><th>Bridge</th><th>Created</th>
+          <th class="r">Actions</th></tr></thead>
+        <tbody id="t-networks"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-ports">
+      <div class="head">
+        <p>GET /v1/forwards · the node rewrites arriving packets with nftables</p>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Node port</th><th>Target</th><th>Instance</th><th>Node</th>
+          <th>Created</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-ports"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-balancers">
+      <div class="head">
+        <p>GET /v1/balancers · one port on every node, spread across the backends that are up</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-balancer">New balancer</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Listen</th><th>Target</th><th>Algorithm</th>
+          <th>Check</th><th>Backends</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-balancers"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-jobs">
+      <div class="head">
+        <p>GET /v1/jobs · work that is meant to finish, and a clock that starts it</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-job">New job</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Runs</th><th>Last</th><th>Next</th><th>Image</th>
+          <th>Keeps</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-jobs"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-autoscalers">
+      <div class="head">
+        <p>GET /v1/autoscalers · a replica count the platform moves on its own</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-autoscaler">Scale a service</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Service</th><th>Range</th><th>Targets</th><th>Now</th>
+          <th>Last decision</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-autoscalers"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-schedules">
+      <div class="head">
+        <p>GET /v1/snapshot-schedules and /v1/backup-schedules · a copy on a timer</p>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Volume</th><th>Kind</th><th>Every</th><th>Keeps</th>
+          <th>Last</th><th>Next</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-schedules"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-webhooks">
+      <div class="head">
+        <p>GET /v1/webhooks · the platform calling out when something happened</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-webhook">New webhook</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>URL</th><th>Kinds</th><th>State</th>
+          <th class="r">Actions</th></tr></thead>
+        <tbody id="t-webhooks"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-execs">
+      <div class="head">
+        <p>GET /v1/execs · one command inside a container, its output and its exit code</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-exec">Run a command</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Instance</th><th>Command</th><th>State</th><th>Exit</th>
+          <th>Started</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-execs"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-users">
+      <div class="head">
+        <p>GET /v1/users · people who can log in, as opposed to tokens that already are</p>
+        <span class="grow"></span>
+        <button class="btn" id="sign-in">Sign in</button>
+        <button class="btn primary" id="new-user">Add a person</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Project</th><th>State</th>
+          <th class="r">Actions</th></tr></thead>
+        <tbody id="t-users"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-sshkeys">
+      <div class="head">
+        <p>GET /v1/keys · public keys a vm is built with, never a private key</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-sshkey">Add a key</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Kind</th><th>Fingerprint</th><th>Comment</th>
+          <th>Added</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-sshkeys"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-registries">
+      <div class="head">
+        <p>GET /v1/registries · a login per registry host, sealed and served only to nodes</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-registry">Add a login</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Host</th><th>User</th><th>Sealed with</th><th>Added</th>
+          <th class="r">Actions</th></tr></thead>
+        <tbody id="t-registries"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-events">
+      <div class="head">
+        <p>GET /v1/events · what the platform did with nobody asking</p>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>When</th><th>Severity</th><th>Kind</th><th>Subject</th>
+          <th>Message</th></tr></thead>
+        <tbody id="t-events"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-firewalls">
+      <div class="head">
+        <p>GET /v1/firewalls · an instance with no firewall is reachable from anywhere</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-firewall">New firewall</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th class="r">Rules</th><th>Allows</th><th>Used by</th>
+          <th class="r">Actions</th></tr></thead>
+        <tbody id="t-firewalls"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-dns">
+      <div class="head">
+        <p>GET /v1/dns/records · the zone each node resolver serves</p>
+        <span class="grow"></span>
+        <input type="text" class="filter" id="q-dns" placeholder="filter fqdn or address"
+          aria-label="Filter records">
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>FQDN</th><th>Address</th></tr></thead>
+        <tbody id="t-dns"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-projects">
+      <div class="head">
+        <p>GET /v1/projects · a project owns its resources, and a token belongs to exactly one</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-project">New project</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Instances</th><th>Volumes</th><th>Networks</th>
+          <th>Tokens</th><th>Created</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-projects"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-quotas">
+      <div class="head">
+        <p>GET /v1/quotas · a limit of zero is no limit, and lowering one deletes nothing</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-quota">Set limits</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Project</th><th>Instances</th><th>vCPU</th><th>Memory</th>
+          <th>Volumes</th><th>Capacity</th><th>Updated</th><th class="r">Actions</th></tr></thead>
+        <tbody id="t-quotas"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-tokens">
+      <div class="head">
+        <p>GET /v1/tokens · secrets are stored hashed and never listed</p>
+        <span class="grow"></span>
+        <button class="btn primary" id="new-token">New token</button>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>Name</th><th>Role</th><th>Project</th><th>Expires</th><th>Last used</th>
+          <th class="r">Actions</th></tr></thead>
+        <tbody id="t-tokens"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-audit">
+      <div class="head">
+        <p>GET /v1/audit · mutations and refusals, never request bodies</p>
+      </div>
+      <div class="panel"><div class="scroll"><table>
+        <thead><tr><th>When</th><th>Actor</th><th>Role</th><th>Project</th><th>Method</th>
+          <th>Path</th><th class="r">Status</th></tr></thead>
+        <tbody id="t-audit"></tbody>
+      </table></div></div>
+    </section>
+
+    <section class="view" id="view-request">
+      <div class="head"><p>Any endpoint, any method — the response lands in the log below</p></div>
+      <div class="panel">
+        <div class="body">
+          <div class="field">
+            <label>Presets</label>
+            <div class="row" id="presets"></div>
+          </div>
+          <div class="pair">
+            <div class="field">
+              <label for="r-method">Method</label>
+              <select id="r-method"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select>
+            </div>
+            <div class="field">
+              <label for="r-path">Path</label>
+              <input type="text" id="r-path" value="/v1/instances">
+            </div>
+          </div>
+          <div class="field">
+            <label for="r-body">Body</label>
+            <textarea id="r-body" placeholder='{"name":"demo","isolation":"container","image":"alpine:3.20"}'></textarea>
+            <div class="hint">JSON only, ignored for GET. Unknown fields are rejected by the API on purpose.</div>
+          </div>
+          <button class="btn primary" id="r-send">Send</button>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="bar">Last response<span class="grow"></span><span class="faint" id="r-meta"></span></div>
+        <div class="body"><pre class="raw" id="r-out">–</pre></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="log shut" id="log">
+    <header id="log-bar">
+      <b style="font-weight:600">Request log</b>
+      <span class="faint" id="log-count"></span>
+      <span class="grow"></span>
+      <button class="btn sm quiet" id="log-clear">Clear</button>
+      <span id="log-caret" class="faint">▲</span>
+    </header>
+    <div class="entries" id="entries"></div>
+  </div>
+</div>
+
+<div class="veil" id="veil"></div>
+<aside class="side" id="side" role="dialog" aria-modal="true" aria-labelledby="side-title">
+  <header>
+    <h2 id="side-title">Detail</h2>
+    <span class="grow"></span>
+    <button class="btn sm quiet" id="side-close" aria-label="Close panel">Close</button>
+  </header>
+  <div class="body" id="side-body"></div>
+  <div class="foot" id="side-foot" style="display:none"></div>
+</aside>
+
+<div class="ask" id="ask" role="dialog" aria-modal="true" aria-labelledby="ask-title">
+  <div class="box">
+    <h2 id="ask-title">Are you sure?</h2>
+    <p id="ask-detail"></p>
+    <div class="row end">
+      <button class="btn" id="ask-no">Cancel</button>
+      <button class="btn danger" id="ask-yes">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div class="term-veil" id="term-veil">
+  <div class="term-box">
+    <header>
+      <b id="term-name">console</b>
+      <span id="term-state" class="pill"><i></i>connecting</span>
+      <span id="term-login" class="tag" style="display:none"></span>
+      <span class="grow"></span>
+      <button class="btn sm" id="term-clear">Clear</button>
+      <button class="btn sm" id="term-close">Close</button>
+    </header>
+    <pre id="term" tabindex="0" aria-label="Serial console"></pre>
+    <footer>
+      <span>Click the screen, then type — keys go straight to the guest serial port.</span>
+      <span>Ctrl-C, Tab and arrows are forwarded.</span>
+      <span>Press Enter if the prompt has not appeared yet.</span>
+    </footer>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+const el = (tag, props = {}, ...kids) => {
+  const node = Object.assign(document.createElement(tag), props);
+  for (const kid of kids.flat()) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    node.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return node;
+};
+
+const PATHS = {
+  overview: "M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z",
+  instances: "M4 7 12 3l8 4v10l-8 4-8-4zM4 7l8 4 8-4M12 11v10",
+  nodes: "M3 5h18v6H3zM3 13h18v6H3zM7 8h.01M7 16h.01",
+  volumes: "M3 6h18v12H3zM7 12h4M17 12h.01",
+  snapshots: "M12 5v4l3-2M20 12a8 8 0 1 1-3-6.2M20 4v5h-5",
+  images: "M3 5h18v14H3zM3 15l5-4 4 3 3-3 6 5",
+  networks: "M12 3v6M5 21v-4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v4M9 3h6v6H9z",
+  dns: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18M3 12h18M12 3c3 3.5 3 14 0 18M12 3c-3 3.5-3 14 0 18",
+  tokens: "M15 7a4 4 0 1 0-3.5 6H13l2 2 2-2h2v-3h-2.5A4 4 0 0 0 15 7M4 17l5-5",
+  ports: "M4 12h6M14 12h6M10 8v8M14 8v8",
+  services: "M4 5h6v6H4zM14 5h6v6h-6zM9 17h6M4 14h6v6H4zM14 14h6v6h-6z",
+  events: "M13 3 4 14h6l-1 7 9-11h-6z",
+  balancers: "M12 3v5M12 8 5 13v5M12 8l7 5v5M3 18h4M10 18h4M17 18h4",
+  firewalls: "M12 3l8 4v5c0 5-3.5 8-8 9-4.5-1-8-4-8-9V7z",
+  audit: "M8 4h8l3 3v13H5V4zM9 12h6M9 16h4",
+  request: "M4 5h16v14H4zM8 10l2 2-2 2M13 14h4",
+  projects: "M3 7h6l2 2h10v10H3zM3 7V5h6l2 2",
+  quotas: "M3 20h18M6 20V10M11 20V4M16 20v-8M21 20v-5",
+  jobs: "M8 6V4h8v2M4 6h16v13H4zM9 11h6M9 15h4",
+  autoscalers: "M4 20V9M10 20V4M16 20v-7M4 9l6-5 6 9 4-4",
+  schedules: "M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18",
+  webhooks: "M9 9a3 3 0 1 1 4 2.8L15 16M15 16h3a3 3 0 1 1-2.5 4.6M9 16H6a3 3 0 1 1 2.5-4.6",
+  execs: "M4 5h16v14H4zM7 9l3 3-3 3M13 15h4",
+  users: "M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21a8 8 0 0 1 16 0",
+  sshkeys: "M15 7a4 4 0 1 0-3.5 6H13l2 2 2-2h2v-3h-2.5A4 4 0 0 0 15 7M4 17l5-5",
+  registries: "M12 3l8 4.5v9L12 21l-8-4.5v-9zM4 7.5l8 4.5 8-4.5M12 12v9",
+  backups: "M4 6c0-1.1 3.6-2 8-2s8 .9 8 2-3.6 2-8 2-8-.9-8-2M4 6v12c0 1.1 3.6 2 8 2s8-.9 8-2V6M4 12c0 1.1 3.6 2 8 2s8-.9 8-2",
+};
+
+const LABELS = {
+  overview: "Overview", instances: "Instances", nodes: "Nodes", volumes: "Volumes",
+  snapshots: "Snapshots", images: "Images", networks: "Networks", dns: "DNS",
+  tokens: "Tokens", request: "Raw request",
+  services: "Services", events: "Events",
+  ports: "Published ports", balancers: "Balancers", firewalls: "Firewalls", audit: "Audit",
+  projects: "Projects", backups: "Backups", quotas: "Quotas",
+  jobs: "Jobs", autoscalers: "Autoscaling", schedules: "Schedules",
+  webhooks: "Webhooks", execs: "Commands", users: "People",
+  sshkeys: "SSH keys", registries: "Registries",
+};
+
+function icon(name, size = 15) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", size);
+  svg.setAttribute("height", size);
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("fill", "none");
+  svg.setAttribute("stroke", "currentColor");
+  svg.setAttribute("stroke-width", "1.7");
+  svg.setAttribute("stroke-linecap", "round");
+  svg.setAttribute("aria-hidden", "true");
+
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", PATHS[name] || PATHS.overview);
+  svg.append(path);
+  return svg;
+}
+
+const state = {
+  view: "overview",
+  instances: [], nodes: [], networks: [], images: [], volumes: [], snapshots: [],
+  dns: [], tokens: [], forwards: [], balancers: [], firewalls: [], audit: [],
+  services: [], events: [],
+  jobs: [], autoscalers: [], webhooks: [], execs: [], users: [], snapSchedules: [],
+  sshkeys: [], registries: [],
+  projects: [], backups: [], quotas: [], quota: null, schedules: [],
+  usage: { nodes: {}, instances: {} },
+  healthy: false, busy: false, requests: 0,
+};
+
+function toast(kind, title, detail) {
+  const box = el("div", { className: "toast " + kind },
+    el("div", {}, el("b", {}, title), detail ? el("span", {}, detail) : null));
+  $("toasts").append(box);
+  setTimeout(() => box.remove(), kind === "bad" ? 8000 : 4000);
+}
+
+function logEntry(method, path, status, ms, payload) {
+  state.requests += 1;
+  $("log-count").textContent = state.requests + " requests";
+
+  const bucket = status === 0 ? "s0" : status >= 500 ? "s5" : status >= 400 ? "s4" : "s2";
+  const entry = el("details", { className: "entry" },
+    el("summary", {},
+      el("span", { className: "m" }, method),
+      el("span", { className: "s " + bucket }, status || "ERR"),
+      el("span", { className: "p" }, path),
+      el("span", { className: "t" }, ms + "ms")),
+    el("pre", {}, payload));
+
+  $("entries").prepend(entry);
+  while ($("entries").children.length > 80) $("entries").lastChild.remove();
+}
+
+async function api(method, path, body) {
+  const started = performance.now();
+  const options = { method, headers: {} };
+  if (body !== undefined) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
+
+  let response, text;
+  try {
+    response = await fetch(path, options);
+    text = await response.text();
+  } catch (failure) {
+    logEntry(method, path, 0, Math.round(performance.now() - started), String(failure));
+    toast("bad", "Request failed", `${method} ${path}: ${failure}`);
+    return { ok: false, status: 0, data: null, text: String(failure) };
+  }
+
+  const ms = Math.round(performance.now() - started);
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = null; }
+  const pretty = data ? JSON.stringify(data, null, 2) : (text || "(empty)");
+  logEntry(method, path, response.status, ms, pretty);
+
+  if (response.status === 401 && path !== "/v1/login") {
+    wearIdentity(null);
+    showSignIn("That session is over. Sign in again.");
+    return { ok: false, status: 401, data, text: pretty, ms };
+  }
+
+  if (!response.ok) {
+    const detail = data && data.error ? `${data.error.code}: ${data.error.message}` : text.slice(0, 200);
+    toast("bad", `${response.status} on ${path}`, detail);
+  }
+  return { ok: response.ok, status: response.status, data, text: pretty, ms };
+}
+
+let askAction = null;
+function confirmThen(title, detail, label, run) {
+  $("ask-title").textContent = title;
+  $("ask-detail").textContent = detail;
+  $("ask-yes").textContent = label;
+  askAction = run;
+  $("ask").classList.add("on");
+  $("ask-yes").focus();
+}
+function closeAsk() { $("ask").classList.remove("on"); askAction = null; }
+$("ask-no").onclick = closeAsk;
+$("ask-yes").onclick = async () => {
+  const run = askAction;
+  closeAsk();
+  if (run) await run();
+};
+
+function openSide(title, body, actions) {
+  $("side-title").textContent = title;
+  $("side-body").replaceChildren(body);
+
+  const foot = $("side-foot");
+  if (actions && actions.length) {
+    foot.replaceChildren(...actions);
+    foot.style.display = "flex";
+  } else {
+    foot.replaceChildren();
+    foot.style.display = "none";
+  }
+
+  $("side").classList.add("on");
+  $("veil").classList.add("on");
+}
+function closeSide() { $("side").classList.remove("on"); $("veil").classList.remove("on"); }
+$("side-close").onclick = closeSide;
+$("veil").onclick = closeSide;
+
+const pill = (value, kind) => el("span", { className: "pill " + (kind || "") }, el("i", {}), value || "unknown");
+
+function phasePill(value) {
+  const kind = { running: "ok", ready: "ok", attached: "ok", free: "",
+    pending: "pending", provisioning: "pending", restoring: "pending", migrating: "pending",
+    draining: "pending", stopped: "idle", exited: "bad", failed: "bad",
+    unreachable: "bad" }[value] || "";
+  return pill(value, kind);
+}
+
+const when = (value) => (value || "").replace("T", " ").slice(0, 19) || "–";
+
+const span = (seconds) => {
+  seconds = Math.abs(Math.round(seconds));
+  if (seconds < 60) return seconds + "s";
+  if (seconds < 3600) return Math.round(seconds / 60) + "m";
+  if (seconds < 86400) return Math.round(seconds / 3600) + "h";
+  return Math.round(seconds / 86400) + "d";
+};
+
+const ago = (value) => {
+  if (!value) return "never";
+  return span(Math.max(0, (Date.now() - new Date(value).getTime()) / 1000)) + " ago";
+};
+
+const until = (value) => span((new Date(value).getTime() - Date.now()) / 1000);
+const shorten = (text, limit) => !text ? "" : text.length <= limit ? text : text.slice(0, limit - 1) + "…";
+const mib = (bytes) => bytes ? Math.round(bytes / 1048576) + " MiB" : "–";
+
+function size(bytes) {
+  if (!bytes) return "–";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let value = bytes;
+  let step = 0;
+  while (value >= 1024 && step < units.length - 1) {
+    value /= 1024;
+    step += 1;
+  }
+  return (step === 0 || value >= 100 ? Math.round(value) : value.toFixed(1)) + " " + units[step];
+}
+
+function nodeName(id) {
+  const found = state.nodes.find((n) => n.id === id);
+  return found ? found.name : id || "–";
+}
+
+function nameCell(name, sub) {
+  return el("td", { className: "two" },
+    el("span", { className: "strong" }, name), el("span", { className: "sub" }, sub));
+}
+
+function emptyRow(span, title, hint) {
+  return el("tr", {}, el("td", { colSpan: span },
+    el("div", { className: "empty" }, el("b", {}, title), hint || "")));
+}
+
+function actionCell(...buttons) {
+  return el("td", { className: "r" }, el("div", { className: "row end" }, ...buttons));
+}
+
+function action(label, run, kind) {
+  const button = el("button", { className: "btn sm " + (kind || "") }, label);
+  button.onclick = async (event) => { event.stopPropagation(); await run(); };
+  return button;
+}
+
+function field(label, control, hint, hintKind) {
+  return el("div", { className: "field" },
+    el("label", {}, label), control,
+    hint ? el("div", { className: "hint " + (hintKind || "") }, hint) : null);
+}
+
+function select(id, values) {
+  const node = el("select", { id });
+  for (const value of values) {
+    node.append(el("option", { value: value.value ?? value, textContent: value.label ?? value }));
+  }
+  return node;
+}
+
+function input(id, value, placeholder, type) {
+  return el("input", { type: type || "text", id, value: value || "", placeholder: placeholder || "" });
+}
+
+function definitions(pairs) {
+  const list = el("dl", { className: "kv" });
+  for (const [key, value] of pairs) {
+    const shown = value === undefined || value === null || value === "" ? "–" : String(value);
+    list.append(el("dt", {}, key), el("dd", {}, shown));
+  }
+  return list;
+}
+
+function splitCommand(text) {
+  const words = [];
+  const pattern = /"([^"]*)"|'([^']*)'|(\S+)/g;
+  let match;
+  while ((match = pattern.exec(text)) !== null) words.push(match[1] ?? match[2] ?? match[3]);
+  return words;
+}
+
+const IMAGE_HINT = {
+  container: "OCI reference, pulled from a registry at start.",
+  microvm: "OCI reference, unpacked into an ext4 root filesystem.",
+  sandbox: "OCI reference, unpacked into an ext4 root filesystem.",
+  vm: "NOT an OCI reference. A registered disk image, or leave empty and boot an iso.",
+};
+const IMAGE_DEFAULT = { container: "alpine:3.20", microvm: "alpine:3.20", sandbox: "alpine:3.20", vm: "" };
+
+function instanceForm() {
+  const isolation = select("f-iso", ["container", "microvm", "sandbox", "vm"]);
+  const image = input("f-image", "alpine:3.20");
+  const hint = el("div", { className: "hint" }, IMAGE_HINT.container);
+
+  const disks = state.images.filter((i) => i.kind === "disk").map((i) => ({ value: i.name, label: i.name }));
+  const isos = state.images.filter((i) => i.kind === "iso").map((i) => ({ value: i.name, label: i.name }));
+  const kernels = state.images.filter((i) => i.kind === "kernel").map((i) => ({ value: i.name, label: i.name }));
+
+  const vmOnly = el("div", { style: "display:none" },
+    field("ISO", select("f-isoimg", [{ value: "", label: "(none)" }].concat(isos)),
+      "Attached as media and booted before the disk, which is how you install an os yourself."),
+    field("Disk GiB", input("f-disk", "", "10", "number"),
+      "Only used when there is no base image: the blank disk an installer writes to."));
+
+  const kernelOnly = el("div", { style: "display:none" },
+    field("Kernel", select("f-kernel", [{ value: "", label: "(the one staged on the node)" }].concat(kernels))));
+
+  const body = el("div", {},
+    field("Name", input("f-name", "", "web-1")),
+    el("div", { className: "field" },
+      el("label", {}, "Isolation"), isolation,
+      el("div", { className: "hint" },
+        "container shares the host kernel · microvm is Cloud Hypervisor · sandbox is Firecracker · vm is QEMU")),
+    el("div", { className: "field" }, el("label", {}, "Image"), image, hint),
+    vmOnly, kernelOnly,
+    field("Command", input("f-cmd", "/bin/sh -c 'sleep 3600'"),
+      "Shell words. Leave empty to use the image entrypoint."),
+    el("div", { className: "pair" },
+      field("vCPU", input("f-vcpu", "1", "", "number")),
+      field("Memory MiB", input("f-mem", "512", "", "number"))),
+    el("div", { className: "pair" },
+      field("Restart policy", select("f-restart",
+        [{ value: "", label: "(server default)" }, "always", "on-failure", "never"])),
+      field("Network", select("f-net", [{ value: "", label: "(default network)" }]
+        .concat(state.networks.map((n) => ({ value: n.id, label: `${n.name} ${n.cidr}` })))))),
+    field("Firewall", select("f-fw", [{ value: "", label: "(none — reachable from anywhere)" }]
+      .concat(state.firewalls.map((f) => ({
+        value: f.id,
+        label: `${f.name} · ${f.rules.length ? f.rules.length + " rule(s)" : "deny all"}`,
+      })))),
+      "Only what the rules name may reach this instance."));
+
+  image.oninput = () => { image.dataset.typed = "1"; };
+
+  isolation.onchange = () => {
+    const kind = isolation.value;
+    hint.textContent = IMAGE_HINT[kind];
+    hint.className = "hint" + (kind === "vm" ? " warn" : "");
+    if (!image.dataset.typed) {
+      image.value = kind === "vm" ? (disks[0] ? disks[0].value : "") : IMAGE_DEFAULT[kind];
+    }
+    vmOnly.style.display = kind === "vm" ? "" : "none";
+    kernelOnly.style.display = ["microvm", "sandbox"].includes(kind) ? "" : "none";
+  };
+
+  const submit = el("button", { className: "btn primary" }, "Create instance");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const payload = {
+      name: $("f-name").value.trim(),
+      isolation: isolation.value,
+      vcpu: Number($("f-vcpu").value) || 1,
+      memory_mib: Number($("f-mem").value) || 512,
+    };
+    if (image.value.trim()) payload.image = image.value.trim();
+
+    const command = splitCommand($("f-cmd").value.trim());
+    if (command.length) payload.command = command;
+    if ($("f-restart").value) payload.restart_policy = $("f-restart").value;
+    if ($("f-net").value) payload.network_id = $("f-net").value;
+
+    if (isolation.value === "vm") {
+      if ($("f-isoimg").value) payload.iso = $("f-isoimg").value;
+      if (Number($("f-disk").value) > 0) payload.disk_gib = Number($("f-disk").value);
+    }
+    if (["microvm", "sandbox"].includes(isolation.value) && $("f-kernel").value) {
+      payload.kernel = $("f-kernel").value;
+    }
+    if ($("f-fw").value) payload.firewall_id = $("f-fw").value;
+
+    const { ok, data } = await api("POST", "/v1/instances", payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Instance created", `${data.name} is waiting for a node`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("New instance", body, [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function volumeForm() {
+  const body = el("div", {},
+    field("Name", input("v-name", "", "data-1")),
+    field("Size GiB", input("v-size", "10", "", "number"),
+      "The volume binds to a node the first time it is attached, and stays there."));
+
+  const submit = el("button", { className: "btn primary" }, "Create volume");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", "/v1/volumes", {
+      name: $("v-name").value.trim(),
+      size_gib: Number($("v-size").value) || 0,
+    });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Volume created", `${data.name} is free until it is attached`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("New volume", body, [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function attachForm(volume) {
+  const candidates = state.instances.filter((i) => i.isolation === "vm" && i.node_id);
+  if (!candidates.length) {
+    return toast("bad", "Nothing to attach to",
+      "A volume needs an isolation vm instance that already has a node.");
+  }
+
+  const body = el("div", {},
+    definitions([["Volume", volume.name], ["Size", volume.size_gib + " GiB"],
+      ["Node", volume.node_id || "not bound yet"]]),
+    el("h3", { className: "section" }, "Attach to"),
+    field("Instance", select("a-instance",
+      candidates.map((i) => ({ value: i.id, label: `${i.name} · ${i.node_id}` }))),
+      "Only isolation vm takes a volume, and it must already be placed. The disk appears on the next start."));
+
+  const submit = el("button", { className: "btn primary" }, "Attach");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok } = await api("POST", `/v1/volumes/${volume.id}/attach`,
+      { instance_id: $("a-instance").value });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Volume attached", "It appears in the guest on the next start");
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Attach volume", body, [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function snapshotForm(volume) {
+  const body = el("div", {},
+    definitions([["Volume", volume.name], ["Node", volume.node_id],
+      ["Instance", volume.instance_id || "none"]]),
+    el("h3", { className: "section" }, "Snapshot"),
+    field("Name", input("s-name", "", "before-upgrade"),
+      "The node takes it on its next pass, and only while the guest is stopped."));
+
+  const submit = el("button", { className: "btn primary" }, "Take snapshot");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok } = await api("POST", `/v1/volumes/${volume.id}/snapshots`,
+      { name: $("s-name").value.trim() });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Snapshot queued", "The node takes it on its next pass");
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Snapshot volume", body, [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function imageForm() {
+  const body = el("div", {},
+    field("Name", input("g-name", "", "ubuntu-24.04"),
+      "Dots are allowed here, unlike other names, because versions have them."),
+    field("Kind", select("g-kind", [
+      { value: "disk", label: "disk — bootable cloud image for a vm" },
+      { value: "iso", label: "iso — media to attach and boot first" },
+      { value: "kernel", label: "kernel — uncompressed, for microvm and sandbox" }])),
+    field("Architecture", select("g-arch", ["arm64", "amd64"])),
+    field("Source URL", input("g-source", "", "https://cloud-images.ubuntu.com/..."),
+      "A node downloads from here. Nothing is uploaded through the control plane."),
+    field("Checksum", input("g-sum", "", "sha256:… or sha512:…"),
+      "Optional, verified after download. Publishers sign one or the other."));
+
+  const submit = el("button", { className: "btn primary" }, "Register image");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const payload = {
+      name: $("g-name").value.trim(),
+      kind: $("g-kind").value,
+      arch: $("g-arch").value,
+      source: $("g-source").value.trim(),
+    };
+    if ($("g-sum").value.trim()) payload.checksum = $("g-sum").value.trim();
+
+    const { ok, data } = await api("POST", "/v1/images", payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Image registered", `${data.name} downloads when a node needs it`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Register image", body, [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function networkForm() {
+  const body = el("div", {},
+    field("Name", input("n-name", "", "staging")),
+    field("CIDR", input("n-cidr", "", "10.30.0.0/16"),
+      "Overlapping an existing network is rejected. Leaving this empty uses the default range, " +
+      "which the default network already holds.", "warn"));
+
+  const submit = el("button", { className: "btn primary" }, "Create network");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const payload = { name: $("n-name").value.trim() };
+    if ($("n-cidr").value.trim()) payload.cidr = $("n-cidr").value.trim();
+
+    const { ok, data } = await api("POST", "/v1/networks", payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Network created", `${data.name} on ${data.cidr}`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("New network", body, [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function projectForm() {
+  const body = el("div", {},
+    field("Name", input("p-name", "", "payments"),
+      "A project owns its instances, networks, volumes, images, firewalls and ports. " +
+      "Nothing in it is visible to a token from another project."));
+
+  const submit = el("button", { className: "btn primary" }, "Create project");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", "/v1/projects", { name: $("p-name").value.trim() });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Project created", `${data.name} is empty until a token works in it`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("New project", body,
+    [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function scheduleOf(volumeID) {
+  return state.schedules.find((sc) => sc.volume_id === volumeID) || null;
+}
+
+function scheduleForm(volume) {
+  const current = scheduleOf(volume.id);
+  const body = el("div", {},
+    definitions([["Volume", volume.name],
+      ["Now", current ? "every " + current.every + ", keeping " + current.keep : "no schedule"],
+      ["Next", current ? when(current.next_at) : "–"]]),
+    field("Every", input("sc-every", current ? current.every : "1d", "6h, 1d or 1w"),
+      "The control plane checks every minute and never queues a second copy while one " +
+      "is still pending."),
+    field("Keep", input("sc-keep", String(current ? current.keep : 7), "7", "number"),
+      "Only copies this schedule made are ever pruned. A backup you took by hand stays."));
+
+  const submit = el("button", { className: "btn primary" }, current ? "Replace" : "Schedule");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("PUT", `/v1/volumes/${volume.id}/schedule`, {
+      every: $("sc-every").value.trim(),
+      keep: Number($("sc-keep").value) || 0,
+    });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Schedule saved", `every ${data.every}, keeping ${data.keep}`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  const buttons = [submit];
+  if (current) {
+    buttons.push(action("Stop", () => confirmThen("Stop the schedule?",
+      `${volume.name} keeps the copies already taken, but no new ones are made.`,
+      "Stop", async () => {
+        const { ok } = await api("DELETE", `/v1/volumes/${volume.id}/schedule`);
+        if (ok) toast("ok", "Schedule stopped", volume.name);
+        closeSide();
+        refresh();
+      }), "danger"));
+  }
+  buttons.push(el("button", { className: "btn quiet", onclick: closeSide }, "Cancel"));
+
+  openSide("Backup schedule for " + volume.name, body, buttons);
+}
+
+function backupForm(volume) {
+  const stamp = new Date().toISOString().slice(0, 10);
+  const body = el("div", {},
+    definitions([["Volume", volume.name], ["Node", nodeName(volume.node_id)],
+      ["Size", volume.size_gib + " GiB"]]),
+    field("Name", input("b-name", "backup-" + stamp, ""),
+      "The node copies the volume on its next reconcile. A volume whose instance is running " +
+      "is skipped, because qemu holds the write lock."));
+
+  const submit = el("button", { className: "btn primary" }, "Back up");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", `/v1/volumes/${volume.id}/backups`,
+      { name: $("b-name").value.trim() });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Backup queued", `${data.name} is pending on ${nodeName(data.node_id)}`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Back up " + volume.name, body,
+    [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function restoreForm(backup) {
+  const source = state.volumes.find((v) => v.id === backup.volume_id);
+  const body = el("div", {},
+    definitions([["Backup", backup.name], ["Taken from", source ? source.name : backup.volume_id],
+      ["Size", size(backup.size_bytes)]]),
+    field("New volume name", input("r-name", backup.name + "-restored", "")),
+    field("Size GiB", input("r-size", String(source ? source.size_gib : 10), "", "number"),
+      "Restoring never overwrites a live volume. A new volume is created, and the node writes " +
+      "the backup into it before anything starts."));
+
+  const submit = el("button", { className: "btn primary" }, "Create volume");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", "/v1/volumes", {
+      name: $("r-name").value.trim(),
+      size_gib: Number($("r-size").value) || 0,
+      from_backup: backup.id,
+    });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Volume created", `${data.name} fills from ${backup.name} once it has a node`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Restore " + backup.name, body,
+    [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function tokenForm() {
+  const body = el("div", {},
+    field("Name", input("k-name", "", "bm-3")),
+    field("Role", select("k-role", [
+      { value: "admin", label: "admin — its project, plus projects, tokens and the trail" },
+      { value: "member", label: "member — its project only, nothing administrative" },
+      { value: "viewer", label: "viewer — reads its project, changes nothing" },
+      { value: "node", label: "node — only what an agent needs" }]),
+      "A node token cannot schedule work. A member token cannot mint itself an admin, and " +
+      "a viewer reaches only the reads a member does."),
+    field("Project", select("k-project",
+      state.projects.map((p) => ({ value: p.id, label: p.name + " — " + p.id }))),
+      "The token sees this project and no other. To work elsewhere, make a token there."),
+    field("Lifetime", input("k-ttl", "", "30d"),
+      "12h, 90m, 30d or 4w. Empty means it never expires, which is right for an agent and " +
+      "wrong for a person."));
+
+  const submit = el("button", { className: "btn primary" }, "Create token");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", "/v1/tokens", {
+      name: $("k-name").value.trim(),
+      role: $("k-role").value,
+      project_id: $("k-project").value,
+      expires_in: $("k-ttl").value.trim(),
+    });
+    submit.disabled = false;
+    if (!ok) return;
+
+    const copy = el("button", { className: "btn" }, "Copy");
+    copy.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(data.secret);
+        toast("ok", "Copied", "The secret is on your clipboard");
+      } catch {
+        toast("bad", "Could not copy", "Select the text and copy it by hand");
+      }
+    };
+
+    openSide(`Token ${data.name}`, el("div", {},
+      definitions([["ID", data.id], ["Role", data.role],
+        ["Project", projectName(data.project_id)],
+        ["Expires", data.expires_at ? when(data.expires_at) : "never"]]),
+      el("h3", { className: "section" }, "Secret"),
+      el("pre", { className: "raw" }, data.secret),
+      el("div", { className: "hint", style: "margin-top:8px;color:var(--warn)" },
+        "This is the only time it is shown. Nothing stores it in the clear.")),
+      [copy, el("button", { className: "btn quiet", onclick: closeSide }, "Done")]);
+
+    refresh();
+  };
+
+  openSide("New token", body, [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+async function instanceDetail(id) {
+  const { ok, data } = await api("GET", "/v1/instances/" + id);
+  if (!ok) return;
+
+  const attached = state.volumes.filter((v) => v.instance_id === id);
+  const published = state.forwards.filter((f) => f.instance_id === id);
+  const behind = state.balancers.filter((b) =>
+    allBackends(b).some((x) => x.instance_id === id));
+  const guard = state.firewalls.find((f) => f.id === data.firewall_id);
+  const used = state.usage.instances[id];
+
+  const body = el("div", {},
+    definitions([
+      ["ID", data.id], ["Name", data.name], ["Isolation", data.isolation],
+      ["Image", data.image], ["ISO", data.iso], ["Kernel", data.kernel],
+      ["Disk", data.disk_gib ? data.disk_gib + " GiB" : ""],
+      ["Command", (data.command || []).join(" ")],
+      ["Size", `${data.vcpu} vCPU / ${data.memory_mib} MiB`],
+      ["Desired", data.desired_state], ["Observed", data.observed_state],
+      ["Message", data.observed_message], ["Restart policy", data.restart_policy],
+      ["Restarts", data.restart_count], ["Node", data.node_id], ["Network", data.network_id],
+      ["Created", when(data.created_at)], ["Updated", when(data.updated_at)],
+      ["Firewall", guard ? `${guard.name} · ${guard.rules.length} rule(s)` : data.firewall_id],
+      ["CPU", used ? used.cpu_percent.toFixed(1) + "%" : ""],
+      ["Memory", used ? used.memory_used_mib + " MiB" : ""],
+    ]),
+    published.length ? el("h3", { className: "section" }, "Published ports") : null,
+    published.length ? definitions(published.map((f) =>
+      [`${f.node_port}/${f.protocol}`, `${f.address}:${f.target_port} on ${f.node_id}`])) : null,
+    behind.length ? el("h3", { className: "section" }, "Behind a balancer") : null,
+    behind.length ? definitions(behind.map((b) => {
+      const held = allBackends(b);
+      const mine = held.find((x) => x.instance_id === id);
+      const peers = held.filter((x) => x.healthy).length;
+      const matches = (b.routes || [])
+        .filter((route) => route.backends.some((x) => x.instance_id === id))
+        .map(matchText).join(", ");
+      return [`${b.name} · ${b.listen_port}/${b.protocol}`,
+        `${mine && mine.healthy ? "taking traffic" : "not taking traffic"}`
+          + ` · ${peers} of ${held.length} up · ${matches || b.algorithm}`];
+    })) : null,
+    guard && guard.rules.length ? el("h3", { className: "section" }, "Firewall allows") : null,
+    guard && guard.rules.length
+      ? definitions(guard.rules.map((rule) => [rule.protocol || "tcp", ruleText(rule)])) : null,
+    attached.length ? el("h3", { className: "section" }, "Volumes") : null,
+    attached.length ? definitions(attached.map((v) => [v.name, `${v.size_gib} GiB · ${v.id}`])) : null,
+    el("h3", { className: "section" }, "Raw"),
+    el("pre", { className: "raw" }, JSON.stringify(data, null, 2)));
+
+  const act = (label, method, path, kind) => action(label, async () => {
+    await api(method, path);
+    closeSide();
+    refresh();
+  }, kind);
+
+  const buttons = [];
+  if (["vm", "microvm"].includes(data.isolation)) {
+    buttons.push(action("Console", () => { closeSide(); openConsole(data); }));
+  }
+  buttons.push(
+    action("Publish", () => { closeSide(); publishForm(data); }),
+    act("Start", "POST", `/v1/instances/${id}/start`, "primary"),
+    act("Stop", "POST", `/v1/instances/${id}/stop`),
+    action("Delete", () => confirmThen("Delete instance?",
+      `${data.name} and anything written inside it go away. Attached volumes are detached, not deleted.`,
+      "Delete", async () => {
+        const { ok } = await api("DELETE", `/v1/instances/${id}`);
+        if (ok) toast("ok", "Instance deleted", data.name);
+        closeSide();
+        refresh();
+      }), "danger"));
+
+  openSide(data.name, body, buttons);
+}
+
+async function nodeDetail(node) {
+  const [view, desired] = await Promise.all([
+    api("GET", `/v1/nodes/${node.id}/network`),
+    api("GET", `/v1/nodes/${node.id}/instances`),
+  ]);
+
+  const body = el("div", {}, definitions([
+    ["ID", node.id], ["Name", node.name], ["Status", node.status], ["Zone", node.zone],
+    ["Address", node.address], ["Arch", node.arch], ["OS", node.os],
+    ["Capacity", `${node.cpus} CPU / ${node.memory_mib} MiB`], ["Agent", node.agent_version],
+    ["Labels", labelText(node.labels)],
+    ["Registered", when(node.registered_at)], ["Last seen", when(node.last_seen_at)],
+  ]));
+
+  for (const network of (view.data && view.data.networks) || []) {
+    body.append(el("h3", { className: "section" }, `Network ${network.name}`));
+    body.append(definitions([
+      ["Bridge", network.bridge], ["CIDR", network.cidr], ["Gateway", network.gateway],
+      ["Node slice", network.slice],
+      ["NICs", (network.nics || []).map((n) => `${n.ip} ${n.mac}`).join("\n") || "none"],
+      ["Peers", (network.peers || []).map((p) => `${p.slice} via ${p.node_id}`).join("\n") || "none"],
+    ]));
+  }
+
+  const held = state.volumes.filter((v) => v.node_id === node.id);
+  if (held.length) {
+    body.append(el("h3", { className: "section" }, "Volumes on this node"));
+    body.append(definitions(held.map((v) => [v.name, `${v.size_gib} GiB · ${v.state}`])));
+  }
+
+  const count = ((desired.data && desired.data.instances) || []).length;
+  body.append(el("h3", { className: "section" }, "Desired state"));
+  body.append(el("p", { className: "dim", style: "margin:0;font-size:12px" },
+    `${count} instance(s) assigned. The payload the agent receives is in the log below.`));
+
+  openSide(node.name, body);
+}
+
+function renderNav() {
+  for (const link of $("nav").querySelectorAll("a")) {
+    const view = link.dataset.view;
+    if (!link.dataset.built) {
+      link.tabIndex = 0;
+      link.append(icon(view), el("span", {}, LABELS[view]), el("span", { className: "count" }));
+      link.dataset.built = "1";
+      link.onclick = () => show(view);
+      link.onkeydown = (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); show(view); }
+      };
+    }
+
+    const counts = {
+      instances: state.instances.length, nodes: state.nodes.length,
+      volumes: state.volumes.length, snapshots: state.snapshots.length,
+      images: state.images.length, networks: state.networks.length,
+      dns: state.dns.length, tokens: state.tokens.length,
+      ports: state.forwards.length, balancers: state.balancers.length,
+      services: state.services.length, events: state.events.length,
+      jobs: state.jobs.length, autoscalers: state.autoscalers.length,
+      webhooks: state.webhooks.length, execs: state.execs.length,
+      users: state.users.length, sshkeys: state.sshkeys.length,
+      registries: state.registries.length,
+      schedules: state.schedules.length + state.snapSchedules.length,
+      firewalls: state.firewalls.length,
+      audit: state.audit.length,
+      projects: state.projects.length, backups: state.backups.length,
+      quotas: state.quotas.length,
+    };
+    link.querySelector(".count").textContent = counts[view] === undefined ? "" : counts[view];
+  }
+
+  const ready = state.nodes.filter((n) => n.status === "ready").length;
+  $("nav-foot").textContent = `${ready}/${state.nodes.length} nodes ready`;
+}
+
+function quotaNote() {
+  const mine = state.quota;
+  if (!mine || !mine.limits || !mine.limits.instances) {
+    return `you are in ${projectName(scopeProject())}`;
+  }
+  return `${mine.used.instances}/${mine.limits.instances} instances of your quota`;
+}
+
+function readyBackups() {
+  return state.backups.filter((b) => b.state === "ready").length;
+}
+
+function allBackends(b) {
+  return [...b.backends, ...(b.routes || []).flatMap((route) => route.backends)];
+}
+
+function liveBackends() {
+  return state.balancers.reduce(
+    (sum, b) => sum + allBackends(b).filter((x) => x.healthy).length, 0);
+}
+
+function balancedNote() {
+  if (!state.balancers.length) return "nothing spread across replicas";
+  const total = state.balancers.reduce((sum, b) => sum + allBackends(b).length, 0);
+  const routed = state.balancers.filter((b) => (b.routes || []).length).length;
+  return `${liveBackends()}/${total} backends up`
+    + (routed ? ` · ${routed} routing` : "");
+}
+
+function renderOverview() {
+  const running = state.instances.filter((i) => i.observed_state === "running").length;
+  const pending = state.instances.filter((i) => i.observed_state === "pending").length;
+  const broken = state.instances.filter((i) => ["exited", "failed", "stopped"].includes(i.observed_state)).length;
+  const ready = state.nodes.filter((n) => n.status === "ready").length;
+  const cpus = state.nodes.reduce((sum, n) => sum + (n.cpus || 0), 0);
+  const memory = state.nodes.reduce((sum, n) => sum + (n.memory_mib || 0), 0);
+  const stored = state.volumes.reduce((sum, v) => sum + (v.size_gib || 0), 0);
+
+  const tile = (k, v, s, tone) => el("div", { className: "tile" },
+    el("div", { className: "k" }, k),
+    el("div", { className: "v " + (tone || "") }, v),
+    el("div", { className: "s" }, s));
+
+  $("tiles").replaceChildren(
+    tile("Instances", state.instances.length, `${running} running · ${pending} pending`, running ? "ok" : ""),
+    tile("Unhealthy", broken, broken ? "needs attention" : "nothing exited", broken ? "bad" : ""),
+    tile("Nodes ready", `${ready}/${state.nodes.length}`, `${cpus} vCPU · ${(memory / 1024).toFixed(1)} GiB`),
+    tile("Volumes", state.volumes.length,
+      `${stored} GiB · ${state.snapshots.length} snapshots · ${readyBackups()} backups`),
+    tile("Images", state.images.length, `${state.networks.length} networks · ${state.dns.length} records`),
+    tile("Published", state.forwards.length,
+      `${state.firewalls.length} firewalls · ${guardedCount()} guarded`),
+    tile("Balanced", state.balancers.length, balancedNote(),
+      state.balancers.length && !liveBackends() ? "bad" : ""),
+    tile("Projects", state.projects.length, quotaNote()));
+
+  const palette = { container: "var(--primary)", microvm: "var(--violet)",
+    sandbox: "var(--ok)", vm: "var(--accent)" };
+  const mix = {};
+  for (const item of state.instances) mix[item.isolation] = (mix[item.isolation] || 0) + 1;
+
+  const total = state.instances.length || 1;
+  $("mix-total").textContent = state.instances.length + " total";
+  $("mix").replaceChildren(...Object.entries(mix).map(([kind, count]) =>
+    el("i", { style: `width:${(count / total) * 100}%;background:${palette[kind] || "var(--line)"}` })));
+  $("legend").replaceChildren(...(Object.keys(mix).length
+    ? Object.entries(mix).map(([kind, count]) =>
+      el("span", {}, el("i", { style: `background:${palette[kind]}` }), `${kind} · ${count}`))
+    : [el("span", { className: "faint" }, "no workloads yet")]));
+}
+
+function guardedCount() {
+  return state.instances.filter((i) => i.firewall_id).length;
+}
+
+function renderInstances() {
+  const tbody = $("t-instances");
+  const query = $("q-instances").value.trim().toLowerCase();
+  const isolation = $("f-isolation").value;
+
+  const rows = state.instances.filter((item) => {
+    if (isolation && item.isolation !== isolation) return false;
+    if (!query) return true;
+    return [item.name, item.image, item.id, item.node_id].join(" ").toLowerCase().includes(query);
+  });
+
+  if (!rows.length) {
+    return tbody.replaceChildren(emptyRow(12,
+      state.instances.length ? "No instance matches the filter" : "No instances yet",
+      state.instances.length ? "" : "Create one with the button above."));
+  }
+
+  tbody.replaceChildren(...rows.map((item) => {
+    const row = el("tr", {});
+    row.dataset.click = "1";
+    row.append(nameCell(item.name, item.id));
+    row.append(el("td", {}, el("span", { className: "tag " + item.isolation }, item.isolation)));
+    row.append(el("td", { className: "mono" }, item.image || (item.iso ? item.iso + " (iso)" : "–")));
+    row.append(el("td", { className: "mono num" }, `${item.vcpu}c/${item.memory_mib}Mi`));
+    row.append(el("td", {}, phasePill(item.desired_state)));
+    row.append(el("td", {}, phasePill(item.observed_state)));
+
+    const used = state.usage.instances[item.id];
+    row.append(el("td", { className: "r mono num" + (used ? "" : " faint") },
+      used ? used.cpu_percent.toFixed(1) + "%" : "–"));
+    row.append(el("td", { className: "r mono num" + (used ? "" : " faint") },
+      used ? used.memory_used_mib + "Mi" : "–"));
+
+    const note = el("td", { className: item.observed_message ? "dim" : "faint",
+      style: "max-width:300px;overflow:hidden;text-overflow:ellipsis" },
+      shorten(item.observed_message, 42) || "–");
+    if (item.observed_message) {
+      note.title = item.observed_message;
+      if (item.observed_state === "failed") note.style.color = "var(--bad)";
+    }
+    row.append(note);
+
+    row.append(el("td", { className: "mono faint" }, item.node_id || "unplaced"));
+    row.append(el("td", { className: "r mono num" }, item.restart_count || 0));
+
+    const buttons = [];
+    if (["vm", "microvm"].includes(item.isolation)) {
+      buttons.push(action("Console", () => openConsole(item)));
+    }
+    buttons.push(action("Logs", () => instanceLogs(item.id)));
+    if (item.isolation === "container" && item.observed_state === "running") {
+      buttons.push(action("Exec", () => execForm(item.id)));
+    }
+    buttons.push(
+      action("Start", async () => { await api("POST", `/v1/instances/${item.id}/start`); refresh(); }),
+      action("Stop", async () => { await api("POST", `/v1/instances/${item.id}/stop`); refresh(); }),
+      action("More", () => instanceDetail(item.id)));
+
+    row.append(actionCell(...buttons));
+    row.onclick = () => instanceDetail(item.id);
+    return row;
+  }));
+}
+
+const plural = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+function schedulingPill(node) {
+  if (node.draining) return pill("draining", "pending");
+  if (!node.schedulable) return pill("cordoned", "bad");
+  return pill("open", "ok");
+}
+
+function nodeActions(node) {
+  const held = state.instances.filter((item) => item.node_id === node.id);
+  const stuck = held.filter((item) => item.isolation !== "container");
+
+  const said = { cordon: "Node cordoned", uncordon: "Node reopened", drain: "Drain started" };
+
+  const call = (verb, title, detail, label) => action(label, () =>
+    confirmThen(title, detail, label, async () => {
+      const { ok } = await api("POST", `/v1/nodes/${node.id}/${verb}`);
+      if (ok) toast("ok", said[verb], node.name);
+      refresh();
+    }), verb === "uncordon" ? "" : "danger");
+
+  if (node.draining || !node.schedulable) {
+    return [call("uncordon", "Let this node take work again?",
+      node.draining
+        ? `${node.name} stops draining. Anything already moved stays where it went.`
+        : `${node.name} becomes a placement candidate again.`,
+      "Uncordon")];
+  }
+
+  return [
+    call("cordon", "Stop placing on this node?",
+      plural(held.length, "workload") + ` on ${node.name} keeps running and keeps serving. `
+        + "Only new placement stops.",
+      "Cordon"),
+    call("drain", "Move what can move off this node?",
+      stuck.length
+        ? plural(held.length - stuck.length, "container") + " move to another node. "
+          + `${stuck.length} cannot: their disks are here, so the node will keep saying `
+          + "draining until you deal with them."
+        : plural(held.length, "container") + " move to another node. Each one restarts there.",
+      "Drain"),
+  ];
+}
+
+function labelText(labels) {
+  const keys = Object.keys(labels || {}).sort();
+  return keys.length ? keys.map((k) => `${k}=${labels[k]}`).join(" ") : "\u2013";
+}
+
+function renderNodes() {
+  const counts = {};
+  for (const item of state.instances) counts[item.node_id] = (counts[item.node_id] || 0) + 1;
+
+  const full = state.nodes.map((node) => {
+    const row = el("tr", {});
+    row.dataset.click = "1";
+    row.append(nameCell(node.name, node.id));
+    row.append(el("td", {}, phasePill(node.status)));
+    row.append(el("td", {}, schedulingPill(node)));
+    row.append(el("td", {}, node.zone || "–"));
+
+    const load = state.usage.nodes[node.id];
+    row.append(el("td", { className: "r mono num" + (load ? "" : " faint") },
+      load ? load.cpu_percent.toFixed(1) + "%" : "–"));
+    row.append(el("td", { className: "r mono num" + (load ? "" : " faint") },
+      load ? `${load.memory_used_mib}/${load.memory_mib}Mi` : node.memory_mib + "Mi"));
+    row.append(el("td", { className: "r mono num" + (load ? "" : " faint") },
+      load ? (load.memory_mib - load.memory_used_mib) + "Mi" : "–"));
+
+    row.append(el("td", { className: "mono faint" }, labelText(node.labels)));
+    row.append(el("td", { className: "mono faint", title: when(node.last_seen_at) },
+      ago(node.last_seen_at)));
+    row.append(actionCell(...nodeActions(node), action("Network", () => nodeDetail(node))));
+    row.onclick = () => nodeDetail(node);
+    return row;
+  });
+
+  const compact = state.nodes.map((node) => {
+    const row = el("tr", {});
+    row.dataset.click = "1";
+    row.append(nameCell(node.name, node.id));
+
+    const status = el("td", { className: "row", style: "gap:4px" }, phasePill(node.status));
+    if (node.draining || !node.schedulable) status.append(schedulingPill(node));
+    row.append(status);
+
+    row.append(el("td", {}, node.zone || "–"));
+    row.append(el("td", { className: "mono" }, `${node.cpus} CPU · ${node.memory_mib} MiB`));
+    row.append(el("td", { className: "r mono num" }, counts[node.id] || 0));
+    row.append(el("td", { className: "mono faint", title: when(node.last_seen_at) },
+      ago(node.last_seen_at)));
+    row.onclick = () => nodeDetail(node);
+    return row;
+  });
+
+  $("t-nodes").replaceChildren(...(full.length ? full
+    : [emptyRow(10, "No node registered", "Start an agent: sudo MARSTACK_TOKEN=… marstack agent --name bm-1")]));
+  $("t-overview-nodes").replaceChildren(...(compact.length ? compact : [emptyRow(6, "No node registered", "")]));
+}
+
+function volumeToggle(v) {
+  if (v.state === "attached") {
+    return action("Detach", () => confirmThen("Detach volume?",
+      `${v.name} stays on ${nodeName(v.node_id)} with its data. The guest loses the disk on ` +
+      `its next start.`,
+      "Detach", async () => {
+        const { ok } = await api("POST", `/v1/volumes/${v.id}/detach`);
+        if (ok) toast("ok", "Volume detached", v.name);
+        refresh();
+      }));
+  }
+  return action("Attach", () => attachForm(v));
+}
+
+function volumeDelete(v, snapshots) {
+  return action("Delete", () => confirmThen("Delete volume?",
+    `${v.name} and its ${snapshots} snapshot(s) are gone for good. Backups already taken ` +
+    `survive it. This cannot be undone.`,
+    "Delete", async () => {
+      const { ok } = await api("DELETE", `/v1/volumes/${v.id}`);
+      if (ok) toast("ok", "Volume deleted", v.name);
+      closeSide();
+      refresh();
+    }), "danger");
+}
+
+function volumeDetail(id) {
+  const v = state.volumes.find((one) => one.id === id);
+  if (!v) return;
+
+  const snapshots = state.snapshots.filter((s) => s.volume_id === v.id);
+  const backups = state.backups.filter((b) => b.volume_id === v.id);
+
+  const body = el("div", {},
+    definitions([
+      ["ID", v.id], ["Size", v.size_gib + " GiB"], ["State", v.state],
+      ["Node", v.node_id ? nodeName(v.node_id) : "not bound yet"],
+      ["Instance", v.instance_id ? instanceName(v.instance_id) : "none"],
+      ["Restoring", v.restore_from || "no"],
+      ["Filled from", v.backup_id || "empty at creation"],
+      ["Schedule", scheduleOf(v.id)
+        ? "every " + scheduleOf(v.id).every + ", keeping " + scheduleOf(v.id).keep
+        : "none"],
+    ]),
+
+    el("h3", { className: "section" }, "Snapshots"),
+    el("div", { className: "hint", style: "margin-bottom:8px" },
+      "Inside the volume file on " + (v.node_id ? nodeName(v.node_id) : "its node") +
+      ". Survives a bad write, not a lost node."),
+    snapshots.length
+      ? el("dl", { className: "kv" }, ...snapshots.flatMap((s) =>
+          [el("dt", {}, s.name), el("dd", {}, s.state + " · " + size(s.size_bytes))]))
+      : el("div", { className: "hint" }, "None taken."),
+
+    el("h3", { className: "section" }, "Backups"),
+    el("div", { className: "hint", style: "margin-bottom:8px" },
+      "Held by the control plane, off this node."),
+    backups.length
+      ? el("dl", { className: "kv" }, ...backups.flatMap((b) =>
+          [el("dt", {}, b.name), el("dd", {},
+            b.state + " · " + size(b.size_bytes) + (b.key_id ? " · sealed" : ""))]))
+      : el("div", { className: "hint" }, "None taken."));
+
+  const buttons = [action("Snapshot", () => snapshotForm(v))];
+  if (v.node_id) {
+    buttons.push(action("Back up", () => backupForm(v)));
+    buttons.push(action("Schedule", () => scheduleForm(v)));
+  }
+  buttons.push(volumeDelete(v, snapshots.length));
+  buttons.push(el("button", { className: "btn quiet", onclick: closeSide }, "Close"));
+
+  openSide(v.name, body, buttons);
+}
+
+function instanceName(id) {
+  const found = state.instances.find((i) => i.id === id);
+  return found ? found.name : id;
+}
+
+function renderVolumes() {
+  const tbody = $("t-volumes");
+  if (!state.volumes.length) {
+    return tbody.replaceChildren(emptyRow(9, "No volumes",
+      "A volume keeps data when the instance holding it is deleted."));
+  }
+
+  tbody.replaceChildren(...state.volumes.map((v) => {
+    const snapshots = state.snapshots.filter((s) => s.volume_id === v.id);
+    const row = el("tr", {});
+
+    row.append(nameCell(v.name, v.id));
+    row.append(el("td", { className: "r mono num" }, v.size_gib + " GiB"));
+    row.append(el("td", {}, phasePill(v.state)));
+    row.append(el("td", { className: "mono faint" }, v.node_id ? nodeName(v.node_id) : "not bound"));
+    row.append(el("td", { className: "mono faint" },
+      v.instance_id ? instanceName(v.instance_id) : "–"));
+    row.append(el("td", { className: "r mono num" }, snapshots.length || "–"));
+
+    const backups = state.backups.filter((b) => b.volume_id === v.id);
+    const ready = backups.filter((b) => b.state === "ready").length;
+    const timer = scheduleOf(v.id);
+    row.append(el("td", { className: "r mono num", title: timer ? "every " + timer.every : "" },
+      (backups.length ? `${ready}/${backups.length}` : "–") + (timer ? " \u21bb" : "")));
+
+    row.append(el("td", {}, v.restore_from
+      ? pill("restoring " + v.restore_from, "pending") : el("span", { className: "faint" }, "–")));
+
+    const buttons = [volumeToggle(v), action("More", () => volumeDetail(v.id))];
+
+
+    row.append(actionCell(...buttons));
+    return row;
+  }));
+}
+
+function renderSnapshots() {
+  const tbody = $("t-snapshots");
+  if (!state.snapshots.length) {
+    return tbody.replaceChildren(emptyRow(7, "No snapshots",
+      "Stop the guest, then take one from the Volumes view."));
+  }
+
+  const byID = {};
+  for (const v of state.volumes) byID[v.id] = v;
+
+  tbody.replaceChildren(...state.snapshots.map((s) => {
+    const volume = byID[s.volume_id];
+    const row = el("tr", {});
+
+    row.append(nameCell(s.name, s.id));
+    row.append(el("td", { className: "mono" }, volume ? volume.name : s.volume_id));
+    row.append(el("td", {}, phasePill(s.state)));
+    row.append(el("td", { className: "r mono num" }, s.size_bytes ? mib(s.size_bytes) : "–"));
+
+    const note = el("td", { className: s.message ? "dim" : "faint",
+      style: "max-width:280px;overflow:hidden;text-overflow:ellipsis" }, shorten(s.message, 40) || "–");
+    if (s.message) note.title = s.message;
+    row.append(note);
+
+    row.append(el("td", { className: "mono faint" }, when(s.created_at)));
+
+    row.append(actionCell(
+      action("Restore", () => confirmThen("Restore this snapshot?",
+        `${volume ? volume.name : s.volume_id} rolls back to "${s.name}". Everything written after it is ` +
+        `lost, and the guest must be stopped.`,
+        "Restore", async () => {
+          const { ok } = await api("POST", `/v1/snapshots/${s.id}/restore`);
+          if (ok) toast("ok", "Restore queued", "The node rolls the disk back on its next pass");
+          refresh();
+        })),
+      action("Delete", () => confirmThen("Delete snapshot?",
+        `"${s.name}" cannot be restored afterwards.`, "Delete", async () => {
+          const { ok } = await api("DELETE", `/v1/snapshots/${s.id}`);
+          if (ok) toast("ok", "Snapshot deleted", s.name);
+          refresh();
+        }), "danger")));
+
+    return row;
+  }));
+}
+
+function renderImages() {
+  const tbody = $("t-images");
+  if (!state.images.length) {
+    return tbody.replaceChildren(emptyRow(7, "No images registered",
+      "A vm needs a disk or an iso; a microvm needs a kernel unless one is staged on the node."));
+  }
+
+  tbody.replaceChildren(...state.images.map((item) => {
+    const nodes = item.nodes || [];
+    const row = el("tr", {});
+
+    row.append(nameCell(item.name, item.id));
+    row.append(el("td", {}, el("span", { className: "tag" }, item.kind)));
+    row.append(el("td", { className: "mono faint" }, item.arch));
+    row.append(el("td", { className: "r mono num" }, mib(item.size_bytes)));
+    row.append(el("td", {}, nodes.length ? pill(nodes.length + " nodes", "ok") : pill("not yet", "")));
+
+    const source = el("td", { className: "mono faint",
+      style: "max-width:320px;overflow:hidden;text-overflow:ellipsis" }, item.source);
+    source.title = item.source + (item.checksum ? "\n" + item.checksum : "");
+    row.append(source);
+
+    row.append(actionCell(action("Delete", () => confirmThen("Delete image?",
+      `${item.name} leaves the catalog. Nodes reclaim the file unless a workload still needs it.`,
+      "Delete", async () => {
+        const { ok } = await api("DELETE", `/v1/images/${item.id}`);
+        if (ok) toast("ok", "Image deleted", item.name);
+        refresh();
+      }), "danger")));
+
+    if (nodes.length) row.title = "staged on " + nodes.join(", ");
+    return row;
+  }));
+}
+
+function renderNetworks() {
+  const tbody = $("t-networks");
+  if (!state.networks.length) {
+    return tbody.replaceChildren(emptyRow(6, "No networks",
+      "The control plane creates a default network on first start."));
+  }
+
+  tbody.replaceChildren(...state.networks.map((item) => {
+    const row = el("tr", {});
+    row.append(nameCell(item.name, item.id));
+    row.append(el("td", { className: "mono" }, item.cidr));
+    row.append(el("td", { className: "mono" }, item.gateway));
+    row.append(el("td", { className: "mono" }, item.bridge));
+    row.append(el("td", { className: "mono faint" }, when(item.created_at)));
+    row.append(actionCell(action("Delete", () => confirmThen("Delete network?",
+      `${item.name} is removed. It is refused while any instance still holds an address on it.`,
+      "Delete", async () => {
+        const { ok } = await api("DELETE", `/v1/networks/${item.id}`);
+        if (ok) toast("ok", "Network deleted", item.name);
+        refresh();
+      }), "danger")));
+    return row;
+  }));
+}
+
+function ruleText(rule) {
+  const port = !rule.from_port ? ""
+    : rule.from_port === rule.to_port ? ":" + rule.from_port
+    : ":" + rule.from_port + "-" + rule.to_port;
+  return (rule.protocol || "tcp") + port + " from " + (rule.source || "0.0.0.0/0");
+}
+
+function renderPorts() {
+  const tbody = $("t-ports");
+  if (!state.forwards.length) {
+    return tbody.replaceChildren(emptyRow(6, "Nothing published",
+      "Use Publish on an instance to reach it from outside the platform network."));
+  }
+
+  const named = {};
+  for (const item of state.instances) named[item.id] = item.name;
+
+  tbody.replaceChildren(...state.forwards.map((f) => {
+    const row = el("tr", {});
+    row.append(nameCell(f.node_port + "/" + f.protocol, f.id));
+    row.append(el("td", { className: "mono" }, `${f.address}:${f.target_port}`));
+    row.append(el("td", { className: "mono" }, named[f.instance_id] || f.instance_id));
+    row.append(el("td", { className: "mono faint" }, f.node_id));
+    row.append(el("td", { className: "mono faint" }, when(f.created_at)));
+    row.append(actionCell(action("Unpublish", () => confirmThen("Stop publishing?",
+      `Port ${f.node_port}/${f.protocol} stops answering on ${f.node_id} within one reconcile tick.`,
+      "Unpublish", async () => {
+        const { ok } = await api("DELETE", `/v1/forwards/${f.id}`);
+        if (ok) toast("ok", "Port unpublished", f.node_port + "/" + f.protocol);
+        refresh();
+      }), "danger")));
+    return row;
+  }));
+}
+
+function checkCell(b) {
+  if (b.check === "none") {
+    return el("span", { className: "faint" }, "vm liveness");
+  }
+
+  const label = b.check === "http" ? "http " + b.check_path : "tcp connect";
+  return el("div", { className: "two" },
+    el("span", { className: "tag" }, label),
+    el("span", { className: "sub" }, `${b.rise} up · ${b.fall} down`));
+}
+
+function probePill(backend, check) {
+  if (check === "none") return phasePill(backend.healthy ? "running" : "stopped");
+
+  const kind = { passing: "ok", failing: "bad", unknown: "warn" }[backend.probe] || "";
+  return pill(backend.probe || "unknown", kind);
+}
+
+function matchText(route) {
+  return (route.host || "*") + (route.path || "/");
+}
+
+function routeList(b) {
+  const holder = el("div", { className: "row", style: "flex-wrap:wrap;gap:4px" });
+  for (const route of b.routes) {
+    const up = route.backends.filter((x) => x.healthy).length;
+    const tone = up ? "ok" : route.backends.length ? "bad" : "warn";
+    holder.append(pill(matchText(route) + " \u2192 " + route.service, tone));
+  }
+  return holder;
+}
+
+function routeEditor(rows) {
+  const held = rows.map((one) => ({ ...one }));
+  const list = el("div", {});
+
+  const draw = () => {
+    list.replaceChildren();
+    if (!state.services.length) {
+      list.append(el("div", { className: "hint warn" },
+        "A route names the service that answers it, and this project has none yet."));
+      return;
+    }
+    if (!held.length) {
+      list.append(el("div", { className: "hint warn" },
+        "A routing balancer with no routes is a port that answers every request with a 404."));
+    }
+
+    held.forEach((one, index) => {
+      const host = el("input", { type: "text", value: one.host, placeholder: "app.test" });
+      const path = el("input", { type: "text", value: one.path, placeholder: "/api" });
+      const service = el("select", {});
+      for (const svc of state.services) {
+        service.append(el("option", { value: svc.name, textContent: svc.name }));
+      }
+      service.value = one.service || state.services[0].name;
+
+      host.oninput = () => { one.host = host.value.trim(); };
+      path.oninput = () => { one.path = path.value.trim(); };
+      service.onchange = () => { one.service = service.value; };
+      one.service = service.value;
+
+      const drop = el("button", { className: "btn sm danger" }, "Remove");
+      drop.onclick = () => { held.splice(index, 1); draw(); };
+
+      list.append(el("div", { className: "row",
+        style: "gap:6px;align-items:center;padding:4px 0" },
+        host, path, service, drop));
+    });
+  };
+  draw();
+
+  const add = el("button", { className: "btn sm" }, "Add a route");
+  add.onclick = () => { held.push({ host: "", path: "", service: "" }); draw(); };
+
+  const node = el("div", {},
+    el("div", { className: "row", style: "gap:6px" },
+      el("span", { className: "hint", style: "flex:1" }, "Host"),
+      el("span", { className: "hint", style: "flex:1" }, "Path prefix"),
+      el("span", { className: "hint", style: "flex:1" }, "Service"),
+      el("span", { style: "width:66px" })),
+    list,
+    add,
+    el("div", { className: "hint", style: "margin-top:6px" },
+      "An exact host beats any host, then the longest path wins. Leave the host empty to "
+        + "match any, and the path empty to match everything under it."));
+
+  return { node, read: () => held.filter((one) => one.service) };
+}
+
+function balancerRoutes(b) {
+  const named = {};
+  for (const item of state.instances) named[item.id] = item.name;
+
+  const order = el("div", {});
+  b.routes.forEach((route, index) => {
+    const backends = el("div", { className: "row", style: "flex-wrap:wrap;gap:4px" });
+    if (!route.backends.length) {
+      backends.append(el("span", { className: "faint" }, "the service holds no replica"));
+    }
+    for (const backend of route.backends) {
+      backends.append(pill(
+        (named[backend.instance_id] || backend.instance_id)
+          + (backend.address ? " " + backend.address : ""),
+        backend.healthy ? "ok" : backend.probe === "unknown" ? "warn" : "bad"));
+    }
+
+    order.append(el("div", { style: "padding:6px 0;border-bottom:1px solid var(--line-soft)" },
+      el("div", { className: "row", style: "gap:8px;align-items:center" },
+        el("span", { className: "tag" }, String(index + 1)),
+        el("span", { className: "strong mono" }, matchText(route)),
+        el("span", { className: "faint" }, "\u2192"),
+        el("span", { className: "strong" }, route.service)),
+      el("div", { style: "margin-top:4px" }, backends)));
+  });
+
+  const editor = routeEditor(b.routes.map((route) => ({
+    host: route.host || "", path: route.path || "", service: route.service,
+  })));
+
+  const body = el("div", {},
+    definitions([
+      ["Listen", b.listen_port + "/" + b.protocol + " on every node"],
+      ["Target", "port " + b.target_port + " inside each backend"],
+      ["Matching", "exact host, then longest path"],
+      ["TLS", b.tls ? b.tls.subject || "terminated" : "plain http"],
+    ]),
+    el("div", { className: "hint" },
+      "The node reads each request and picks a service by the Host header and the path, so "
+        + "this one port serves every application below. A request that matches nothing gets "
+        + "a 404, and a route whose service holds no replica gets a 503."),
+    el("h3", { className: "section" }, "Match order"),
+    order,
+    el("h3", { className: "section" }, "Replace the table"),
+    editor.node,
+    el("div", { className: "hint", style: "margin-top:6px" },
+      "This replaces every route rather than merging, so what is above is what the balancer "
+        + "has afterwards. The node swaps its table without restarting the listener, so live "
+        + "connections are not dropped."));
+
+  const save = el("button", { className: "btn primary" }, "Replace routes");
+  save.onclick = async () => {
+    save.disabled = true;
+    const { ok, data } = await api("PUT", `/v1/balancers/${b.id}/routes`,
+      { routes: editor.read() });
+    save.disabled = false;
+    if (ok) {
+      toast("ok", "Routes replaced",
+        `${data.routes.length} on ${data.listen_port}/${data.protocol}`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide(b.name, body,
+    [save, el("button", { className: "btn quiet", onclick: closeSide }, "Close")]);
+}
+
+function backendList(b) {
+  if (!b.backends.length) return el("span", { className: "faint" }, "none");
+
+  const named = {};
+  for (const item of state.instances) named[item.id] = item.name;
+
+  const holder = el("div", { className: "row", style: "flex-wrap:wrap;gap:4px" });
+  for (const backend of b.backends) {
+    const tone = backend.healthy ? "ok" : backend.probe === "unknown" ? "warn" : "bad";
+    holder.append(pill(named[backend.instance_id] || backend.instance_id, tone));
+  }
+  return holder;
+}
+
+function instanceName(id) {
+  const found = state.instances.find((item) => item.id === id);
+  return found ? found.name : id;
+}
+
+function serviceName(id) {
+  const found = state.services.find((item) => item.id === id);
+  return found ? found.name : id;
+}
+
+function volumeName(id) {
+  const found = state.volumes.find((item) => item.id === id);
+  return found ? found.name : id;
+}
+
+function runState(run) {
+  if (run.state === "succeeded") return pill("succeeded", "ok");
+  if (run.state === "failed") {
+    return pill(run.exit_code === undefined || run.exit_code === null
+      ? "failed" : "exit " + run.exit_code, "bad");
+  }
+  return pill(run.state, "warn");
+}
+
+function renderJobs() {
+  const tbody = $("t-jobs");
+  if (!state.jobs.length) {
+    return tbody.replaceChildren(emptyRow(7, "No jobs",
+      "A service holds a count forever. A job is work that is meant to end, and a run that "
+        + "never finishes is a job left to a restart policy that keeps bringing it back."));
+  }
+
+  tbody.replaceChildren(...state.jobs.map((job) => {
+    const last = job.runs && job.runs.length ? job.runs[0] : null;
+    const row = el("tr", {});
+
+    row.append(nameCell(job.name, job.id));
+    row.append(el("td", {}, job.every
+      ? el("div", { className: "two" },
+        el("span", { className: "tag" }, "every " + job.every),
+        el("span", { className: "sub" }, job.paused ? "paused" : "running"))
+      : el("span", { className: "faint" }, "by hand")));
+    row.append(el("td", {}, last ? runState(last) : el("span", { className: "faint" }, "never")));
+    row.append(el("td", { className: "mono faint" },
+      job.paused ? "paused" : job.next_at ? when(job.next_at) : "-"));
+    row.append(el("td", { className: "mono faint" }, job.image || job.kernel || job.isolation));
+    row.append(el("td", { className: "r mono num" }, String(job.keep)));
+
+    const buttons = [action("Runs", () => jobRuns(job))];
+    buttons.push(action("Run now", async () => {
+      const { ok } = await api("POST", `/v1/jobs/${job.id}/run`);
+      if (ok) toast("ok", "Run started", job.name);
+      refresh();
+    }));
+    if (job.every) {
+      buttons.push(action(job.paused ? "Resume" : "Pause", async () => {
+        const { ok } = await api("POST",
+          `/v1/jobs/${job.id}/${job.paused ? "resume" : "pause"}`);
+        if (ok) toast("ok", job.paused ? "Resumed" : "Paused", job.name);
+        refresh();
+      }));
+    }
+    buttons.push(action("Delete", () => confirmThen("Delete this job?",
+      `${job.name} stops running on its schedule and its history is forgotten. A run that `
+        + "is going right now is left alone.",
+      "Delete", async () => {
+        const { ok } = await api("DELETE", `/v1/jobs/${job.id}`);
+        if (ok) toast("ok", "Job deleted", job.name);
+        refresh();
+      }), "danger"));
+
+    row.append(actionCell(...buttons));
+    return row;
+  }));
+}
+
+async function jobRuns(job) {
+  const { ok, data } = await api("GET", `/v1/jobs/${job.id}/runs`);
+  const runs = ok && data ? data.runs || [] : [];
+
+  const rows = el("div", {});
+  if (!runs.length) {
+    rows.append(el("div", { className: "empty" }, el("b", {}, "No runs yet"),
+      "Nothing has started this job, by hand or by its clock."));
+  }
+  for (const run of runs) {
+    const line = el("div", { style: "padding:6px 0;border-bottom:1px solid var(--line-soft)" },
+      el("div", { className: "row", style: "gap:8px;align-items:center" },
+        runState(run),
+        el("span", { className: "mono faint" }, "attempt " + run.attempt),
+        el("span", { className: "mono faint" }, when(run.started_at))));
+    if (run.message) {
+      line.append(el("div", { className: "hint", style: "margin-top:2px" }, run.message));
+    }
+    if (run.instance_id) {
+      line.append(el("div", { className: "hint mono", style: "margin-top:2px" },
+        instanceName(run.instance_id)));
+    }
+    rows.append(line);
+  }
+
+  const body = el("div", {},
+    definitions([
+      ["Command", (job.command || []).join(" ")],
+      ["Isolation", job.isolation],
+      ["Image", job.image || job.kernel],
+      ["Every", job.every || "started by hand"],
+      ["Retries", String(job.retries)],
+      ["Keeps", job.keep + " runs"],
+      ["Last", job.last_at ? when(job.last_at) : ""],
+      ["Next", job.paused ? "paused" : job.next_at ? when(job.next_at) : ""],
+    ]),
+    el("div", { className: "hint" },
+      "A run always carries restart never, whatever the template says: the instance default "
+        + "is always, and a run left to it is restarted by its node every time it exits, so "
+        + "the job never finishes. Success is exit 0, not merely stopped."),
+    el("h3", { className: "section" }, "Runs"),
+    rows);
+
+  openSide(job.name, body,
+    [el("button", { className: "btn quiet", onclick: closeSide }, "Close")]);
+}
+
+function jobForm() {
+  const body = el("div", {},
+    field("Name", input("j-name", "", "nightly"), "Unique within the project."),
+    field("Image", input("j-image", "", "alpine:3.20")),
+    field("Command", input("j-command", "", "sh -c 'echo hello'"),
+      "Split on spaces here; quote nothing and it is passed as written."),
+    field("Every", input("j-every", "", "24h"),
+      "Leave empty to run it only when you ask. Two runs never overlap: a turn that comes "
+        + "due while the last one is still going is skipped and recorded."),
+    field("Retries", input("j-retries", "", "0", "number"),
+      "Retries, not attempts: 2 means one try and two more."),
+    field("Keep", input("j-keep", "", "10", "number"), "How many runs to remember."),
+    field("vCPU", input("j-vcpu", "", "1", "number")),
+    field("Memory MiB", input("j-memory", "", "512", "number")));
+
+  const submit = el("button", { className: "btn primary" }, "Create");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const payload = {
+      name: $("j-name").value.trim(),
+      image: $("j-image").value.trim(),
+      command: $("j-command").value.trim() ? $("j-command").value.trim().split(/\s+/) : [],
+    };
+    if ($("j-every").value.trim()) payload.every = $("j-every").value.trim();
+    for (const [key, id] of [["retries", "j-retries"], ["keep", "j-keep"],
+      ["vcpu", "j-vcpu"], ["memory_mib", "j-memory"]]) {
+      if (Number($(id).value) > 0) payload[key] = Number($(id).value);
+    }
+
+    const { ok, data } = await api("POST", "/v1/jobs", payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Job created", data.every ? "every " + data.every : "run it by hand");
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("New job", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderAutoscalers() {
+  const tbody = $("t-autoscalers");
+  if (!state.autoscalers.length) {
+    return tbody.replaceChildren(emptyRow(6, "Nothing scales on its own",
+      "A service holds the count you gave it. An autoscaler moves that count from what the "
+        + "replicas are actually doing."));
+  }
+
+  tbody.replaceChildren(...state.autoscalers.map((policy) => {
+    const svc = state.services.find((item) => item.id === policy.service_id);
+    const row = el("tr", {});
+
+    row.append(nameCell(svc ? svc.name : policy.service_id, policy.service_id));
+    row.append(el("td", { className: "mono" }, `${policy.min} - ${policy.max}`));
+
+    const targets = el("div", { className: "row", style: "gap:4px;flex-wrap:wrap" });
+    if (policy.target_cpu) targets.append(el("span", { className: "tag" },
+      "cpu " + policy.target_cpu + "%"));
+    if (policy.target_memory) targets.append(el("span", { className: "tag" },
+      "memory " + policy.target_memory + "%"));
+    row.append(el("td", {}, targets));
+
+    row.append(el("td", { className: "mono" }, svc ? String(svc.replicas) : "?"));
+    row.append(el("td", { className: "two" },
+      el("span", {}, policy.last_reason || "nothing yet"),
+      el("span", { className: "sub" }, policy.last_at ? when(policy.last_at) : "")));
+
+    row.append(actionCell(
+      action("Edit", () => autoscaleForm(policy.service_id, policy)),
+      action("Delete", () => confirmThen("Stop scaling this service?",
+        `${svc ? svc.name : policy.service_id} keeps whatever replica count it has right now, `
+          + "and nothing moves it again until you scale it by hand.",
+        "Delete", async () => {
+          const { ok } = await api("DELETE", `/v1/services/${policy.service_id}/autoscale`);
+          if (ok) toast("ok", "Autoscaler removed", svc ? svc.name : policy.service_id);
+          refresh();
+        }), "danger")));
+    return row;
+  }));
+}
+
+function autoscaleForm(serviceID, held) {
+  const chooser = select("a-service", state.services.map((svc) => ({
+    value: svc.id, label: `${svc.name} · ${svc.replicas} replicas`,
+  })));
+  if (serviceID) chooser.value = serviceID;
+
+  const body = el("div", {},
+    held ? null : field("Service", chooser),
+    field("Minimum", input("a-min", held ? String(held.min) : "", "1", "number"),
+      "It never goes below this, whatever the load says."),
+    field("Maximum", input("a-max", held ? String(held.max) : "", "5", "number"),
+      "One reading cannot ask for a cluster: a step limit caps how far a single pass moves."),
+    field("Target CPU %", input("a-cpu", held && held.target_cpu ? String(held.target_cpu) : "",
+      "70", "number"), "Leave empty to ignore cpu."),
+    field("Target memory %", input("a-mem",
+      held && held.target_memory ? String(held.target_memory) : "", "0", "number"),
+      "Leave empty to ignore memory."),
+    el("div", { className: "hint" },
+      "With two targets the harder pressed one decides. Averaging them lets a service whose "
+        + "memory is nearly full stay small because its cpu happens to be idle."),
+    el("div", { className: "hint", style: "margin-top:6px" },
+      "A replica that has just started reads as idle, so it is not counted until it has "
+        + "warmed up - averaging it in scales down the service that is busy."));
+
+  const submit = el("button", { className: "btn primary" }, held ? "Save" : "Create");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const id = held ? held.service_id : chooser.value;
+    const payload = {
+      min: Number($("a-min").value) || 0,
+      max: Number($("a-max").value) || 0,
+      target_cpu: Number($("a-cpu").value) || 0,
+      target_memory: Number($("a-mem").value) || 0,
+    };
+
+    const { ok } = await api("PUT", `/v1/services/${id}/autoscale`, payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Autoscaler saved", serviceName(id));
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide(held ? "Autoscaling " + serviceName(held.service_id) : "Scale a service", body,
+    [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderSchedules() {
+  const tbody = $("t-schedules");
+  const rows = [
+    ...state.snapSchedules.map((one) => ({ ...one, kind: "snapshot" })),
+    ...state.schedules.map((one) => ({ ...one, kind: "backup" })),
+  ];
+
+  if (!rows.length) {
+    return tbody.replaceChildren(emptyRow(7, "Nothing copies itself",
+      "A snapshot lives inside the qcow2 on one node and dies with the disk. A backup is a "
+        + "copy the control plane holds. They fail independently, which is the whole point."));
+  }
+
+  tbody.replaceChildren(...rows.map((one) => {
+    const row = el("tr", {});
+    row.append(nameCell(volumeName(one.volume_id), one.id));
+    row.append(el("td", {}, el("span", { className: "tag" }, one.kind)));
+    row.append(el("td", { className: "mono" }, one.every));
+    row.append(el("td", { className: "r mono num" }, String(one.keep)));
+    row.append(el("td", { className: "mono faint" }, one.last_at ? when(one.last_at) : "never"));
+    row.append(el("td", { className: "mono faint" }, one.next_at ? when(one.next_at) : "-"));
+
+    const path = one.kind === "snapshot"
+      ? `/v1/volumes/${one.volume_id}/snapshot-schedule`
+      : `/v1/volumes/${one.volume_id}/schedule`;
+
+    row.append(actionCell(action("Delete", () => confirmThen("Stop this schedule?",
+      `${volumeName(one.volume_id)} stops taking a ${one.kind} every ${one.every}. Copies `
+        + "already taken are left alone: retention only prunes what a schedule made.",
+      "Delete", async () => {
+        const { ok } = await api("DELETE", path);
+        if (ok) toast("ok", "Schedule removed", volumeName(one.volume_id));
+        refresh();
+      }), "danger")));
+    return row;
+  }));
+}
+
+function renderWebhooks() {
+  const tbody = $("t-webhooks");
+  if (!state.webhooks.length) {
+    return tbody.replaceChildren(emptyRow(5, "No webhooks",
+      "Events sit in a table until something reads them. A webhook is the platform calling "
+        + "out instead of waiting to be asked."));
+  }
+
+  tbody.replaceChildren(...state.webhooks.map((hook) => {
+    const row = el("tr", {});
+    row.append(nameCell(hook.name, hook.id));
+    row.append(el("td", { className: "mono faint" }, shorten(hook.url, 46)));
+    row.append(el("td", {}, hook.kinds && hook.kinds.length
+      ? el("div", { className: "row", style: "gap:4px;flex-wrap:wrap" },
+        ...hook.kinds.map((kind) => el("span", { className: "tag" }, kind)))
+      : el("span", { className: "faint" }, "everything")));
+    row.append(el("td", {}, hook.active ? pill("active", "ok") : pill("paused", "warn")));
+
+    row.append(actionCell(
+      action("Deliveries", () => webhookDeliveries(hook)),
+      action(hook.active ? "Pause" : "Resume", async () => {
+        const { ok } = await api("POST",
+          `/v1/webhooks/${hook.id}/${hook.active ? "pause" : "resume"}`);
+        if (ok) toast("ok", hook.active ? "Paused" : "Resumed", hook.name);
+        refresh();
+      }),
+      action("Delete", () => confirmThen("Delete this webhook?",
+        `${hook.name} stops being called, and its cursor is forgotten. Adding it again starts `
+          + "from the newest event, not from the whole history.",
+        "Delete", async () => {
+          const { ok } = await api("DELETE", `/v1/webhooks/${hook.id}`);
+          if (ok) toast("ok", "Webhook deleted", hook.name);
+          refresh();
+        }), "danger")));
+    return row;
+  }));
+}
+
+async function webhookDeliveries(hook) {
+  const { ok, data } = await api("GET", `/v1/webhooks/${hook.id}/deliveries`);
+  const deliveries = ok && data ? data.deliveries || [] : [];
+
+  const rows = el("div", {});
+  if (!deliveries.length) {
+    rows.append(el("div", { className: "empty" }, el("b", {}, "Nothing delivered yet"),
+      "A fresh cursor starts at the newest event, so the first pass does not replay the ring."));
+  }
+  for (const one of deliveries) {
+    const tone = one.state === "sent" ? "ok" : one.state === "failed" ? "bad" : "warn";
+    const line = el("div", { style: "padding:6px 0;border-bottom:1px solid var(--line-soft)" },
+      el("div", { className: "row", style: "gap:8px;align-items:center" },
+        pill(one.state, tone),
+        el("span", { className: "strong mono" }, one.kind),
+        el("span", { className: "faint mono" }, one.subject || ""),
+        el("span", { className: "faint" }, "try " + one.attempts)));
+    if (one.last_error) {
+      line.append(el("div", { className: "hint", style: "margin-top:2px" }, one.last_error));
+    }
+    rows.append(line);
+  }
+
+  const body = el("div", {},
+    definitions([["URL", hook.url], ["Kinds", (hook.kinds || []).join(", ") || "everything"],
+      ["State", hook.active ? "active" : "paused"], ["Created", when(hook.created_at)]]),
+    el("div", { className: "hint" },
+      "The guard runs on the address actually dialled, not on the hostname: checking a name "
+        + "and then connecting is a race a DNS answer wins. Redirects are not followed."),
+    el("h3", { className: "section" }, "Deliveries"),
+    rows);
+
+  openSide(hook.name, body,
+    [el("button", { className: "btn quiet", onclick: closeSide }, "Close")]);
+}
+
+function webhookForm() {
+  const body = el("div", {},
+    field("Name", input("w-name", "", "alerts")),
+    field("URL", input("w-url", "", "http://10.20.0.5:9000/hook"),
+      "Loopback and link-local are refused: those are the addresses that mean the control "
+        + "plane itself and a metadata service. A private fleet address is fine."),
+    field("Kinds", input("w-kinds", "", "instance.failed, service.blocked"),
+      "Comma separated. Leave empty to receive everything."));
+
+  const submit = el("button", { className: "btn primary" }, "Create");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const kinds = $("w-kinds").value.split(",").map((k) => k.trim()).filter(Boolean);
+    const payload = { name: $("w-name").value.trim(), url: $("w-url").value.trim() };
+    if (kinds.length) payload.kinds = kinds;
+
+    const { ok, data } = await api("POST", "/v1/webhooks", payload);
+    submit.disabled = false;
+    if (ok) {
+      closeSide();
+      openSide("Signing secret", el("div", {},
+        el("div", { className: "hint warn" },
+          "This is shown once and never served again. It signs every delivery, so a receiver "
+            + "that cannot check the signature is a receiver anybody can forge."),
+        el("pre", { className: "mono", style: "white-space:pre-wrap;word-break:break-all" },
+          data.secret || "")),
+        [el("button", { className: "btn quiet", onclick: closeSide }, "Done")]);
+      refresh();
+    }
+  };
+
+  openSide("New webhook", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function execState(run) {
+  if (run.state === "done") {
+    return run.exit_code === 0 ? pill("exit 0", "ok") : pill("exit " + run.exit_code, "bad");
+  }
+  if (run.state === "lost") return pill("lost", "bad");
+  return pill(run.state, "warn");
+}
+
+function renderExecs() {
+  const tbody = $("t-execs");
+  if (!state.execs.length) {
+    return tbody.replaceChildren(emptyRow(6, "Nothing has been run",
+      "This is not a shell: no stdin and no terminal. The command runs, its output is "
+        + "captured, and you get the output and the exit code."));
+  }
+
+  tbody.replaceChildren(...state.execs.map((run) => {
+    const row = el("tr", {});
+    row.append(nameCell(instanceName(run.instance_id), run.id));
+    row.append(el("td", { className: "mono" }, shorten((run.command || []).join(" "), 40)));
+    row.append(el("td", {}, execState(run)));
+    row.append(el("td", { className: "r mono num" },
+      run.exit_code === undefined || run.exit_code === null ? "-" : String(run.exit_code)));
+    row.append(el("td", { className: "mono faint" }, when(run.created_at)));
+    row.append(actionCell(action("Output", () => execOutput(run.id))));
+    return row;
+  }));
+}
+
+async function execOutput(id) {
+  const { ok, data } = await api("GET", "/v1/execs/" + id);
+  if (!ok) return;
+
+  const body = el("div", {},
+    definitions([
+      ["Instance", instanceName(data.instance_id)],
+      ["Command", (data.command || []).join(" ")],
+      ["State", data.state],
+      ["Exit code", data.exit_code === undefined || data.exit_code === null
+        ? "" : String(data.exit_code)],
+      ["Timeout", data.timeout],
+      ["Started", when(data.created_at)],
+      ["Ended", data.ended_at ? when(data.ended_at) : ""],
+    ]),
+    data.message ? el("div", { className: "hint warn" }, data.message) : null,
+    data.truncated
+      ? el("div", { className: "hint warn" },
+        "The start of the output was dropped. What a command was going to tell you is at "
+          + "the end, so that is the half that is kept.")
+      : null,
+    el("h3", { className: "section" }, "Output"),
+    el("pre", { className: "mono",
+      style: "white-space:pre-wrap;word-break:break-word;max-height:50vh;overflow:auto" },
+      data.output || "(nothing was printed)"));
+
+  openSide(instanceName(data.instance_id), body,
+    [el("button", { className: "btn quiet", onclick: closeSide }, "Close")]);
+}
+
+function execForm(instanceID) {
+  const enterable = state.instances.filter((item) =>
+    item.isolation === "container" && item.observed_state === "running");
+
+  if (!enterable.length) {
+    return openSide("Run a command", el("div", { className: "hint warn" },
+      "Only a running container can be entered. A vm, microvm or sandbox runs its own kernel, "
+        + "so getting inside needs something in the guest: marstack console on the node "
+        + "attaches to a vm's serial port instead."),
+      [el("button", { className: "btn quiet", onclick: closeSide }, "Close")]);
+  }
+
+  const chooser = select("x-instance", enterable.map((item) => ({
+    value: item.id, label: item.name,
+  })));
+  if (instanceID) chooser.value = instanceID;
+
+  const body = el("div", {},
+    field("Instance", chooser, "Containers only, and only while they are running."),
+    field("Command", input("x-command", "", "ls -la /"),
+      "Split on spaces. There is no shell here unless you ask for one: sh -c '...'."),
+    field("Timeout", input("x-timeout", "", "30s"),
+      "Between 1s and 5m. The node serves commands in its own loop, so a slow one does not "
+        + "stall the workloads on that machine."));
+
+  const submit = el("button", { className: "btn primary" }, "Run");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const parts = $("x-command").value.trim();
+    const payload = { command: parts ? parts.split(/\s+/) : [] };
+    if ($("x-timeout").value.trim()) payload.timeout = $("x-timeout").value.trim();
+
+    const { ok, data } = await api("POST",
+      `/v1/instances/${chooser.value}/exec`, payload);
+    submit.disabled = false;
+    if (!ok) return;
+
+    toast("ok", "Command queued", "the node picks it up within a couple of seconds");
+    closeSide();
+    refresh();
+
+    for (let tries = 0; tries < 40; tries++) {
+      await new Promise((done) => setTimeout(done, 1500));
+      const held = await api("GET", "/v1/execs/" + data.id);
+      if (held.ok && held.data && ["done", "lost"].includes(held.data.state)) {
+        execOutput(data.id);
+        refresh();
+        return;
+      }
+    }
+  };
+
+  openSide("Run a command", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+async function instanceLogs(id) {
+  const { ok, data } = await api("GET", `/v1/instances/${id}/logs?tail=200`);
+  if (!ok) return;
+
+  const lines = (data.lines || []).map((one) => one.text).join("\n");
+  const body = el("div", {},
+    el("div", { className: "hint" },
+      "The node ships new output on every reconcile pass, so the last line can be a few "
+        + "seconds behind. There is no listener on an agent to ask, which is why this is a "
+        + "bounded recent window and not an archive."),
+    data.truncated
+      ? el("div", { className: "hint warn", style: "margin-top:6px" },
+        "Older lines have been dropped: the store keeps a bounded number per instance so a "
+          + "workload printing in a loop cannot fill the control plane's disk.")
+      : null,
+    el("h3", { className: "section" }, "Output"),
+    el("pre", { className: "mono",
+      style: "white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow:auto" },
+      lines || "(nothing shipped yet)"));
+
+  openSide(instanceName(id) + " logs", body,
+    [el("button", { className: "btn", onclick: () => instanceLogs(id) }, "Reload"),
+      el("button", { className: "btn quiet", onclick: closeSide }, "Close")]);
+}
+
+function renderUsers() {
+  const tbody = $("t-users");
+  if (!state.users.length) {
+    return tbody.replaceChildren(emptyRow(6, "No people",
+      "A token is already logged in. A person has to log in, which is what makes a password "
+        + "and a session worth having."));
+  }
+
+  tbody.replaceChildren(...state.users.map((person) => {
+    const row = el("tr", {});
+    row.append(nameCell(person.email, person.id));
+    row.append(el("td", {}, person.name));
+    row.append(el("td", {}, el("span", { className: "tag" }, person.role)));
+    row.append(el("td", { className: "mono faint" }, person.project_id || "-"));
+    row.append(el("td", {}, person.disabled ? pill("disabled", "bad") : pill("active", "ok")));
+
+    row.append(actionCell(
+      action("Password", () => passwordForm(person)),
+      action(person.disabled ? "Enable" : "Disable", () => confirmThen(
+        person.disabled ? "Enable this person?" : "Disable this person?",
+        person.disabled
+          ? `${person.email} can log in again, and the sessions they already held start `
+            + "working again: disabling checks on every request rather than deleting rows."
+          : `${person.email} cannot log in, and every token they hold stops working at once. `
+            + "Enabling them brings those sessions back.",
+        person.disabled ? "Enable" : "Disable", async () => {
+          const { ok } = await api("POST",
+            `/v1/users/${person.id}/${person.disabled ? "enable" : "disable"}`);
+          if (ok) toast("ok", person.disabled ? "Enabled" : "Disabled", person.email);
+          refresh();
+        })),
+      action("Delete", () => confirmThen("Delete this person?",
+        `${person.email} is gone and every session they hold is deleted with them. This one `
+          + "cannot be undone by enabling them again.",
+        "Delete", async () => {
+          const { ok } = await api("DELETE", `/v1/users/${person.id}`);
+          if (ok) toast("ok", "Person deleted", person.email);
+          refresh();
+        }), "danger")));
+    return row;
+  }));
+}
+
+function userForm() {
+  const body = el("div", {},
+    field("Email", input("u-email", "", "dev@example.test"), "Unique, and what they log in with."),
+    field("Name", input("u-name", "", "Dev")),
+    field("Role", select("u-role", [
+      { value: "member", label: "member · their own project" },
+      { value: "admin", label: "admin · everything" },
+    ])),
+    field("Password", input("u-password", "", "", "password"),
+      "Stored as PBKDF2-HMAC-SHA256 with the scheme and cost in front of the hash, so either "
+        + "can change later without locking anybody out."),
+    el("div", { className: "hint" },
+      "An unknown address and a wrong password give byte-identical answers, and an unknown "
+        + "address spends the same time, so a login cannot be used to find out who has an "
+        + "account."));
+
+  const submit = el("button", { className: "btn primary" }, "Create");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", "/v1/users", {
+      email: $("u-email").value.trim(),
+      name: $("u-name").value.trim(),
+      role: $("u-role").value,
+      password: $("u-password").value,
+    });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Person added", data.email);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Add a person", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function passwordForm(person) {
+  const body = el("div", {},
+    field("New password", input("p-password", "", "", "password"),
+      "Changing a password deletes every session they hold, because that one is one way."));
+
+  const submit = el("button", { className: "btn primary" }, "Change");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok } = await api("PUT", `/v1/users/${person.id}/password`,
+      { password: $("p-password").value });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Password changed", person.email);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide(person.email, body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderSSHKeys() {
+  const tbody = $("t-sshkeys");
+  if (!state.sshkeys.length) {
+    return tbody.replaceChildren(emptyRow(6, "No keys",
+      "A vm is built with the public keys you name at create. Adding one here does not "
+        + "reach a machine that already exists."));
+  }
+
+  tbody.replaceChildren(...state.sshkeys.map((key) => {
+    const row = el("tr", {});
+    row.append(nameCell(key.name, key.id));
+    row.append(el("td", {}, el("span", { className: "tag" }, key.kind)));
+    row.append(el("td", { className: "mono faint" }, shorten(key.fingerprint, 34)));
+    row.append(el("td", { className: "faint" }, key.comment || "-"));
+    row.append(el("td", { className: "mono faint" }, when(key.created_at)));
+
+    row.append(actionCell(action("Delete", () => confirmThen("Delete this key?",
+      `${key.name} is gone from the platform. A machine already built with it keeps it: `
+        + "the key was copied into the guest at create, and nothing here reaches inside.",
+      "Delete", async () => {
+        const { ok } = await api("DELETE", `/v1/keys/${key.id}`);
+        if (ok) toast("ok", "Key deleted", key.name);
+        refresh();
+      }), "danger")));
+    return row;
+  }));
+}
+
+function sshKeyForm() {
+  const body = el("div", {},
+    field("Name", input("k-name", "", "laptop"), "Unique within the project."),
+    field("Public key", el("textarea", {
+      id: "k-public",
+      rows: 4,
+      placeholder: "ssh-ed25519 AAAA... umar@laptop",
+      style: "width:100%;font-family:var(--mono);font-size:12px;resize:vertical",
+    }), "The public half only. Nothing here ever takes a private key."));
+
+  const submit = el("button", { className: "btn primary" }, "Add");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", "/v1/keys", {
+      name: $("k-name").value.trim(),
+      public_key: $("k-public").value.trim(),
+    });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Key added", data.fingerprint);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Add an SSH key", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderRegistries() {
+  const tbody = $("t-registries");
+  if (!state.registries.length) {
+    return tbody.replaceChildren(emptyRow(5, "No registry logins",
+      "Without one a node can only pull what a registry serves anonymously: no private image "
+        + "at all, and a much lower rate limit on the public ones."));
+  }
+
+  tbody.replaceChildren(...state.registries.map((one) => {
+    const row = el("tr", {});
+    row.append(nameCell(one.host, one.id));
+    row.append(el("td", {}, one.username));
+    row.append(el("td", { className: "mono faint" }, one.key_id || "-"));
+    row.append(el("td", { className: "mono faint" }, when(one.created_at)));
+
+    row.append(actionCell(action("Delete", () => confirmThen("Delete this login?",
+      `Nodes stop logging in to ${one.host} on their next pass, and any private image there `
+        + "stops being pullable. Images already on a node are left alone.",
+      "Delete", async () => {
+        const { ok } = await api("DELETE", `/v1/registries/${one.id}`);
+        if (ok) toast("ok", "Login deleted", one.host);
+        refresh();
+      }), "danger")));
+    return row;
+  }));
+}
+
+function registryForm() {
+  const body = el("div", {},
+    field("Host", input("r-host", "", "ghcr.io"),
+      "The host on its own, without a scheme or a path. One host holds one login."),
+    field("Username", input("r-user", "", "marstack-bot")),
+    field("Password or token", input("r-pass", "", "", "password"),
+      "Sealed with the operator key and served only to nodes. It is never shown again, so "
+        + "replacing it means deleting this login and adding it back."),
+    el("div", { className: "hint" },
+      "The login is sent on the token request, which is what a registry actually checks. "
+        + "A registry that asks for Basic instead is answered directly."));
+
+  const submit = el("button", { className: "btn primary" }, "Add");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", "/v1/registries", {
+      host: $("r-host").value.trim(),
+      username: $("r-user").value.trim(),
+      password: $("r-pass").value,
+    });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Login added", data.host + " · nodes pick it up on their next pass");
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Add a registry login", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function signInForm() {
+  const body = el("div", {},
+    el("div", { className: "hint warn" },
+      "This does not change who the console is. Every request from this page goes through "
+        + "the local proxy, which puts its own admin token on it. What this does is check a "
+        + "password and mint a session you can use with the CLI."),
+    field("Email", input("s-email", "", "dev@marstack.test")),
+    field("Password", input("s-password", "", "", "password")));
+
+  const submit = el("button", { className: "btn primary" }, "Sign in");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", "/v1/login", {
+      email: $("s-email").value.trim(),
+      password: $("s-password").value,
+    });
+    submit.disabled = false;
+    if (!ok) return;
+
+    closeSide();
+    openSide("Session", el("div", {},
+      definitions([
+        ["Who", data.email],
+        ["Role", data.role],
+        ["Project", data.project_id],
+        ["Expires", when(data.expires_at)],
+      ]),
+      el("div", { className: "hint" },
+        "Shown once. An unknown address and a wrong password give byte-identical answers "
+          + "and take the same time, so a login cannot be used to find out who has an account."),
+      el("pre", { className: "mono",
+        style: "white-space:pre-wrap;word-break:break-all" }, data.token || "")),
+      [el("button", { className: "btn quiet", onclick: closeSide }, "Done")]);
+    refresh();
+  };
+
+  openSide("Sign in", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderEvents() {
+  const tbody = $("t-events");
+  if (!state.events.length) {
+    return tbody.replaceChildren(emptyRow(5, "Nothing recorded yet",
+      "Events are what the platform did on its own, so break something and look again."));
+  }
+
+  const named = {};
+  for (const item of state.instances) named[item.id] = item.name;
+
+  tbody.replaceChildren(...state.events.map((entry) => {
+    const kind = { error: "bad", warn: "warn", info: "ok" }[entry.severity] || "";
+    const row = el("tr", {});
+
+    row.append(el("td", { className: "mono faint" }, when(entry.at)));
+    row.append(el("td", {}, pill(entry.severity, kind)));
+    row.append(el("td", {}, el("span", { className: "tag" }, entry.kind)));
+    row.append(el("td", { className: "mono" },
+      entry.subject ? (named[entry.subject] || entry.subject) : "–"));
+    row.append(el("td", { className: "dim",
+      style: "max-width:520px;overflow:hidden;text-overflow:ellipsis" },
+      entry.message || "–"));
+    return row;
+  }));
+}
+
+function renderServices() {
+  const tbody = $("t-services");
+  if (!state.services.length) {
+    return tbody.replaceChildren(emptyRow(6, "No services",
+      "A service is a workload template plus a number, and a loop keeps them equal."));
+  }
+
+  tbody.replaceChildren(...state.services.map((svc) => {
+    const held = svc.members.length;
+    const row = el("tr", {});
+
+    row.append(nameCell(svc.name, svc.id));
+    row.append(el("td", { className: "r mono num" }, svc.replicas));
+    row.append(el("td", {}, el("span", { className: "tag" }, svc.isolation)));
+    row.append(el("td", { className: "mono dim" }, svc.image || svc.iso || "–"));
+
+    if (svc.blocked) {
+      row.append(el("td", { className: "two" },
+        pill("stuck", "bad"),
+        el("span", { className: "sub" }, shorten(svc.blocked, 70))));
+    } else {
+      row.append(el("td", {}, pill(`${held}/${svc.replicas}`,
+        held === svc.replicas ? "ok" : "warn")));
+    }
+
+    const scaler = state.autoscalers.find((one) => one.service_id === svc.id);
+    row.append(actionCell(
+      action("Replicas", () => serviceDetail(svc)),
+      action("Scale", () => scaleForm(svc)),
+      action(scaler ? "Autoscale ✓" : "Autoscale", () => autoscaleForm(svc.id, scaler)),
+      action("Delete", () => confirmThen("Delete this service?",
+        `${svc.name} goes away and so do its ${held} replica`
+          + `${held === 1 ? "" : "s"}. Anything written inside them goes with them.`,
+        "Delete", async () => {
+          const { ok } = await api("DELETE", `/v1/services/${svc.id}`);
+          if (ok) toast("ok", "Service deleted", svc.name);
+          refresh();
+        }), "danger")));
+    return row;
+  }));
+}
+
+function serviceDetail(svc) {
+  const named = {};
+  for (const item of state.instances) named[item.id] = item;
+
+  const rows = el("div", {});
+  if (!svc.members.length) {
+    rows.append(el("div", { className: "empty" }, el("b", {}, "No replicas"),
+      svc.blocked
+        ? "It cannot make any right now: " + svc.blocked
+        : "The loop has not run yet, or the count is zero."));
+  }
+
+  for (const member of svc.members) {
+    const workload = named[member.instance_id];
+    const line = el("div", { className: "row",
+      style: "justify-content:space-between;align-items:center;padding:6px 0;"
+        + "border-bottom:1px solid var(--line-soft)" });
+
+    line.append(el("div", { className: "row", style: "gap:8px;align-items:center" },
+      workload ? phasePill(workload.observed_state) : pill("gone", "bad"),
+      el("span", { className: "strong" }, workload ? workload.name : member.instance_id),
+      el("span", { className: "mono faint" }, member.instance_id)));
+
+    line.append(el("span", { className: "mono faint" }, ago(member.created_at)));
+    rows.append(line);
+  }
+
+  const fronting = state.balancers.filter((b) => b.service === svc.name || b.service === svc.id);
+
+  const body = el("div", {},
+    definitions([
+      ["Replicas", String(svc.replicas)],
+      ["Template", `${svc.isolation} · ${svc.image || svc.iso || "no image"}`],
+      ["Placement group", svc.placement_group || "none"],
+      ["Stuck", svc.blocked || "no"],
+    ]),
+    el("div", { className: "hint" },
+      "The loop replaces a replica that disappears and creates at most four per pass, "
+        + "so a large count arrives over a few ticks rather than all at once."),
+    el("h3", { className: "section" }, "Replicas"),
+    rows,
+    fronting.length ? el("h3", { className: "section" }, "Balanced by") : null,
+    fronting.length ? definitions(fronting.map((b) =>
+      [b.name, `${b.listen_port}/${b.protocol} · backends follow this service`])) : null);
+
+  openSide(svc.name, body,
+    [el("button", { className: "btn quiet", onclick: closeSide }, "Close")]);
+}
+
+function scaleForm(svc) {
+  const body = el("div", {},
+    definitions([["Service", svc.name], ["Now", `${svc.members.length} of ${svc.replicas}`]]),
+    field("Replicas", input("s-replicas", String(svc.replicas), "", "number"),
+      "Scaling down removes the newest replicas first, so the one that has been "
+        + "serving longest survives."));
+
+  const submit = el("button", { className: "btn primary" }, "Scale");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const { ok, data } = await api("POST", `/v1/services/${svc.id}/scale`,
+      { replicas: Number($("s-replicas").value) });
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Service scaled", `${svc.name} now holds ${data.replicas}`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Scale " + svc.name, body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function serviceForm() {
+  const body = el("div", {},
+    field("Name", input("sv-name", "", "pool"), "Every replica name is built from this."),
+    field("Replicas", input("sv-replicas", "2", "", "number")),
+    field("Isolation", select("sv-isolation", ["container", "vm", "microvm", "sandbox"])),
+    field("Image", input("sv-image", "", "alpine:3.20")),
+    field("Command", input("sv-command", "", "/bin/sh -c 'sleep 3600'"),
+      "Split on spaces. Leave empty to use the image default."),
+    field("vCPU", input("sv-vcpu", "", "platform default", "number")),
+    field("Memory MiB", input("sv-memory", "", "platform default", "number")),
+    field("Placement group", input("sv-group", "", "pool"),
+      "Spreads replicas across zones and nodes."),
+    el("div", { className: "hint" },
+      "Replica names carry a random suffix, so a hand-made instance cannot collide "
+        + "with one and wedge the service."));
+
+  const submit = el("button", { className: "btn primary" }, "Create");
+  submit.onclick = async () => {
+    submit.disabled = true;
+
+    const payload = {
+      name: $("sv-name").value.trim(),
+      replicas: Number($("sv-replicas").value) || 0,
+      isolation: $("sv-isolation").value,
+      image: $("sv-image").value.trim(),
+    };
+    const command = $("sv-command").value.trim();
+    if (command) payload.command = command.split(/\s+/);
+    if (Number($("sv-vcpu").value) > 0) payload.vcpu = Number($("sv-vcpu").value);
+    if (Number($("sv-memory").value) > 0) payload.memory_mib = Number($("sv-memory").value);
+    if ($("sv-group").value.trim()) payload.placement_group = $("sv-group").value.trim();
+
+    const { ok, data } = await api("POST", "/v1/services", payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Service created", `${data.name} will hold ${data.replicas}`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("New service", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderBalancers() {
+  const tbody = $("t-balancers");
+  if (!state.balancers.length) {
+    return tbody.replaceChildren(emptyRow(7, "No balancers",
+      "A placement group spreads replicas; a balancer is what puts one port in front of them."));
+  }
+
+  tbody.replaceChildren(...state.balancers.map((b) => {
+    const routed = (b.routes || []).length > 0;
+    const up = routed
+      ? b.routes.reduce((sum, r) => sum + r.backends.filter((x) => x.healthy).length, 0)
+      : b.backends.filter((x) => x.healthy).length;
+    const row = el("tr", {});
+
+    row.append(nameCell(b.name, b.id));
+    row.append(el("td", { className: "mono" }, b.listen_port + "/" + b.protocol));
+    row.append(el("td", { className: "mono" }, String(b.target_port)));
+    row.append(el("td", {}, routed
+      ? el("span", { className: "tag" }, "by host and path")
+      : el("span", { className: "tag" },
+        b.algorithm === "source_hash" ? "sticky" : "round robin")));
+    row.append(el("td", {}, checkCell(b)));
+    row.append(el("td", {}, routed ? routeList(b) : backendList(b)));
+
+    row.append(actionCell(
+      action(routed ? "Routes" : "Backends",
+        () => (routed ? balancerRoutes(b) : balancerDetail(b))),
+      action("Delete", () => confirmThen("Delete this balancer?",
+        up > 0
+          ? `Port ${b.listen_port}/${b.protocol} stops answering on every node within one `
+            + `reconcile tick, and ${up} backend${up === 1 ? "" : "s"} lose${up === 1 ? "s" : ""} `
+            + "the traffic it was sending."
+          : `Port ${b.listen_port}/${b.protocol} is released on every node.`,
+        "Delete", async () => {
+          const { ok } = await api("DELETE", `/v1/balancers/${b.id}`);
+          if (ok) toast("ok", "Balancer deleted", b.name);
+          refresh();
+        }), "danger")));
+    return row;
+  }));
+}
+
+function balancerDetail(b) {
+  const named = {};
+  for (const item of state.instances) named[item.id] = item.name;
+
+  const rows = el("div", {});
+  const draw = () => {
+    rows.replaceChildren();
+    if (!b.backends.length) {
+      rows.append(el("div", { className: "empty" }, el("b", {}, "No backends"),
+        "The port answers on every node, but with nothing behind it no rule is programmed at all."));
+      return;
+    }
+
+    for (const backend of b.backends) {
+      const line = el("div", { className: "row",
+        style: "justify-content:space-between;align-items:center;padding:6px 0;" +
+          "border-bottom:1px solid var(--line-soft)" });
+
+      const left = el("div", { className: "row", style: "gap:8px;align-items:center" },
+        pill(backend.healthy ? "up" : "down", backend.healthy ? "ok" : "bad"),
+        el("span", { className: "strong" }, named[backend.instance_id] || backend.instance_id),
+        el("span", { className: "mono faint" }, backend.address || "no address"));
+
+      if (b.check !== "none") {
+        left.append(probePill(backend, b.check));
+      }
+      if (!backend.running) {
+        left.append(el("span", { className: "faint" }, "not running"));
+      }
+
+      const holder = el("div", { style: "flex:1;min-width:0" }, left);
+      if (backend.reason) {
+        holder.append(el("div", { className: "hint", style: "margin-top:2px" },
+          backend.reason));
+      }
+      if (backend.checked_at && !backend.reason) {
+        holder.append(el("div", { className: "hint", style: "margin-top:2px" },
+          "checked " + ago(backend.checked_at)));
+      }
+      line.append(holder);
+
+      line.append(action("Remove", () => confirmThen("Remove this backend?",
+        `${named[backend.instance_id] || backend.instance_id} stops receiving traffic from `
+          + `${b.name} within one reconcile tick. The instance itself keeps running.`,
+        "Remove", async () => {
+          const { ok } = await api("DELETE",
+            `/v1/balancers/${b.id}/backends/${backend.instance_id}`);
+          if (ok) {
+            toast("ok", "Backend removed", named[backend.instance_id] || backend.instance_id);
+            closeSide();
+            refresh();
+          }
+        }), "danger"));
+      rows.append(line);
+    }
+  };
+  draw();
+
+  const held = new Set(b.backends.map((x) => x.instance_id));
+  const addable = state.instances.filter((item) => !held.has(item.id));
+
+  const adder = el("div", {});
+  if (addable.length) {
+    adder.append(
+      el("h3", { className: "section" }, "Add a backend"),
+      field("Instance", select("b-add", addable.map((item) => ({
+        value: item.id,
+        label: `${item.name} · ${item.observed_state}`,
+      }))), b.check === "none"
+        ? "A backend takes traffic only while its instance is observed running."
+        : `A new backend starts down and takes no traffic until it has passed ${b.rise} `
+          + "probe" + (b.rise === 1 ? "" : "s") + "."));
+
+    const add = el("button", { className: "btn" }, "Add");
+    add.onclick = async () => {
+      add.disabled = true;
+      const { ok, data } = await api("POST", `/v1/balancers/${b.id}/backends`,
+        { instance_id: $("b-add").value });
+      add.disabled = false;
+      if (ok) {
+        toast("ok", "Backend added", `${data.backends.length} now behind ${b.name}`);
+        closeSide();
+        refresh();
+      }
+    };
+    adder.append(add);
+  } else {
+    adder.append(el("div", { className: "hint" },
+      "Every instance in this project is already a backend."));
+  }
+
+  const body = el("div", {},
+    definitions([
+      ["Listen", b.listen_port + "/" + b.protocol + " on every node"],
+      ["Target", "port " + b.target_port + " inside each backend"],
+      ["Algorithm", b.algorithm],
+      ["Check", b.check === "http" ? "http " + b.check_path : b.check],
+    ]),
+    el("div", { className: "hint" }, b.algorithm === "source_hash"
+      ? "jhash over the source address, so one client stays on one backend for as long "
+        + "as the set does not change."
+      : "numgen walks the map, so consecutive connections land on consecutive backends."),
+    el("div", { className: "hint", style: "margin-top:6px" }, b.check === "none"
+      ? "No check: a backend counts as up while its instance is observed running, which "
+        + "a wedged process still satisfies."
+      : `The node holding each backend probes it every reconcile pass. ${b.rise} `
+        + `consecutive passes bring one up, ${b.fall} consecutive failures take it out.`),
+    el("h3", { className: "section" }, "Backends"),
+    rows,
+    adder);
+
+  openSide(b.name, body,
+    [el("button", { className: "btn quiet", onclick: closeSide }, "Close")]);
+}
+
+function balancerForm() {
+  const chosen = new Set();
+  const list = el("div", {});
+
+  const draw = () => {
+    list.replaceChildren();
+    if (!state.instances.length) {
+      list.append(el("div", { className: "hint warn" },
+        "There are no instances to put behind it yet."));
+      return;
+    }
+    for (const item of state.instances) {
+      const line = el("label", { className: "row",
+        style: "gap:8px;align-items:center;padding:4px 0;cursor:pointer" });
+      const box = el("input", { type: "checkbox" });
+      box.checked = chosen.has(item.id);
+      box.onchange = () => {
+        if (box.checked) chosen.add(item.id); else chosen.delete(item.id);
+      };
+      line.append(box,
+        el("span", { className: "strong" }, item.name),
+        el("span", { className: "mono faint" }, item.observed_state));
+      list.append(line);
+    }
+  };
+  draw();
+
+  const pathField = field("Path", input("b-path", "", "/"), "Only used by an http check.");
+  const checkFields = el("div", { style: "display:none" },
+    pathField,
+    field("Rise", input("b-rise", "", "2", "number"),
+      "Consecutive passes before a backend takes traffic."),
+    field("Fall", input("b-fall", "", "2", "number"),
+      "Consecutive failures before it stops."));
+
+  const checkSelect = select("b-check", [
+    { value: "none", label: "none · trust vm liveness" },
+    { value: "tcp", label: "tcp · a connect must succeed" },
+    { value: "http", label: "http · a request must answer 2xx or 3xx" },
+  ]);
+  checkSelect.onchange = () => {
+    checkFields.style.display = checkSelect.value === "none" ? "none" : "block";
+    pathField.style.display = checkSelect.value === "http" ? "block" : "none";
+  };
+
+  const editor = routeEditor([]);
+
+  const plainFields = el("div", {},
+    field("Algorithm", select("b-algo", [
+      { value: "round_robin", label: "round_robin · spread connections" },
+      { value: "source_hash", label: "source_hash · keep a client on one backend" },
+    ])),
+    el("h3", { className: "section" }, "Backends"),
+    list,
+    el("div", { className: "hint" },
+      "Losing a node costs only the clients that were using that node's address: "
+        + "there is no single virtual address here."));
+
+  const routeFields = el("div", { style: "display:none" },
+    el("h3", { className: "section" }, "Routes"),
+    editor.node);
+
+  const modeSelect = select("b-mode", [
+    { value: "backends", label: "one set of backends · an nftables rule" },
+    { value: "routes", label: "by host and path · a listener on the node" },
+  ]);
+  const protoField = field("Protocol", select("b-proto", ["tcp", "udp"]));
+  modeSelect.onchange = () => {
+    const routing = modeSelect.value === "routes";
+    routeFields.style.display = routing ? "block" : "none";
+    plainFields.style.display = routing ? "none" : "block";
+    protoField.style.display = routing ? "none" : "block";
+    if (routing) $("b-proto").value = "tcp";
+  };
+
+  const body = el("div", {},
+    field("Name", input("b-name", "", "pool"), "Unique within the project."),
+    field("Target port", input("b-target", "", "80", "number"),
+      "The port inside every backend."),
+    field("Listen port", input("b-listen", "", "same as target", "number"),
+      "Claimed on every node, so it cannot clash with a published port."),
+    protoField,
+    field("Sends traffic", modeSelect,
+      "Routing means reading the request, which the kernel does not do, so a routing "
+        + "balancer is answered by the agent in userspace and needs tcp."),
+    routeFields,
+    el("h3", { className: "section" }, "Health"),
+    field("Check", checkSelect,
+      "Without a check, a process that is running but wedged still takes traffic."),
+    checkFields,
+    plainFields);
+
+  const submit = el("button", { className: "btn primary" }, "Create");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const check = checkSelect.value;
+    const routing = modeSelect.value === "routes";
+    const payload = {
+      name: $("b-name").value.trim(),
+      target_port: Number($("b-target").value) || 0,
+      protocol: routing ? "tcp" : $("b-proto").value,
+      check,
+    };
+    if (!routing) payload.algorithm = $("b-algo").value;
+    if (Number($("b-listen").value) > 0) payload.listen_port = Number($("b-listen").value);
+    if (routing) {
+      payload.routes = editor.read();
+    } else if (chosen.size) {
+      payload.instances = [...chosen];
+    }
+    if (check !== "none") {
+      if (Number($("b-rise").value) > 0) payload.rise = Number($("b-rise").value);
+      if (Number($("b-fall").value) > 0) payload.fall = Number($("b-fall").value);
+      if (check === "http" && $("b-path").value.trim()) {
+        payload.check_path = $("b-path").value.trim();
+      }
+    }
+
+    const { ok, data } = await api("POST", "/v1/balancers", payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Balancer created", (data.routes || []).length
+        ? `${data.routes.length} routes on ${data.listen_port}/${data.protocol}`
+        : `${data.listen_port}/${data.protocol} on every node`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("New balancer", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderFirewalls() {
+  const tbody = $("t-firewalls");
+  if (!state.firewalls.length) {
+    return tbody.replaceChildren(emptyRow(5, "No firewalls",
+      "Without one, an instance accepts anything that can route to it."));
+  }
+
+  const users = {};
+  for (const item of state.instances) {
+    if (!item.firewall_id) continue;
+    users[item.firewall_id] = (users[item.firewall_id] || []).concat(item.name);
+  }
+
+  tbody.replaceChildren(...state.firewalls.map((f) => {
+    const attached = users[f.id] || [];
+    const row = el("tr", {});
+
+    row.append(nameCell(f.name, f.id));
+    row.append(el("td", { className: "r mono num" }, f.rules.length));
+
+    const allows = f.rules.length
+      ? el("td", { className: "mono dim", style: "max-width:340px;overflow:hidden;text-overflow:ellipsis" },
+          f.rules.map(ruleText).join(", "))
+      : el("td", {}, pill("nothing may reach it", "warn"));
+    if (f.rules.length) allows.title = f.rules.map(ruleText).join("\n");
+    row.append(allows);
+
+    row.append(el("td", { className: attached.length ? "mono" : "faint" },
+      attached.length ? shorten(attached.join(", "), 28) : "nobody"));
+
+    row.append(actionCell(
+      action("Rules", () => firewallForm(f)),
+      action("Delete", () => confirmThen("Delete firewall?",
+        attached.length
+          ? `${attached.length} instance(s) name it. They become reachable from anywhere on the next tick.`
+          : `${f.name} is used by nobody.`,
+        "Delete", async () => {
+          const { ok } = await api("DELETE", `/v1/firewalls/${f.id}`);
+          if (ok) toast("ok", "Firewall deleted", f.name);
+          refresh();
+        }), "danger")));
+
+    return row;
+  }));
+}
+
+function renderAudit() {
+  const tbody = $("t-audit");
+  if (!state.audit.length) {
+    return tbody.replaceChildren(emptyRow(7, "Nothing recorded yet",
+      "Reads are not recorded, so change something and look again."));
+  }
+
+  tbody.replaceChildren(...state.audit.map((entry) => {
+    const row = el("tr", {});
+    row.append(el("td", { className: "mono faint" }, when(entry.at)));
+    row.append(el("td", { className: entry.actor ? "strong" : "faint" },
+      entry.actor || "unproven"));
+    row.append(el("td", {}, entry.role
+      ? el("span", { className: "tag" }, entry.role) : el("span", { className: "faint" }, "–")));
+    row.append(el("td", { className: "mono faint" }, entry.project_id
+      ? projectName(entry.project_id) : "–"));
+    row.append(el("td", { className: "mono" }, entry.method));
+    row.append(el("td", { className: "mono dim",
+      style: "max-width:420px;overflow:hidden;text-overflow:ellipsis" }, entry.path));
+
+    const kind = entry.status >= 500 ? "bad" : entry.status >= 400 ? "warn" : "ok";
+    row.append(el("td", { className: "r" }, pill(String(entry.status), kind)));
+    return row;
+  }));
+}
+
+function publishForm(instance) {
+  if (!instance.node_id) {
+    return toast("bad", "Not placed yet", "An instance needs an address before a port can point at it.");
+  }
+
+  const body = el("div", {},
+    definitions([["Instance", instance.name], ["Node", instance.node_id]]),
+    el("h3", { className: "section" }, "Publish"),
+    field("Target port", input("p-target", "", "80", "number"), "The port inside the instance."),
+    field("Node port", input("p-node", "", "same as target", "number"),
+      "Nothing binds a socket, so a privileged port is fine."),
+    field("Protocol", select("p-proto", ["tcp", "udp"])));
+
+  const submit = el("button", { className: "btn primary" }, "Publish");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const payload = {
+      instance_id: instance.id,
+      target_port: Number($("p-target").value) || 0,
+      protocol: $("p-proto").value,
+    };
+    if (Number($("p-node").value) > 0) payload.node_port = Number($("p-node").value);
+
+    const { ok, data } = await api("POST", "/v1/forwards", payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Port published", `${data.node_port}/${data.protocol} on ${data.node_id}`);
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide("Publish a port", body, [submit,
+    el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function firewallForm(existing) {
+  const rows = el("div", {});
+
+  const addRow = (rule) => {
+    const holder = el("div", { style: "border:1px solid var(--line-soft);border-radius:6px;" +
+      "padding:8px;margin-bottom:8px" });
+
+    const proto = select("", ["tcp", "udp", "icmp", "any"]);
+    proto.value = (rule && rule.protocol) || "tcp";
+
+    const port = el("input", { type: "text", value: rule && rule.from_port
+      ? (rule.from_port === rule.to_port ? String(rule.from_port)
+         : rule.from_port + "-" + rule.to_port) : "", placeholder: "80 or 8000-8100" });
+
+    const source = el("input", { type: "text",
+      value: (rule && rule.source) || "0.0.0.0/0", placeholder: "0.0.0.0/0" });
+
+    const drop = el("button", { className: "btn sm danger" }, "Remove");
+    drop.onclick = () => holder.remove();
+
+    holder.append(
+      el("div", { className: "pair" },
+        el("div", { className: "field" }, el("label", {}, "Protocol"), proto),
+        el("div", { className: "field" }, el("label", {}, "Port"), port)),
+      el("div", { className: "field" }, el("label", {}, "Source CIDR"), source),
+      el("div", { className: "row end" }, drop));
+
+    holder.reader = () => {
+      const rule = { protocol: proto.value, source: source.value.trim() || "0.0.0.0/0" };
+      const text = port.value.trim();
+      if (text && !["icmp", "any"].includes(proto.value)) {
+        const [from, to] = text.split("-");
+        rule.from_port = Number(from) || 0;
+        if (to) rule.to_port = Number(to) || 0;
+      }
+      return rule;
+    };
+
+    rows.append(holder);
+  };
+
+  for (const rule of (existing && existing.rules) || []) addRow(rule);
+
+  const add = el("button", { className: "btn" }, "Add rule");
+  add.onclick = () => addRow(null);
+
+  const body = el("div", {},
+    existing
+      ? definitions([["Firewall", existing.name], ["ID", existing.id]])
+      : field("Name", input("w-name", "", "web-only")),
+    el("h3", { className: "section" }, "Allow rules"),
+    el("div", { className: "hint", style: "margin-bottom:8px" },
+      "Only what is listed may reach the instance. No rules means nothing may."),
+    rows,
+    el("div", { className: "row" }, add));
+
+  const submit = el("button", { className: "btn primary" },
+    existing ? "Replace rules" : "Create firewall");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const rules = [...rows.children].map((holder) => holder.reader());
+
+    let result;
+    if (existing) {
+      result = await api("PUT", `/v1/firewalls/${existing.id}/rules`, { rules });
+    } else {
+      result = await api("POST", "/v1/firewalls", { name: $("w-name").value.trim(), rules });
+    }
+
+    submit.disabled = false;
+    if (result.ok) {
+      toast("ok", existing ? "Rules replaced" : "Firewall created",
+        rules.length ? rules.map(ruleText).join(", ") : "nothing may reach it");
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide(existing ? "Rules for " + existing.name : "New firewall", body,
+    [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderDNS() {
+  const query = $("q-dns").value.trim().toLowerCase();
+  const rows = state.dns.filter((r) => !query || (r.fqdn + r.ip).toLowerCase().includes(query));
+
+  if (!rows.length) {
+    return $("t-dns").replaceChildren(emptyRow(2, "No records",
+      "Records appear once an instance has an address."));
+  }
+
+  $("t-dns").replaceChildren(...rows.map((item) => el("tr", {},
+    el("td", { className: "mono" }, item.fqdn),
+    el("td", { className: "mono" }, item.ip))));
+}
+
+function expiryCell(t) {
+  if (!t.expires_at) return el("span", { className: "faint" }, "never");
+  if (t.expired) return pill("expired " + ago(t.expires_at), "bad");
+
+  const left = new Date(t.expires_at).getTime() - Date.now();
+  if (left < 7 * 86400000) return pill("in " + until(t.expires_at), "warn");
+
+  return el("span", { className: "faint", title: when(t.expires_at) },
+    "in " + until(t.expires_at));
+}
+
+function renderTokens() {
+  const tbody = $("t-tokens");
+  if (!state.tokens.length) {
+    return tbody.replaceChildren(emptyRow(6, "No tokens",
+      "The bootstrap token is created on first start."));
+  }
+
+  tbody.replaceChildren(...state.tokens.map((t) => {
+    const row = el("tr", {});
+    row.append(nameCell(t.name, t.id));
+    row.append(el("td", {}, el("span", { className: "tag" }, t.role)));
+    row.append(el("td", { className: "mono faint" }, projectName(t.project_id)));
+    row.append(el("td", {}, expiryCell(t)));
+    row.append(el("td", { className: "mono faint", title: when(t.last_used_at) },
+      ago(t.last_used_at)));
+    row.append(actionCell(action("Revoke", () => confirmThen("Revoke token?",
+      `Anything using ${t.name} stops working immediately. An agent with this token goes unreachable.`,
+      "Revoke", async () => {
+        const { ok } = await api("DELETE", `/v1/tokens/${t.id}`);
+        if (ok) toast("ok", "Token revoked", t.name);
+        refresh();
+      }), "danger")));
+    return row;
+  }));
+}
+
+function projectName(id) {
+  const found = state.projects.find((p) => p.id === id);
+  return found ? found.name : id || "–";
+}
+
+function renderProjects() {
+  const tbody = $("t-projects");
+  if (!state.projects.length) {
+    return tbody.replaceChildren(emptyRow(7, "No projects",
+      "The default project is created on first start."));
+  }
+
+  tbody.replaceChildren(...state.projects.map((p) => {
+    const mine = p.id === scopeProject();
+    const row = el("tr", {});
+
+    row.append(nameCell(p.name, p.id));
+
+    for (const count of [
+      mine ? state.instances.length : null,
+      mine ? state.volumes.length : null,
+      mine ? state.networks.length : null,
+      state.tokens.filter((t) => t.project_id === p.id).length,
+    ]) {
+      row.append(el("td", { className: "mono num" },
+        count === null ? el("span", { className: "faint" }, "not visible") : String(count)));
+    }
+
+    row.append(el("td", { className: "mono faint" }, when(p.created_at)));
+
+    const buttons = [];
+    if (p.id !== "prj-default") {
+      buttons.push(action("Delete", () => confirmThen("Delete project?",
+        `${p.name} must already be empty. Anything it still owns blocks the delete.`,
+        "Delete", async () => {
+          const { ok } = await api("DELETE", `/v1/projects/${p.id}`);
+          if (ok) toast("ok", "Project deleted", p.name);
+          refresh();
+        }), "danger"));
+    }
+    row.append(actionCell(...buttons));
+    return row;
+  }));
+}
+
+function scopeProject() {
+  const bootstrap = state.tokens.find((t) => t.name === "bootstrap");
+  return bootstrap ? bootstrap.project_id : "prj-default";
+}
+
+function backupState(b) {
+  if (b.state === "ready") return pill("ready", "ok");
+  if (b.state === "failed") return pill(shorten(b.message || "failed", 44), "bad");
+  return pill("waiting for " + (b.node_id || "a node"), "pending");
+}
+
+function renderBackups() {
+  const tbody = $("t-backups");
+  if (!state.backups.length) {
+    return tbody.replaceChildren(emptyRow(7, "No backups",
+      "A snapshot dies with the node that holds it. A backup does not."));
+  }
+
+  tbody.replaceChildren(...state.backups.map((b) => {
+    const volume = state.volumes.find((v) => v.id === b.volume_id);
+    const row = el("tr", {});
+
+    row.append(nameCell(b.name, b.id));
+    row.append(el("td", { className: "mono faint" }, volume ? volume.name : b.volume_id));
+    const taken = el("div", { className: "row" }, b.schedule_id
+      ? el("span", { className: "tag" }, "schedule")
+      : el("span", { className: "faint" }, "by hand"));
+    if (b.key_id) {
+      taken.append(el("span", { className: "tag", title: "sealed with key " + b.key_id },
+        "sealed"));
+    }
+    row.append(el("td", {}, taken));
+    row.append(el("td", {}, backupState(b)));
+    row.append(el("td", { className: "r mono num" }, size(b.size_bytes)));
+    row.append(el("td", { className: "mono faint", title: nodeName(b.node_id) },
+      when(b.created_at)));
+
+    const buttons = [];
+    if (b.state === "ready") {
+      buttons.push(action("Restore", () => restoreForm(b)));
+    }
+    buttons.push(action("Delete", () => confirmThen("Delete backup?",
+      `${b.name} and the bytes the control plane holds for it are gone. Any volume already ` +
+      `restored from it keeps its data.`,
+      "Delete", async () => {
+        const { ok } = await api("DELETE", `/v1/backups/${b.id}`);
+        if (ok) toast("ok", "Backup deleted", b.name);
+        refresh();
+      }), "danger"));
+
+    row.append(actionCell(...buttons));
+    return row;
+  }));
+}
+
+const QUOTA_DIMENSIONS = [
+  { key: "instances", label: "Instances", unit: "" },
+  { key: "vcpu", label: "vCPU", unit: "" },
+  { key: "memory_mib", label: "Memory", unit: "MiB" },
+  { key: "volumes", label: "Volumes", unit: "" },
+  { key: "volume_gib", label: "Capacity", unit: "GiB" },
+];
+
+function headroom(used, limit) {
+  if (!limit) {
+    return el("span", { className: "mono faint" }, used + " / \u221e");
+  }
+
+  const share = limit === 0 ? 0 : used / limit;
+  const tone = share >= 1 ? "bad" : share >= 0.8 ? "warn" : "";
+  const text = used + " / " + limit;
+  return tone ? pill(text, tone) : el("span", { className: "mono" }, text);
+}
+
+function renderQuotas() {
+  const tbody = $("t-quotas");
+  if (!state.quotas.length) {
+    return tbody.replaceChildren(emptyRow(8, "No limits set",
+      "Every project may take as much as the fleet has."));
+  }
+
+  tbody.replaceChildren(...state.quotas.map((q) => {
+    const row = el("tr", {});
+    row.append(nameCell(projectName(q.project_id), q.project_id));
+
+    for (const d of QUOTA_DIMENSIONS) {
+      row.append(el("td", {}, headroom(q.used[d.key], q.limits[d.key])));
+    }
+
+    row.append(el("td", { className: "mono faint" }, when(q.updated_at)));
+    row.append(actionCell(
+      action("Edit", () => quotaForm(q.project_id, q.limits)),
+      action("Clear", () => confirmThen("Remove the limits?",
+        `${projectName(q.project_id)} may then take as much as the fleet has.`,
+        "Clear", async () => {
+          const { ok } = await api("DELETE", `/v1/quotas/${q.project_id}`);
+          if (ok) toast("ok", "Limits removed", projectName(q.project_id));
+          refresh();
+        }), "danger")));
+    return row;
+  }));
+}
+
+function quotaForm(projectID, limits) {
+  const picker = select("q-project",
+    state.projects.map((p) => ({ value: p.id, label: p.name + " \u2014 " + p.id })));
+  if (projectID) picker.value = projectID;
+
+  const current = limits || {};
+  const body = el("div", {},
+    projectID
+      ? definitions([["Project", projectName(projectID)], ["ID", projectID]])
+      : field("Project", picker),
+    el("div", { className: "hint", style: "margin-bottom:8px" },
+      "Zero means no limit. Every limit is replaced, not merged, so keep the ones you want."),
+    ...QUOTA_DIMENSIONS.map((d) => field(
+      d.label + (d.unit ? " (" + d.unit + ")" : ""),
+      input("q-" + d.key, String(current[d.key] || 0), "0", "number"))));
+
+  const submit = el("button", { className: "btn primary" }, "Save limits");
+  submit.onclick = async () => {
+    submit.disabled = true;
+    const target = projectID || $("q-project").value;
+
+    const payload = {};
+    for (const d of QUOTA_DIMENSIONS) {
+      payload[d.key] = Number($("q-" + d.key).value) || 0;
+    }
+
+    const { ok } = await api("PUT", `/v1/quotas/${target}`, payload);
+    submit.disabled = false;
+    if (ok) {
+      toast("ok", "Limits saved", projectName(target));
+      closeSide();
+      refresh();
+    }
+  };
+
+  openSide(projectID ? "Limits for " + projectName(projectID) : "Set limits", body,
+    [submit, el("button", { className: "btn quiet", onclick: closeSide }, "Cancel")]);
+}
+
+function renderAll() {
+  renderNav();
+  renderOverview();
+  renderInstances();
+  renderNodes();
+  renderVolumes();
+  renderSnapshots();
+  renderImages();
+  renderNetworks();
+  renderDNS();
+  renderTokens();
+  renderPorts();
+  renderBalancers();
+  renderServices();
+  renderEvents();
+  renderFirewalls();
+  renderAudit();
+  renderProjects();
+  renderBackups();
+  renderQuotas();
+  renderJobs();
+  renderAutoscalers();
+  renderSchedules();
+  renderWebhooks();
+  renderExecs();
+  renderUsers();
+  renderSSHKeys();
+  renderRegistries();
+}
+
+async function allPages(path, field) {
+  const rows = [];
+  let next = "";
+
+  for (let guard = 0; guard < 50; guard++) {
+    const url = next ? `${path}?after=${encodeURIComponent(next)}` : path;
+    const { ok, data } = await api("GET", url);
+    if (!ok || !data) break;
+
+    rows.push(...(data[field] || []));
+    next = data.next || "";
+    if (!next) break;
+  }
+  return { rows };
+}
+
+async function refresh() {
+  if (state.busy) return;
+  state.busy = true;
+  $("refresh").disabled = true;
+
+  try {
+    let healthy = false;
+    try { healthy = (await fetch("/healthz")).ok; } catch { healthy = false; }
+    state.healthy = healthy;
+    $("health").className = "pill " + (healthy ? "ok" : "bad");
+    $("health").replaceChildren(el("i", {}), healthy ? "control plane up" : "control plane down");
+    if (!healthy) { $("version").textContent = "–"; return; }
+
+    const [version, instances, nodes, networks, images, volumes, snapshots, dns, tokens,
+           forwards, balancers, firewalls, usageBody, nodeUsage, trail, projects, backups,
+           quotas, quota, schedules, services, eventList,
+           snapSchedules, jobs, autoscalers, hooks, execs, users, sshkeys, registries] =
+      await Promise.all([
+        api("GET", "/v1/version"),
+        allPages("/v1/instances", "instances"),
+        api("GET", "/v1/nodes"),
+        api("GET", "/v1/networks"),
+        api("GET", "/v1/images"),
+        allPages("/v1/volumes", "volumes"),
+        allPages("/v1/snapshots", "snapshots"),
+        api("GET", "/v1/dns/records"),
+        api("GET", "/v1/tokens"),
+        api("GET", "/v1/forwards"),
+        api("GET", "/v1/balancers"),
+        api("GET", "/v1/firewalls"),
+        api("GET", "/v1/usage"),
+        api("GET", "/v1/usage/nodes"),
+        api("GET", "/v1/audit?limit=120"),
+        api("GET", "/v1/projects"),
+        allPages("/v1/backups", "backups"),
+        api("GET", "/v1/quotas"),
+        api("GET", "/v1/quota"),
+        api("GET", "/v1/backup-schedules"),
+        api("GET", "/v1/services"),
+        api("GET", "/v1/events?limit=120"),
+        api("GET", "/v1/snapshot-schedules"),
+        api("GET", "/v1/jobs"),
+        api("GET", "/v1/autoscalers"),
+        api("GET", "/v1/webhooks"),
+        api("GET", "/v1/execs"),
+        api("GET", "/v1/users"),
+        api("GET", "/v1/keys"),
+        api("GET", "/v1/registries"),
+      ]);
+
+    if (version.data) $("version").textContent = version.data.version || "unknown";
+    state.instances = instances.rows || [];
+    state.nodes = (nodes.data && nodes.data.nodes) || [];
+    state.networks = (networks.data && networks.data.networks) || [];
+    state.images = (images.data && images.data.images) || [];
+    state.volumes = volumes.rows || [];
+    state.snapshots = snapshots.rows || [];
+    state.dns = (dns.data && dns.data.records) || [];
+    state.tokens = (tokens.data && tokens.data.tokens) || [];
+    state.forwards = (forwards.data && forwards.data.forwards) || [];
+    state.balancers = (balancers.data && balancers.data.balancers) || [];
+    state.firewalls = (firewalls.data && firewalls.data.firewalls) || [];
+    state.audit = (trail.data && trail.data.entries) || [];
+    state.projects = (projects.data && projects.data.projects) || [];
+    state.backups = backups.rows || [];
+    state.quotas = (quotas.data && quotas.data.quotas) || [];
+    state.quota = quota.data || null;
+    state.schedules = (schedules.data && schedules.data.schedules) || [];
+    state.snapSchedules = (snapSchedules.data && snapSchedules.data.schedules) || [];
+    state.jobs = (jobs.data && jobs.data.jobs) || [];
+    state.autoscalers = (autoscalers.data && autoscalers.data.autoscalers) || [];
+    state.webhooks = (hooks.data && hooks.data.webhooks) || [];
+    state.execs = (execs.data && execs.data.execs) || [];
+    state.users = (users.data && users.data.users) || [];
+    state.sshkeys = (sshkeys.data && sshkeys.data.keys) || [];
+    state.registries = (registries.data && registries.data.credentials) || [];
+    state.services = (services.data && services.data.services) || [];
+    state.events = (eventList.data && eventList.data.events) || [];
+
+    state.usage = { nodes: {}, instances: {} };
+    for (const sample of (nodeUsage.data && nodeUsage.data.nodes) || []) {
+      state.usage.nodes[sample.node_id] = sample;
+    }
+    for (const sample of (usageBody.data && usageBody.data.instances) || []) {
+      state.usage.instances[sample.instance_id] = sample;
+    }
+
+    renderAll();
+    $("stamp").textContent = "updated " + new Date().toTimeString().slice(0, 8);
+  } finally {
+    state.busy = false;
+    $("refresh").disabled = false;
+  }
+}
+
+function show(view) {
+  state.view = view;
+  $("title").textContent = LABELS[view];
+
+  for (const section of document.querySelectorAll(".view")) {
+    section.classList.toggle("on", section.id === "view-" + view);
+  }
+  for (const link of $("nav").querySelectorAll("a")) {
+    if (link.dataset.view === view) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
+  }
+  if (location.hash !== "#/" + view) location.hash = "#/" + view;
+}
+
+window.addEventListener("hashchange", () => {
+  const view = (location.hash || "#/overview").replace("#/", "");
+  if (LABELS[view] && view !== state.view) show(view);
+});
+
+const term = { id: null, controller: null, lines: [""], row: 0, col: 0, pending: "" };
+
+function termRender() {
+  const node = $("term");
+  const stuck = node.scrollTop + node.clientHeight >= node.scrollHeight - 24;
+  node.textContent = term.lines.join("\n");
+  if (stuck) node.scrollTop = node.scrollHeight;
+}
+
+function termFeed(chunk) {
+  const text = term.pending + chunk;
+  term.pending = "";
+
+  let index = 0;
+  while (index < text.length) {
+    const char = text[index];
+
+    if (char === "\x1b") {
+      const rest = text.slice(index);
+      const match = rest.match(
+        /^\x1b\[[0-9;?]*[A-Za-z]|^\x1b\][^\x07]*\x07|^\x1b[()][A-Za-z0-9]|^\x1b[A-Za-z=>]/);
+      if (match) { index += match[0].length; continue; }
+      if (rest.length < 24) { term.pending = rest; break; }
+      index += 1;
+      continue;
+    }
+    if (char === "\r") { term.col = 0; index += 1; continue; }
+    if (char === "\n") {
+      term.row += 1; term.col = 0;
+      if (!term.lines[term.row]) term.lines[term.row] = "";
+      index += 1;
+      continue;
+    }
+    if (char === "\b") { term.col = Math.max(0, term.col - 1); index += 1; continue; }
+    if (char === "\x07") { index += 1; continue; }
+
+    const line = term.lines[term.row] ?? "";
+    term.lines[term.row] = line.slice(0, term.col) + char + line.slice(term.col + 1);
+    term.col += 1;
+    index += 1;
+  }
+
+  while (term.lines.length > 2000) { term.lines.shift(); term.row -= 1; }
+  if (term.row < 0) term.row = 0;
+  termRender();
+}
+
+function termStatus(text, kind) {
+  $("term-state").className = "pill " + (kind || "");
+  $("term-state").replaceChildren(el("i", {}), text);
+}
+
+async function showLogin(id) {
+  const badge = $("term-login");
+  badge.style.display = "none";
+  try {
+    const response = await fetch(`/console/${id}/login`);
+    if (!response.ok) return;
+    const login = await response.json();
+    if (!login.password) return;
+    badge.textContent = `login ${login.user} / ${login.password}`;
+    badge.style.display = "";
+  } catch { badge.style.display = "none"; }
+}
+
+async function openConsole(instance) {
+  if (!["microvm", "vm"].includes(instance.isolation)) {
+    return toast("bad", "No console for this isolation",
+      instance.isolation === "container"
+        ? "Use sudo nsenter -t <pid> -a /bin/sh on the node."
+        : "Firecracker has no serial socket yet.");
+  }
+
+  closeConsole();
+  term.id = instance.id;
+  term.lines = [""]; term.row = 0; term.col = 0; term.pending = "";
+  $("term-name").textContent = `${instance.name} · ${instance.isolation} · ${instance.id}`;
+  $("term-veil").classList.add("on");
+  $("term").focus();
+  termStatus("connecting");
+  showLogin(instance.id);
+
+  term.controller = new AbortController();
+  try {
+    const response = await fetch(`/console/${instance.id}/stream`, { signal: term.controller.signal });
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null);
+      termStatus("failed", "bad");
+      return toast("bad", "Console unavailable",
+        response.status === 404
+          ? "The serial console reads a socket on the node itself, so it needs the "
+            + "node-local bridge. It is not reachable through the control plane."
+          : detail && detail.error ? detail.error.message : `HTTP ${response.status}`);
+    }
+
+    termStatus("attached", "ok");
+    termFeed(`[attached to ${instance.name}]\n`);
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      termFeed(decoder.decode(value, { stream: true }));
+    }
+    termStatus("closed", "warn");
+  } catch (failure) {
+    if (failure.name !== "AbortError") {
+      termStatus("failed", "bad");
+      toast("bad", "Console stream ended", String(failure));
+    }
+  }
+}
+
+function closeConsole() {
+  if (term.controller) term.controller.abort();
+  term.controller = null;
+  term.id = null;
+  $("term-veil").classList.remove("on");
+}
+
+function keyBytes(event) {
+  if (event.key === "Enter") return "\r";
+  if (event.key === "Backspace") return "\x7f";
+  if (event.key === "Tab") return "\t";
+  if (event.key === "Escape") return "\x1b";
+  if (event.key === "ArrowUp") return "\x1b[A";
+  if (event.key === "ArrowDown") return "\x1b[B";
+  if (event.key === "ArrowRight") return "\x1b[C";
+  if (event.key === "ArrowLeft") return "\x1b[D";
+  if (event.key === "Delete") return "\x1b[3~";
+
+  if (event.ctrlKey && event.key.length === 1) {
+    const code = event.key.toUpperCase().charCodeAt(0) - 64;
+    if (code > 0 && code < 32) return String.fromCharCode(code);
+  }
+  if (event.key.length === 1 && !event.metaKey) return event.key;
+  return null;
+}
+
+async function sendKeys(payload) {
+  if (!term.id) return;
+  try {
+    await fetch(`/console/${term.id}/input`, { method: "POST", body: payload });
+  } catch (failure) {
+    toast("bad", "Could not send input", String(failure));
+  }
+}
+
+$("term").onkeydown = (event) => {
+  const payload = keyBytes(event);
+  if (payload === null) return;
+  event.preventDefault();
+  sendKeys(payload);
+};
+$("term").onpaste = (event) => {
+  event.preventDefault();
+  sendKeys(event.clipboardData.getData("text"));
+};
+$("term-close").onclick = closeConsole;
+$("term-clear").onclick = () => {
+  term.lines = [""]; term.row = 0; term.col = 0; term.pending = "";
+  termRender();
+};
+
+for (const [method, path] of [
+  ["GET", "/healthz"], ["GET", "/v1/version"], ["GET", "/v1/nodes"], ["GET", "/v1/instances"],
+  ["GET", "/v1/volumes"], ["GET", "/v1/snapshots"], ["GET", "/v1/images"], ["GET", "/v1/networks"],
+  ["GET", "/v1/dns/records"], ["GET", "/v1/tokens"],
+]) {
+  const button = el("button", { className: "btn sm" }, `${method} ${path}`);
+  button.onclick = async () => {
+    $("r-method").value = method;
+    $("r-path").value = path;
+    const result = await api(method, path);
+    $("r-out").textContent = result.text;
+    $("r-meta").textContent = `${result.status || "ERR"} · ${result.ms || 0}ms`;
+  };
+  $("presets").append(button);
+}
+
+$("refresh").onclick = refresh;
+$("new-instance").onclick = instanceForm;
+$("new-volume").onclick = volumeForm;
+$("new-image").onclick = imageForm;
+$("new-network").onclick = networkForm;
+$("new-token").onclick = tokenForm;
+$("new-project").onclick = projectForm;
+$("new-quota").onclick = () => quotaForm(null, null);
+$("new-firewall").onclick = () => firewallForm(null);
+$("new-balancer").onclick = () => balancerForm();
+$("new-job").onclick = () => jobForm();
+$("new-autoscaler").onclick = () => autoscaleForm("", null);
+$("new-webhook").onclick = () => webhookForm();
+$("new-exec").onclick = () => execForm("");
+$("new-user").onclick = () => userForm();
+$("sign-in").onclick = () => signInForm();
+$("new-sshkey").onclick = () => sshKeyForm();
+$("new-registry").onclick = () => registryForm();
+$("new-service").onclick = () => serviceForm();
+$("q-instances").oninput = renderInstances;
+$("f-isolation").onchange = renderInstances;
+$("q-dns").oninput = renderDNS;
+
+for (const button of document.querySelectorAll("[data-goto]")) {
+  button.onclick = () => show(button.dataset.goto);
+}
+
+$("r-send").onclick = async () => {
+  const method = $("r-method").value;
+  const path = $("r-path").value.trim();
+  const raw = $("r-body").value.trim();
+
+  let body;
+  if (method !== "GET" && raw) {
+    try { body = JSON.parse(raw); }
+    catch (failure) { return toast("bad", "Body is not JSON", failure.message); }
+  }
+
+  const result = await api(method, path, body);
+  $("r-out").textContent = result.text;
+  $("r-meta").textContent = `${result.status || "ERR"} · ${result.ms || 0}ms`;
+  if (["POST", "PUT", "DELETE"].includes(method)) refresh();
+};
+
+$("log-bar").onclick = (event) => {
+  if (event.target.id === "log-clear") return;
+  const bar = $("log");
+  bar.classList.toggle("shut");
+  $("log-caret").textContent = bar.classList.contains("shut") ? "▲" : "▼";
+};
+$("log-clear").onclick = () => {
+  $("entries").replaceChildren();
+  state.requests = 0;
+  $("log-count").textContent = "";
+};
+
+document.onkeydown = (event) => {
+  if (event.key !== "Escape") return;
+  if ($("ask").classList.contains("on")) return closeAsk();
+  if (term.id) return closeConsole();
+  closeSide();
+};
+
+let timer = null;
+function schedule() {
+  clearInterval(timer);
+  if ($("auto").checked) timer = setInterval(refresh, 5000);
+}
+$("auto").onchange = schedule;
+
+const identity = { email: "", role: "" };
+
+function wearIdentity(session) {
+  identity.email = (session && session.email) || "";
+  identity.role = (session && session.role) || "";
+  $("who").textContent = identity.email ? `${identity.email} · ${identity.role}` : "";
+  $("who").style.display = identity.email ? "" : "none";
+  $("signout").style.display = identity.email ? "" : "none";
+}
+
+function showSignIn(message) {
+  clearInterval(timer);
+  $("signin-error").textContent = message || "";
+  $("signin").classList.add("on");
+  $("signin-email").focus();
+}
+
+function hideSignIn() {
+  $("signin").classList.remove("on");
+  $("signin-password").value = "";
+  $("signin-error").textContent = "";
+}
+
+async function signIn(event) {
+  event.preventDefault();
+  const button = $("signin-go");
+  button.disabled = true;
+  try {
+    const response = await fetch("/v1/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: $("signin-email").value.trim(),
+        password: $("signin-password").value,
+      }),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      showSignIn(data && data.error ? data.error.message : `sign in failed: HTTP ${response.status}`);
+      return;
+    }
+    wearIdentity(data);
+    hideSignIn();
+    await start();
+  } catch (failure) {
+    showSignIn(String(failure));
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function signOut() {
+  try { await fetch("/v1/logout", { method: "POST" }); } catch { /* the cookie goes either way */ }
+  wearIdentity(null);
+  showSignIn("");
+}
+
+$("signin-form").onsubmit = signIn;
+$("signout").onclick = signOut;
+
+async function start() {
+  show((location.hash || "#/overview").replace("#/", "") || "overview");
+  await refresh();
+  schedule();
+}
+
+(async function () {
+  let probe;
+  try {
+    probe = await fetch("/v1/version");
+  } catch (failure) {
+    showSignIn(`this control plane did not answer: ${failure}`);
+    return;
+  }
+  if (probe.status === 401) {
+    showSignIn("");
+    return;
+  }
+  await start();
+})();
+</script>
+</body>
+</html>

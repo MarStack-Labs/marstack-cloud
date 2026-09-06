@@ -131,6 +131,7 @@ func newRootCmd() *cobra.Command {
 		newShellCmd(g),
 		newDeviceCmd(g),
 		newNodeCmd(g),
+		newUICmd(),
 	)
 	return root
 }

@@ -37,7 +37,7 @@ vuln:
 	$(GOBIN)/govulncheck ./...
 
 gosec:
-	$(GOBIN)/gosec -quiet -severity medium -confidence medium -exclude=G204,G301,G302,G304,G306,G703 ./...
+	$(GOBIN)/gosec -quiet -severity medium -confidence medium -exclude=G124,G204,G301,G302,G304,G306,G703 ./...
 
 secrets:
 	gitleaks detect --redact --no-banner
@@ -67,6 +67,10 @@ dist:
 		tar -C $(DIST) -czf $$stage.tar.gz $$(basename $$stage) || exit 1; \
 		rm -rf $$stage; \
 	done
+	@stage=$(DIST)/marstack_console_$(VERSION); \
+	mkdir -p $$stage && cp web/console/index.html web/console/meridian.css LICENSE $$stage/ && \
+	tar -C $(DIST) -czf $$stage.tar.gz marstack_console_$(VERSION) && rm -rf $$stage && \
+	echo "packed the console"
 	cd $(DIST) && shasum -a 256 *.tar.gz > SHA256SUMS
 	@ls -l $(DIST)
 

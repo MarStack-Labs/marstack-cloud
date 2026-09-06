@@ -57,6 +57,7 @@ func (m *Module) Migrations() []store.Migration {
 
 func (m *Module) Routes(mux *http.ServeMux) {
 	mux.Handle("POST /v1/login", httpx.Wrap(m.log, m.handler.login))
+	mux.Handle("POST /v1/logout", httpx.Wrap(m.log, m.handler.logout))
 	mux.Handle("POST /v1/users", httpx.Wrap(m.log, m.handler.create))
 	mux.Handle("GET /v1/users", httpx.Wrap(m.log, m.handler.list))
 	mux.Handle("GET /v1/users/{id}", httpx.Wrap(m.log, m.handler.get))

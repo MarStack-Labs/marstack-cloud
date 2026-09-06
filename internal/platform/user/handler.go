@@ -157,6 +157,8 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 
+	httpx.SetSession(w, r, session.Secret, session.ExpiresAt)
+
 	httpx.Write(w, http.StatusCreated, sessionResponse{
 		Token:     session.Secret,
 		UserID:    session.UserID,
@@ -165,5 +167,14 @@ func (h *handler) login(w http.ResponseWriter, r *http.Request) error {
 		ProjectID: session.ProjectID,
 		ExpiresAt: session.ExpiresAt.Format(time.RFC3339Nano),
 	})
+	return nil
+}
+
+func (h *handler) logout(w http.ResponseWriter, r *http.Request) error {
+	if err := h.svc.logout(r.Context()); err != nil {
+		return err
+	}
+	httpx.ClearSession(w, r)
+	w.WriteHeader(http.StatusNoContent)
 	return nil
 }

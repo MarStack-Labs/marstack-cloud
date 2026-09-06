@@ -500,7 +500,35 @@ VERSION=v0.1.0 make build
 sudo make install
 ```
 
-The web console is not part of a release yet.
+### The web console
+
+The console is optional and is not inside the binary. It is published as its own archive per
+release, so a control plane that only answers the API never holds it, and the console can be
+replaced without replacing the binary.
+
+```sh
+marstack ui install
+#   fetching marstack_console_v0.2.0.tar.gz
+#   checksum ok
+#   installed 3 files to /var/lib/marstack/console
+
+marstack server --ui-dir /var/lib/marstack/console
+```
+
+`marstack ui install` takes the archive for its own version, checks it against the release's
+`SHA256SUMS`, and refuses anything that does not match. `--from` installs a file already on disk
+instead, and `--version` installs a release other than this binary's.
+
+Without `--ui-dir` nothing is served at `/`, which is what a control plane with no console looks
+like.
+
+The console signs in against `/v1/login` and carries the session in an `HttpOnly` cookie, so a
+script running in the page cannot read it. Everything the API refuses, it refuses in the browser
+too — a viewer sees what a viewer may see.
+
+One view is missing when the console is served this way: the serial console of a VM or microVM
+reads a socket on the node itself, which the control plane has no path to. The interactive shell
+(`marstack shell`) works, because that is a control plane feature.
 
 ## Running it
 

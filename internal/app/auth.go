@@ -112,6 +112,7 @@ var memberPaths = []string{
 	"POST /v1/jobs/{id}/pause",
 	"POST /v1/jobs/{id}/resume",
 	"DELETE /v1/jobs/{id}",
+	"POST /v1/logout",
 	"POST /v1/users",
 	"GET /v1/users",
 	"GET /v1/users/{id}",
@@ -223,6 +224,10 @@ var memberPaths = []string{
 	"DELETE /v1/balancers/{id}/backends/{instanceID}",
 }
 
+var selfPaths = []string{
+	"POST /v1/logout",
+}
+
 func readsOf(patterns []string) []string {
 	reads := make([]string, 0, len(patterns))
 	for _, pattern := range patterns {
@@ -237,7 +242,7 @@ func authenticate(verify verifier, log *slog.Logger) httpx.Middleware {
 	allowed := map[string]func(*http.Request) bool{
 		token.RoleNode:   allowList(nodePaths),
 		token.RoleMember: allowList(memberPaths),
-		token.RoleViewer: allowList(readsOf(memberPaths)),
+		token.RoleViewer: allowList(append(readsOf(memberPaths), selfPaths...)),
 	}
 
 	return func(next http.Handler) http.Handler {
@@ -294,8 +299,8 @@ func allowList(patterns []string) func(*http.Request) bool {
 func bearerOf(r *http.Request) string {
 	header := r.Header.Get("Authorization")
 	scheme, secret, found := strings.Cut(header, " ")
-	if !found || !strings.EqualFold(scheme, "bearer") {
-		return ""
+	if found && strings.EqualFold(scheme, "bearer") {
+		return strings.TrimSpace(secret)
 	}
-	return strings.TrimSpace(secret)
+	return httpx.SessionOf(r)
 }

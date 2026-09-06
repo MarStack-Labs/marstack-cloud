@@ -21,6 +21,7 @@ func newServerCmd() *cobra.Command {
 	var (
 		acmeDirectory string
 		acmeContact   string
+		consoleDir    string
 		listen        string
 		dataDir       string
 		logLevel      string
@@ -89,6 +90,7 @@ func newServerCmd() *cobra.Command {
 				ProjectBurst:     projectBurst,
 				ACMEDirectory:    acmeDirectory,
 				ACMEContact:      acmeContact,
+				ConsoleDir:       consoleDir,
 			}, log)
 			if err != nil {
 				return err
@@ -117,6 +119,9 @@ func newServerCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&keyFiles, "backup-key-file", nil,
 		"file holding 64 hex characters; repeat to keep reading older backups, "+
 			"the first seals new ones")
+	cmd.Flags().StringVar(&consoleDir, "ui-dir", "",
+		"directory holding the web console to serve at /, as installed by "+
+			"marstack ui install; without it nothing is served there")
 	cmd.Flags().StringVar(&acmeDirectory, "acme-directory", "",
 		"ACME directory URL to get certificates from, such as "+
 			"https://acme-v02.api.letsencrypt.org/directory")

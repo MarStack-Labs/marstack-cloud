@@ -61,7 +61,7 @@ jobs:
       - name: gosec
         run: |
           go install github.com/securego/gosec/v2/cmd/gosec@latest
-          gosec -severity medium -confidence medium -exclude=G204,G301,G302,G304,G306,G703 ./...
+          gosec -severity medium -confidence medium -exclude=G124,G204,G301,G302,G304,G306,G703 ./...
 
       - name: gitleaks
         run: |

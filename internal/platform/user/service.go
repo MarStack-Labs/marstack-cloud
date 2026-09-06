@@ -14,6 +14,7 @@ import (
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/fault"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ids"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/ratelimit"
+	"github.com/marstack-labs/marstack-cloud/internal/kernel/scope"
 	"github.com/marstack-labs/marstack-cloud/internal/kernel/validate"
 )
 
@@ -22,6 +23,7 @@ var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$`)
 type Tokens interface {
 	Issue(ctx context.Context, name, role, projectID, userID string,
 		lifetime time.Duration) (string, error)
+	Forget(ctx context.Context, id string) error
 	ForgetUser(ctx context.Context, userID string) error
 }
 
@@ -258,6 +260,23 @@ func (s *service) login(ctx context.Context, remote, email, password string) (Se
 		ProjectID: person.ProjectID,
 		ExpiresAt: s.now().Add(SessionLifetime),
 	}, nil
+}
+
+func (s *service) logout(ctx context.Context) error {
+	tokenID := scope.From(ctx).TokenID
+	if tokenID == "" || s.tokens == nil {
+		return nil
+	}
+
+	err := s.tokens.Forget(ctx, tokenID)
+	var refused *fault.Fault
+	if errors.As(err, &refused) && refused.Code == "last_admin_token" {
+		s.log.Warn("a session was signed out but its token was kept, because revoking the "+
+			"only admin token that still works would lock everyone out",
+			"token", tokenID)
+		return nil
+	}
+	return err
 }
 
 func sessionName(userID string) string {

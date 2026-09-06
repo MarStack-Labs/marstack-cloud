@@ -5,7 +5,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 on-disk state may change between minor versions.
 
 A release ships one binary, `marstack`, which is the control plane, the node agent and the client at
-once. The web console is not part of a release yet.
+once, and an optional web console published as its own archive.
 
 To cut a release, rename `Unreleased` below to the version and the date, commit, then push the
 matching `v` tag. The release workflow takes its notes from the section named after the tag, so a
@@ -13,7 +13,20 @@ tag with no section of its own falls back to a bare list of commits.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- The web console, installed on its own with `marstack ui install` and served by
+  `marstack server --ui-dir`. It is published as an archive per release and checked against the
+  release's `SHA256SUMS`, so the control plane holds no console unless one was installed.
+- Signing in from a browser: `POST /v1/login` sets an `HttpOnly`, `SameSite=Strict` session cookie
+  that the API accepts alongside a bearer token, and `POST /v1/logout` revokes the session it was
+  carrying.
+
+### Known gaps
+
+- The serial console of a VM or microVM is not reachable through the control plane, because it
+  reads a socket on the node. That view is the one part of the console that needs a node-local
+  bridge.
 
 ## [0.1.0] - 2026-09-06
 

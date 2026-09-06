@@ -107,6 +107,10 @@ func (m *Module) Issue(ctx context.Context, name, role, projectID, userID string
 	return secret, err
 }
 
+func (m *Module) Forget(ctx context.Context, id string) error {
+	return m.svc.remove(ctx, id)
+}
+
 func (m *Module) ForgetUser(ctx context.Context, userID string) error {
 	return m.svc.repo.deleteForUser(ctx, userID)
 }

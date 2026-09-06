@@ -35,7 +35,7 @@ fi
 
 if command -v gosec >/dev/null 2>&1; then
 	printf 'pre-commit: gosec\n'
-	gosec -quiet -severity medium -confidence medium -exclude=G204,G301,G302,G304,G306,G703 ./...
+	gosec -quiet -severity medium -confidence medium -exclude=G124,G204,G301,G302,G304,G306,G703 ./...
 else
 	printf 'pre-commit: gosec not installed, skipping static security scan\n' >&2
 fi

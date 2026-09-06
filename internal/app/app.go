@@ -68,6 +68,7 @@ type Config struct {
 	ProjectBurst      int
 	ACMEDirectory     string
 	ACMEContact       string
+	ConsoleDir        string
 }
 
 func (c Config) projectPerSecond() int {
@@ -418,16 +419,29 @@ func (a *App) buildRouter() http.Handler {
 	for _, m := range a.modules {
 		m.Routes(mux)
 	}
-	return httpx.Chain(mux,
+
+	api := httpx.Chain(mux,
+		auditTrail(a.trail),
+		authenticate(a.tokens, a.log),
+		httpx.RateLimit(a.tenants, projectKey, openToEveryone),
+	)
+
+	root := api
+	if a.cfg.ConsoleDir != "" {
+		routed := http.NewServeMux()
+		routed.Handle("/v1/", api)
+		routed.Handle("/healthz", api)
+		routed.Handle("/", consoleHandler(a.cfg.ConsoleDir))
+		root = routed
+	}
+
+	return httpx.Chain(root,
 		httpx.RequestID(),
 		httpx.Recover(a.log),
 		httpx.AccessLog(a.log),
 		httpx.SecureHeaders(),
 		httpx.RateLimit(a.limiter, callerKey, openToEveryone),
 		httpx.Timeout(a.cfg.RequestTimeout, allowList(streamingPaths)),
-		auditTrail(a.trail),
-		authenticate(a.tokens, a.log),
-		httpx.RateLimit(a.tenants, projectKey, openToEveryone),
 	)
 }
 
@@ -439,9 +453,19 @@ func (a *App) announce() {
 	a.log.Info("control plane listening",
 		"addr", a.cfg.Listen, "scheme", scheme, "modules", len(a.modules))
 
+	if a.cfg.ConsoleDir != "" {
+		a.log.Info("serving the web console", "dir", a.cfg.ConsoleDir)
+	}
+
 	if !a.cfg.servesTLS() {
 		a.log.Warn("serving plain HTTP, so every bearer token crosses the network in the clear",
 			"fix", "pass --tls-cert and --tls-key")
+
+		if a.cfg.ConsoleDir != "" {
+			a.log.Warn("the console's session cookie cannot be marked secure over plain HTTP, "+
+				"so it crosses the network in the clear and any http page on this host can "+
+				"set one", "fix", "serve the console over HTTPS, or bind it to loopback")
+		}
 	}
 
 	if len(a.cfg.BackupKeys) == 0 {
