@@ -26,6 +26,11 @@ jobs:
       - run: go test -race ./...
       - run: gofmt -l . | tee /dev/stderr | (! read)
 
+      - name: The CLI reference matches the CLI
+        run: |
+          go run ./cmd/marstack docs --out docs/cli.md
+          git diff --exit-code -- docs/cli.md
+
   portable:
     runs-on: ubuntu-latest
     steps:

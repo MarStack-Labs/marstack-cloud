@@ -132,6 +132,7 @@ func newRootCmd() *cobra.Command {
 		newDeviceCmd(g),
 		newNodeCmd(g),
 		newUICmd(),
+		newDocsCmd(),
 	)
 	return root
 }
