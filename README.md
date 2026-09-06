@@ -5,6 +5,8 @@
 [![go](https://img.shields.io/github/go-mod/go-version/MarStack-Labs/marstack-cloud)](go.mod)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
+**[marstack-labs.github.io/marstack-cloud](https://marstack-labs.github.io/marstack-cloud/)**
+
 **A cloud platform that runs containers, VMs, and microVMs as one kind of resource** — on a single
 machine or across many baremetal ones, through the same code and the same API.
 
@@ -90,6 +92,7 @@ that does not match. Without `--ui-dir`, nothing is served at `/`.
 | [Security](docs/SECURITY.md) | threat model and the invariants that hold |
 | [Roadmap](docs/roadmap.md) | what is done and what is next |
 | [Changelog](CHANGELOG.md) | what changed, per release |
+| [Site](https://marstack-labs.github.io/marstack-cloud/) | the short version, on one page |
 
 ## How it fits together
 

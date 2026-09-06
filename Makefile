@@ -9,7 +9,10 @@ PREFIX ?= /usr/local
 DIST    ?= dist
 TARGETS ?= linux/amd64 linux/arm64 darwin/arm64
 
-.PHONY: build install uninstall test vet cross dist docs fmt staticcheck vuln gosec secrets security check tools hooks run stage-images dev-up dev-down dev-logs dev-reset clean
+.PHONY: build install uninstall test vet cross dist docs site fmt staticcheck vuln gosec secrets security check tools hooks run stage-images dev-up dev-down dev-logs dev-reset clean
+
+site:
+	cp web/console/meridian.css site/meridian.css
 
 docs: build
 	./bin/marstack docs --out docs/cli.md

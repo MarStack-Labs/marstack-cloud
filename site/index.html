@@ -1,0 +1,463 @@
+<!doctype html>
+<html lang="en" data-surface="navy">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>marstack-cloud — containers, VMs and microVMs as one resource</title>
+<meta name="description" content="A cloud platform that runs containers, VMs and microVMs as one kind of resource, on one machine or across many baremetal ones, through the same code and the same API.">
+<link rel="stylesheet" href="meridian.css">
+<link rel="stylesheet" href="site.css">
+</head>
+<body class="ms-root">
+
+<nav class="top">
+  <b class="ms-wordmark">marstack</b>
+  <span class="ms-eyebrow">cloud</span>
+  <span class="grow"></span>
+  <a href="#quickstart">Quickstart</a>
+  <a href="#instances">Instances</a>
+  <a href="#console">Console</a>
+  <a href="https://github.com/MarStack-Labs/marstack-cloud">GitHub</a>
+</nav>
+
+<header class="hero">
+  <span class="ms-pill ms-pill-pending"><i></i>pre-1.0 · v0.2.0</span>
+  <h1>One resource type. Containers, VMs and microVMs.</h1>
+  <p class="lede">
+    A container and a virtual machine are the same object here, separated by one field. The same
+    code path runs a laptop with one node and a rack with fifty, so there is nothing to re-learn
+    when you outgrow the first one.
+  </p>
+
+  <div class="cards">
+    <div class="card">
+      <b>N=1 is the general case</b>
+      <span>There is no single-node mode to graduate out of. One node takes the path fifty do.</span>
+    </div>
+    <div class="card">
+      <b>The agent pulls</b>
+      <span>A node is never dialled. It needs no inbound port, and keeps running when the control plane is gone.</span>
+    </div>
+    <div class="card">
+      <b>No encapsulation</b>
+      <span>Native routing between nodes. Full 1500 MTU, no switch configuration, no overlay to debug.</span>
+    </div>
+    <div class="card">
+      <b>One binary</b>
+      <span>Control plane, node agent and client. The web console is optional and installed on its own.</span>
+    </div>
+  </div>
+</header>
+
+<div class="page">
+  <aside class="toc">
+    <ol>
+      <li><a href="#what">What it is</a></li>
+      <li><a href="#install">Install</a></li>
+      <li><a href="#quickstart">First run</a></li>
+      <li><a href="#instances">Instances</a></li>
+      <li><a href="#networking">Networking</a></li>
+      <li><a href="#storage">Volumes and backups</a></li>
+      <li><a href="#services">Services and balancers</a></li>
+      <li><a href="#tenancy">Projects and tokens</a></li>
+      <li><a href="#console">The console</a></li>
+      <li><a href="#production">Before production</a></li>
+      <li><a href="#excluded">What it will not do</a></li>
+    </ol>
+  </aside>
+
+  <main class="body">
+
+    <section id="what">
+      <h2>What it is</h2>
+
+      <p>
+        A control plane, an agent that runs on every node, and a client — all three in one binary.
+        You describe an instance; the node makes it exist. Whether that instance is a container
+        under runc, a virtual machine under QEMU, a microVM under Cloud Hypervisor or a sandbox
+        under Firecracker is a field on the object, not a different product.
+      </p>
+
+      <p>
+        The split matters because <strong>the agent reconciles rather than takes orders</strong>. It
+        asks the control plane what should be running on it and makes that true. Nothing dials into
+        a node, so a node needs no listening port of its own, and a control plane that dies does
+        not take running workloads down with it.
+      </p>
+
+      <div class="note" data-tone="info">
+        <p>
+          State lives in SQLite next to the control plane. That is one process holding the
+          authority, which is a deliberate trade for this stage: simple to run and to reason about,
+          not yet a highly available control plane.
+        </p>
+      </div>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+
+      <p>
+        Take the archive for your platform from the
+        <a href="https://github.com/MarStack-Labs/marstack-cloud/releases">releases page</a>, check
+        it against the published checksums, and put the binary on your path.
+      </p>
+
+      <pre><code>shasum -a 256 -c SHA256SUMS
+tar -xzf marstack_v0.2.0_linux_amd64.tar.gz
+sudo install -m 0755 marstack_v0.2.0_linux_amd64/marstack /usr/local/bin/marstack
+
+marstack version</code></pre>
+
+      <p>
+        Linux on amd64 or arm64 for anything that runs a workload. macOS on arm64 runs the control
+        plane and the client, which is enough to drive a cluster from a laptop.
+      </p>
+    </section>
+
+    <section id="quickstart">
+      <h2>First run</h2>
+
+      <p>
+        The control plane writes its first admin token to <code>bootstrap-token</code> in its data
+        directory on the first start. That token is how the first person gets in and creates
+        everyone else.
+      </p>
+
+      <pre><code>marstack server --data-dir ~/marstack-data &amp;
+sudo marstack agent --name bm-1 --zone rack-a &amp;
+
+export MARSTACK_ENDPOINT=http://127.0.0.1:7443
+export MARSTACK_TOKEN=$(cat ~/marstack-data/bootstrap-token)
+
+marstack instance create --name api-1 --image alpine:3.20
+marstack instance list</code></pre>
+
+      <div class="scroller">
+        <pre><code>NAME    ID                ISOLATION   IMAGE          VCPU   MEMORY   DESIRED   OBSERVED   NODE
+api-1   i-php2q13mwt3qy   container   alpine:3.20    1      512      running   running    bm-1</code></pre>
+      </div>
+
+      <p>
+        Adding a second machine is the same command with a different name. Nothing about the first
+        node changes, and the two are one network from the moment the second one reports.
+      </p>
+
+      <div class="note" data-tone="warn">
+        <p>
+          Without <code>--tls-cert</code> and <code>--tls-key</code> the control plane serves plain
+          HTTP, and every bearer token crosses the network in the clear. It says so on every start
+          for a reason: that is fine on a loopback address and wrong anywhere else.
+        </p>
+      </div>
+    </section>
+
+    <section id="instances">
+      <h2>Instances</h2>
+
+      <p>
+        Four isolations, one object. The field decides which runtime starts it; everything else —
+        networks, volumes, firewalls, names, placement — behaves the same way whichever you picked.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Isolation</th><th>Runs on</th><th>Boots from</th><th>For</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>container</code></td>
+              <td>runc</td>
+              <td>an OCI image</td>
+              <td>the common case, shared kernel</td>
+            </tr>
+            <tr>
+              <td><code>vm</code></td>
+              <td>QEMU</td>
+              <td>a registered disk image, or an ISO you install yourself</td>
+              <td>a whole operating system, its own kernel, PCI passthrough</td>
+            </tr>
+            <tr>
+              <td><code>microvm</code></td>
+              <td>Cloud Hypervisor</td>
+              <td>an OCI image and a chosen kernel</td>
+              <td>a kernel boundary at close to container speed</td>
+            </tr>
+            <tr>
+              <td><code>sandbox</code></td>
+              <td>Firecracker</td>
+              <td>an OCI image and a chosen kernel</td>
+              <td>the smallest surface, for code you do not trust</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <pre><code>marstack instance create --name db-1 --isolation vm \
+    --image ubuntu-24.04 --vcpu 4 --memory-mib 4096 --disk-gib 40
+
+marstack instance create --name fn-1 --isolation sandbox \
+    --image alpine:3.20 --kernel vmlinux-6.6
+
+marstack instance resize db-1 --vcpu 8 --memory-mib 8192</code></pre>
+
+      <p>
+        An instance gets an internal DNS name the moment it is created, so nothing has to wait for
+        an address to be handed out before it can be referred to. Every command that takes an id
+        takes the name instead.
+      </p>
+    </section>
+
+    <section id="networking">
+      <h2>Networking</h2>
+
+      <p>
+        Each network is a range, and each node is given a slice of it. Traffic between nodes is
+        <strong>routed, not encapsulated</strong>: no VXLAN, no MTU arithmetic, nothing to
+        packet-capture through a tunnel. A container on one node reaches a VM on another because
+        the route exists, not because a tunnel carries it.
+      </p>
+
+      <pre><code>marstack network create --name prod --cidr 10.42.0.0/16 --cidr6 fd00:42::/48
+
+marstack instance create --name web-1 --image nginx:1.27 \
+    --network prod --network mgmt</code></pre>
+
+      <p>
+        Networks can carry a range per family, so an instance can be IPv4-only, IPv6-only or dual
+        stack. The first network given is <code>eth0</code> and carries the default route; the rest
+        are extra interfaces.
+      </p>
+
+      <h3>Reaching in</h3>
+
+      <p>
+        A published port opens on the node that happens to run the instance, and follows it if the
+        instance is placed somewhere else. A balancer spreads one port across many instances, and
+        can route by host and path to different services behind the same port.
+      </p>
+
+      <pre><code>marstack forward create --instance web-1 --port 8080 --target 80
+
+marstack balancer create --name edge --port 443 --tls-acme shop.example.com
+marstack balancer route set edge \
+    --route 'shop.example.com/api=api' \
+    --route 'shop.example.com/=web'</code></pre>
+
+      <p>
+        Certificates can come from an ACME authority over HTTP-01 and are renewed before they
+        expire. A certificate that is close to expiring and not being renewed becomes an event, so
+        it is visible before it is an outage.
+      </p>
+    </section>
+
+    <section id="storage">
+      <h2>Volumes and backups</h2>
+
+      <p>
+        A volume outlives the instance it is attached to. It can be detached from a running guest,
+        snapshotted, rolled back, cloned into a new volume, and carried off a node that is being
+        drained.
+      </p>
+
+      <pre><code>marstack volume create --name pgdata --size-gib 100
+marstack volume attach pgdata --instance db-1
+
+marstack volume snapshot create pgdata --name before-upgrade
+marstack snapshot restore snap-3k9x2m
+marstack snapshot clone snap-3k9x2m --name pgdata-copy</code></pre>
+
+      <p>
+        Backups can be written to this machine's disk, which is the single point of failure they
+        exist to survive, or to anything speaking S3 — including MinIO. Content is sealed at rest
+        when the control plane is started with a backup key.
+      </p>
+
+      <div class="note" data-tone="warn">
+        <p>
+          Lose a backup key and the backups it sealed are gone for good. Keep it somewhere other
+          than the data directory it protects.
+        </p>
+      </div>
+    </section>
+
+    <section id="services">
+      <h2>Services and balancers</h2>
+
+      <p>
+        A service holds a number of replicas of one template. It replaces a replica the node has
+        given up on, rolls onto a new template one replica at a time, and can hold its own count
+        against a target load rather than a fixed number.
+      </p>
+
+      <pre><code>marstack service create --name api --replicas 3 \
+    --image ghcr.io/example/api:1.4 --network prod
+
+marstack service autoscale set api --min 3 --max 12 --cpu-target 60
+marstack service template set api --image ghcr.io/example/api:1.5</code></pre>
+
+      <p>
+        Replicas are spread across nodes and zones when they share a placement group, and can be
+        pinned to nodes carrying a label when they need particular hardware.
+      </p>
+
+      <pre><code>marstack instance create --name train-1 --isolation vm \
+    --node-selector gpu=h100 --device 0000:65:00.0</code></pre>
+
+      <p>
+        A GPU or accelerator is handed to a guest by passthrough, from an inventory each node
+        reports. A card already claimed by one guest cannot be given to another.
+      </p>
+    </section>
+
+    <section id="tenancy">
+      <h2>Projects and tokens</h2>
+
+      <p>
+        Everything belongs to a project: instances, networks, volumes, snapshots, firewalls, ports
+        and images. A token is bound to one project and carries a role, so a token that leaks is
+        bounded by both.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Role</th><th>May</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>admin</code></td><td>everything, including creating people and projects</td></tr>
+            <tr><td><code>member</code></td><td>read and change what its project holds</td></tr>
+            <tr><td><code>viewer</code></td><td>read what its project holds, and nothing else</td></tr>
+            <tr><td><code>node</code></td><td>only the endpoints an agent needs — it cannot schedule</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <pre><code>marstack project create --name staging
+marstack user create --email ada@example.test --role member --project staging
+marstack token create --name ci --role member --project staging --expires-in 720h
+
+marstack quota set --project staging --instances 20 --volumes-gib 500</code></pre>
+
+      <p>
+        Every change is recorded with who made it, not only which token — and so is every refusal.
+        A rate limit applies per caller and per project, so one client cannot spend the platform's
+        attention on its own.
+      </p>
+    </section>
+
+    <section id="console">
+      <h2>The console</h2>
+
+      <p>
+        Optional, and not inside the binary. It is published as its own archive per release, so a
+        control plane that only answers the API never holds one.
+      </p>
+
+      <pre><code>marstack ui install
+#   fetching marstack_console_v0.2.0.tar.gz
+#   checksum ok
+#   installed 3 files to /var/lib/marstack/console
+
+marstack server --ui-dir /var/lib/marstack/console</code></pre>
+
+      <p>
+        The archive is checked against the release's <code>SHA256SUMS</code>, and one holding a
+        symlink or a path that reaches outside the directory it unpacks into is refused. Without
+        <code>--ui-dir</code>, nothing is served at <code>/</code> — which is what a control plane
+        with no console looks like.
+      </p>
+
+      <p>
+        The console signs in against the same API everything else uses and keeps the session in a
+        cookie a script in the page cannot read. What the API refuses, it refuses in the browser
+        too: a viewer sees what a viewer may see.
+      </p>
+    </section>
+
+    <section id="production">
+      <h2>Before production</h2>
+
+      <p>
+        Four things the platform will warn you about, in the order they will hurt.
+      </p>
+
+      <div class="scroller">
+        <table>
+          <thead>
+            <tr><th>Do this</th><th>Or else</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Pass <code>--tls-cert</code> and <code>--tls-key</code></td>
+              <td>Every bearer token crosses the network in the clear, and the console's session cookie cannot be marked secure</td>
+            </tr>
+            <tr>
+              <td>Pass <code>--backup-key-file</code></td>
+              <td>Backup content is stored unencrypted, so a copy of every volume sits in the data directory in the clear</td>
+            </tr>
+            <tr>
+              <td>Pass <code>--object-store-endpoint</code></td>
+              <td>Backups live on the one machine whose loss they exist to survive</td>
+            </tr>
+            <tr>
+              <td>Replace the bootstrap token</td>
+              <td>The first admin token has no expiry and sits in a file on disk</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="excluded">
+      <h2>What it will not do</h2>
+
+      <p>
+        Stated plainly, because finding out later is worse.
+      </p>
+
+      <p>
+        <strong>The control plane is one process.</strong> State is SQLite beside it. Workloads
+        survive its loss because the agent pulls, but there is no highly available control plane
+        yet, and no failover story to configure.
+      </p>
+
+      <p>
+        <strong>The serial console of a VM is not reachable through the control plane.</strong> It
+        reads a socket on the node itself, so that one view of the console needs a node-local
+        bridge that does not exist yet. The interactive shell into a running container does work,
+        because that is a control plane feature.
+      </p>
+
+      <p>
+        <strong>Release artifacts are not signed.</strong> <code>marstack ui install</code> checks
+        the console archive against the checksums published with the same release, which means it
+        trusts the release host rather than a signature it can verify on its own.
+      </p>
+
+      <p>
+        <strong>There is no anti-spoof filtering on the datapath.</strong> An instance is stopped
+        from using an address it was not given, but a node is trusted about what it reports.
+      </p>
+
+      <p>
+        <strong>It is pre-1.0.</strong> The API, the CLI and the on-disk state may change between
+        minor versions. Read the
+        <a href="https://github.com/MarStack-Labs/marstack-cloud/blob/main/CHANGELOG.md">changelog</a>
+        before upgrading.
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<footer class="site">
+  marstack-cloud — Apache-2.0 ·
+  <a href="https://github.com/MarStack-Labs/marstack-cloud">source</a> ·
+  <a href="https://github.com/MarStack-Labs/marstack-cloud/blob/main/docs/cli.md">CLI reference</a> ·
+  <a href="https://github.com/MarStack-Labs/marstack-cloud/blob/main/docs/guide.md">handbook</a>
+</footer>
+
+</body>
+</html>
