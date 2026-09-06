@@ -7,7 +7,9 @@ on-disk state may change between minor versions.
 A release ships one binary, `marstack`, which is the control plane, the node agent and the client at
 once. The web console is not part of a release yet.
 
-## [Unreleased]
+## [0.1.0] - 2026-09-06
+
+The first release.
 
 ### Added
 
