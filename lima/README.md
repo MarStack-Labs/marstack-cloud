@@ -29,7 +29,7 @@ boots and containers still work, but `/dev/kvm` is missing and `isolation: vm` c
 ```sh
 limactl shell marstack-dev
 
-cd /Users/umarsabirin/Documents/Portfolio/marstack-cloud
+cd /Users/<you>/Documents/Portfolio/marstack-cloud
 export GOFLAGS=-buildvcs=false
 make build
 sudo make install
