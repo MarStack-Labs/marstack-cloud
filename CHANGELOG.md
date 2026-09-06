@@ -13,6 +13,10 @@ tag with no section of its own falls back to a bare list of commits.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.2.0] - 2026-09-06
+
 ### Added
 
 - The web console, installed on its own with `marstack ui install` and served by
@@ -27,6 +31,11 @@ tag with no section of its own falls back to a bare list of commits.
 - The serial console of a VM or microVM is not reachable through the control plane, because it
   reads a socket on the node. That view is the one part of the console that needs a node-local
   bridge.
+
+### Changed
+
+- The schema is applied as one transaction, so an upgrade that fails partway leaves the database on
+  the schema it started from rather than on neither.
 
 ## [0.1.0] - 2026-09-06
 
