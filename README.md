@@ -3,8 +3,10 @@
 A cloud platform that runs containers, VMs, and microVMs as one kind of resource — on a single
 node or across many baremetal machines, through the same code and the same API.
 
-> Status: **early.** Containers run and are networked across nodes. VMs, image pulling, and
-> identity are not built yet.
+> Status: **pre-1.0.** Containers, VMs, microVMs and sandboxes run and are networked across nodes,
+> with images, volumes, load balancing, certificates, projects and identity in place. The API, the
+> CLI and the on-disk state may still change between minor versions. See
+> [CHANGELOG.md](CHANGELOG.md) for what has landed.
 
 ## Design principles
 
@@ -476,6 +478,29 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1   -nodes -day
 
 The `subjectAltName` must name the address clients actually dial. A certificate
 with only a common name is rejected by every current client.
+
+## Installing
+
+A release is one binary. `marstack server` is the control plane, `marstack agent` runs on each
+node, and every other command is the client. Take the archive and `SHA256SUMS` for your platform
+from the [releases page](https://github.com/marstack-labs/marstack-cloud/releases), check it, then
+put the binary on your path:
+
+```sh
+shasum -a 256 -c SHA256SUMS
+tar -xzf marstack_v0.1.0_linux_amd64.tar.gz
+sudo install -m 0755 marstack_v0.1.0_linux_amd64/marstack /usr/local/bin/marstack
+marstack version
+```
+
+Building it yourself gives the same binary, with the version taken from `VERSION`:
+
+```sh
+VERSION=v0.1.0 make build
+sudo make install
+```
+
+The web console is not part of a release yet.
 
 ## Running it
 
@@ -3139,4 +3164,4 @@ Working agreement for changes: [`docs/ENGINEERING-PRINCIPLES.md`](docs/ENGINEERI
 
 ## License
 
-Apache-2.0
+Apache-2.0 — see [LICENSE](LICENSE).

@@ -6,7 +6,10 @@ LDFLAGS := -X github.com/marstack-labs/marstack-cloud/internal/version.Version=$
 GOBIN  ?= $(shell go env GOPATH)/bin
 PREFIX ?= /usr/local
 
-.PHONY: build install uninstall test vet cross fmt staticcheck vuln gosec secrets security check tools hooks run stage-images dev-up dev-down dev-logs dev-reset clean
+DIST    ?= dist
+TARGETS ?= linux/amd64 linux/arm64 darwin/arm64
+
+.PHONY: build install uninstall test vet cross dist fmt staticcheck vuln gosec secrets security check tools hooks run stage-images dev-up dev-down dev-logs dev-reset clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/marstack ./cmd/marstack
@@ -46,7 +49,26 @@ check: vet cross test staticcheck security
 cross:
 	GOOS=linux GOARCH=arm64 go build ./...
 	GOOS=linux GOARCH=arm64 go vet ./...
+	GOOS=linux GOARCH=amd64 go build ./...
+	GOOS=linux GOARCH=amd64 go vet ./...
 	GOOS=darwin GOARCH=arm64 go build ./...
+
+dist:
+	rm -rf $(DIST)
+	mkdir -p $(DIST)
+	@for target in $(TARGETS); do \
+		os=$${target%/*}; arch=$${target#*/}; \
+		stage=$(DIST)/marstack_$(VERSION)_$${os}_$${arch}; \
+		mkdir -p $$stage || exit 1; \
+		echo "building $$os/$$arch"; \
+		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 \
+			go build -trimpath -ldflags "$(LDFLAGS)" -o $$stage/marstack ./cmd/marstack || exit 1; \
+		cp LICENSE README.md $$stage/ || exit 1; \
+		tar -C $(DIST) -czf $$stage.tar.gz $$(basename $$stage) || exit 1; \
+		rm -rf $$stage; \
+	done
+	cd $(DIST) && shasum -a 256 *.tar.gz > SHA256SUMS
+	@ls -l $(DIST)
 
 tools:
 	go install honnef.co/go/tools/cmd/staticcheck@latest
@@ -87,4 +109,4 @@ dev-reset: dev-down
 	sudo rm -rf /var/lib/marstack/instances
 
 clean:
-	rm -rf bin data coverage.out
+	rm -rf bin dist data coverage.out
